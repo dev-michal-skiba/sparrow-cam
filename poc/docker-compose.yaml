@@ -1,0 +1,32 @@
+services:
+  rtmp-server:
+    image: alfg/nginx-rtmp
+    ports:
+      - 1935:1935
+
+  stream:
+    build: 
+      context: .
+      dockerfile: Dockerfile.stream
+    depends_on:
+      - rtmp-server
+    volumes:
+      - ./sample.mp4:/app/sample.mp4
+
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.processor
+    depends_on:
+      - stream
+    ports:
+      - 5000:5000
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      - processor
+    ports:
+      - 8081:80
