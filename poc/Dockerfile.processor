@@ -4,11 +4,15 @@ RUN apt-get update && \
     apt-get install -y \
     libsm6 \
     libxext6 \
-    libgl1 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    libgl1 \
+    libglib2.0-0 \
+    gcc \
+    g++ \
+    git \
+    libpython3-dev \
+    libusb-1.0-0
 
-RUN pip install opencv-python-headless flask
+RUN pip install opencv-python-headless flask ultralytics
 
 WORKDIR /app
 COPY processor.py .
