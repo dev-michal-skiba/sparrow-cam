@@ -24,12 +24,15 @@ A minimal proof-of-concept that simulates a webcam feed, processes it, and serve
 ### Current Implementation
 - **Detection frequency**: Every 12th frame (~2.5fps at 30fps stream) to optimize CPU usage
 - **Model**: YOLOv8n with COCO dataset (class 14 = birds)
-- **Image resolution**: 420px for detection (balance between speed and accuracy)
+- **Image resolution**: 480px for detection (balance between speed and accuracy)
 - **Status duration**: 5 seconds per detection, extensible with new detections
+- **Video recording**: Frame-by-frame buffering during bird detection events
+- **Local storage**: MP4 videos saved to `/app/recordings` with UTC timestamps
+- **Threading**: Background video encoding to prevent blocking real-time processing
 - **Performance**: Optimized for Raspberry Pi deployment with minimal CPU overhead
 
 ### Identified Improvements for Production
-1. **Model Fine-tuning Required**: The generic COCO model needs fine-tuning for accurate bird detection in crowded birdhouse scenarios and rear-view angles. A custom model will enable reducing the current 5-second status duration for more responsive detection alerts.
+1. **Model Fine-tuning Required**: The generic COCO model needs fine-tuning for accurate bird detection in crowded birdhouse scenarios and rear-view angles. A custom model will enable reducing the current 5-second status duration for more responsive detection alerts and will detect birds faster.
 
 ## Architecture
 - rtmp-server: NGINX RTMP server (port 1935) for ingesting RTMP.

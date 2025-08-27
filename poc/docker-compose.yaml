@@ -23,6 +23,7 @@ services:
       - 5000:5000
     volumes:
       - ./processor.py:/app/processor.py
+      - ./recordings:/app/recordings
 
   web:
     build:
