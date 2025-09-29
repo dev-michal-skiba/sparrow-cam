@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  deploy:
+    image: sparrow_cam_deploy
+    container_name: sparrow_cam_deploy
+    volumes:
+      - ./ansible:/ansible
+    working_dir: /ansible
+    environment:
+      - ANSIBLE_HOST_KEY_CHECKING=False

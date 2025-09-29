@@ -1,0 +1,6 @@
+# Copy this file to group_vars/all.yml and update with your actual values
+# This file contains variables that apply to all hosts in the inventory
+
+# Target server configuration
+ansible_target_host: "192.168.0.144"  # Replace with your server IP address
+ansible_target_user: "sparrowcam"     # Replace with your SSH username

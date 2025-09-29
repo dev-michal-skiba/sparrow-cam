@@ -17,3 +17,13 @@ SparrowCam monitors a bird feeder using a connected camera. It runs on a local s
 2. When birds are detected (e.g., via motion/object detection), it starts recording.
 3. Recorded clips are saved locally, typically with timestamps for easy browsing.
 4. A simple web interface is exposed on your local network.
+
+## Deployment
+
+SparrowCam uses Ansible for automated deployment to your target device. See the [deploy/](deploy/) directory for detailed deployment instructions.
+
+### Quick Start
+
+1. Set up your target device (Raspberry Pi) with Ubuntu Server 25.04
+2. Configure SSH access to your target device
+3. Follow the deployment guide in [deploy/README.md](deploy/README.md)
