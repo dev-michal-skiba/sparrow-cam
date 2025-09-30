@@ -6,6 +6,7 @@ services:
     container_name: sparrow_cam_deploy
     volumes:
       - ./ansible:/ansible
+      - ../app:/app
     working_dir: /ansible
     environment:
       - ANSIBLE_HOST_KEY_CHECKING=False

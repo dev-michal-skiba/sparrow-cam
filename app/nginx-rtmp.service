@@ -1,0 +1,15 @@
+[Unit]
+Description=RTMP Streaming Server
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/nginx-rtmp.pid
+ExecStartPre=/usr/sbin/nginx -t -c /etc/nginx-rtmp/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/nginx-rtmp/nginx.conf
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

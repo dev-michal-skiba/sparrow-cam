@@ -1,0 +1,85 @@
+---
+- name: Deploy Web Server (Nginx)
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install nginx
+      apt:
+        name:
+          - nginx
+          - ufw
+        state: present
+
+    - name: Allow SSH through firewall
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        comment: 'SSH access'
+
+    - name: Allow HTTP through firewall
+      community.general.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+        comment: 'HTTP web access'
+
+    - name: Enable UFW firewall
+      community.general.ufw:
+        state: enabled
+
+    - name: Create HLS directory
+      file:
+        path: /var/www/html/hls
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Create recordings directory
+      file:
+        path: /var/www/html/recordings
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Copy nginx web server configuration
+      copy:
+        src: /app/nginx-web.conf
+        dest: /etc/nginx/nginx.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart nginx
+
+    - name: Copy index.html
+      copy:
+        src: /app/index.html
+        dest: /var/www/html/index.html
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Validate nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Enable nginx service
+      systemd:
+        name: nginx
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted

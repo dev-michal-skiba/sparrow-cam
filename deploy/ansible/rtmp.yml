@@ -1,0 +1,103 @@
+---
+- name: Deploy RTMP Server (Nginx-RTMP)
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install nginx with RTMP module and ffmpeg
+      apt:
+        name:
+          - nginx
+          - libnginx-mod-rtmp
+          - ffmpeg
+          - ufw
+        state: present
+
+    - name: Allow SSH through firewall
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        comment: 'SSH access'
+
+    - name: Allow RTMP through firewall
+      community.general.ufw:
+        rule: allow
+        port: '1935'
+        proto: tcp
+        comment: 'RTMP streaming'
+
+    - name: Enable UFW firewall
+      community.general.ufw:
+        state: enabled
+
+    - name: Create nginx-rtmp configuration directory
+      file:
+        path: /etc/nginx-rtmp
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create HLS directory
+      file:
+        path: /var/www/html/hls
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Create recordings directory
+      file:
+        path: /var/www/html/recordings
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Copy nginx-rtmp configuration
+      copy:
+        src: /app/nginx-rtmp.conf
+        dest: /etc/nginx-rtmp/nginx.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart nginx-rtmp
+
+    - name: Copy nginx-rtmp systemd service file
+      copy:
+        src: /app/nginx-rtmp.service
+        dest: /etc/systemd/system/nginx-rtmp.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - reload systemd
+        - restart nginx-rtmp
+
+    - name: Validate nginx-rtmp configuration
+      command: nginx -t -c /etc/nginx-rtmp/nginx.conf
+      register: nginx_rtmp_test
+      changed_when: false
+
+    - name: Enable nginx-rtmp service
+      systemd:
+        name: nginx-rtmp
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart nginx-rtmp
+      systemd:
+        name: nginx-rtmp
+        state: restarted
