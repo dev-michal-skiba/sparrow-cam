@@ -1,0 +1,17 @@
+services:
+  sparrow-cam:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile
+      args:
+        WEB_PORT: 8080
+        RTMP_PORT: 8081
+    container_name: sparrow_cam_local
+    environment:
+      - WEB_PORT=8080
+      - RTMP_PORT=8081
+    ports:
+      - "8080:8080"  # Web server
+      - "8081:8081"  # RTMP server
+    volumes:
+      - ../app/index.html:/var/www/html/index.html

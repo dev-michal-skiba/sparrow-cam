@@ -60,13 +60,15 @@
         group: www-data
         mode: '0755'
 
-    - name: Copy nginx-rtmp configuration
-      copy:
+    - name: Deploy nginx-rtmp configuration with production port
+      template:
         src: /app/nginx-rtmp.conf
         dest: /etc/nginx-rtmp/nginx.conf
         owner: root
         group: root
         mode: '0644'
+      vars:
+        RTMP_PORT: 1935
       notify: restart nginx-rtmp
 
     - name: Copy nginx-rtmp systemd service file

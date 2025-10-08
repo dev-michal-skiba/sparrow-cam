@@ -50,13 +50,15 @@
         group: www-data
         mode: '0755'
 
-    - name: Copy nginx web server configuration
-      copy:
+    - name: Deploy nginx web server configuration with production port
+      template:
         src: /app/nginx-web.conf
         dest: /etc/nginx/nginx.conf
         owner: root
         group: root
         mode: '0644'
+      vars:
+        WEB_PORT: 80
       notify: restart nginx
 
     - name: Copy index.html
