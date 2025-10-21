@@ -14,14 +14,17 @@ Main application directory containing:
 - **nginx-rtmp.conf**: RTMP server (nginx-rtmp) configuration for port 1935
 - **nginx-rtmp.service**: Systemd service file for RTMP server
 - **index.html**: Simple web interface that displays the video stream
-
-The app is currently minimal - just nginx configurations and basic HTML.
+- **processor/**: Python video processing service
+  - `processor/app.py`: HLSSegmentProcessor - monitors and processes HLS segments frame-by-frame
+  - `setup.py`: Package configuration with opencv-python dependency
+  - `tests/test_app.py`: Processor tests
 
 ### `local/`
 Local development environment using Docker:
 - **Makefile**: Defines local development commands (build, start, stop, clean)
 - **Dockerfile**: Creates local development container with nginx, nginx-rtmp, supervisord
-- **docker-compose.yml**: Orchestrates local development container
+- **Dockerfile.processor**: Creates processor service container (Python 3.13, OpenCV, FFmpeg)
+- **docker-compose.yml**: Orchestrates both services and shared HLS volumes
 - **supervisord.conf**: Configuration for running both nginx processes
 - **render-template.py**: Template rendering script for environment-specific configs
 
@@ -54,7 +57,33 @@ Proof of concept directory - **no longer actively developed**. Contains Docker-b
 
 ## Architecture
 
-The deployed system consists of **two separate nginx services** on the target device:
+### Local Development Stack
+
+Three services communicate via shared volumes:
+
+1. **Web Server (nginx)** - Port 8080
+   - Serves web interface (index.html)
+   - Serves HLS and processed_hls streams
+   - Root: `/var/www/html`
+
+2. **RTMP Server (nginx-rtmp)** - Port 8081
+   - Receives RTMP streams from clients
+   - Generates HLS segments → `/var/www/html/hls`
+   - Runs under supervisord in sparrow-cam container
+
+3. **Processor Service (Python)** - Background
+   - Monitors `/var/www/html/hls` for new segments
+   - Processes each segment frame-by-frame (OpenCV + FFmpeg)
+   - Outputs processed segments → `/var/www/html/processed_hls`
+   - Copies and maintains playlist synchronization
+
+**Shared Volumes**:
+- `hls_data`: Original HLS segments and playlist from RTMP server
+- `processed_hls_data`: Processed HLS segments and playlist from processor
+
+### Deployed System
+
+The target system (Raspberry Pi) also consists of **two separate nginx services**:
 
 1. **Web Server (nginx)** - Port 80
    - Serves web interface (index.html)
@@ -68,6 +97,8 @@ The deployed system consists of **two separate nginx services** on the target de
    - Records streams to disk
    - Config: `/etc/nginx-rtmp/nginx.conf` (from `app/nginx-rtmp.conf`)
    - Runs as separate systemd service: `nginx-rtmp.service`
+
+Note: Processor service not yet deployed - currently local-only for development.
 
 ## Common Development Commands
 
@@ -102,16 +133,21 @@ make -C local help
 ```
 
 **Local development architecture:**
-- Single Docker container runs both nginx services using supervisord
-- Web server on port 8080 (production: 80)
-- RTMP server on port 8081 (production: 1935)
-- Configuration templates rendered with environment-specific ports
+- sparrow-cam container: nginx-web (port 8080) + nginx-rtmp (port 8081) + supervisord
+- processor container: HLS segment processing pipeline
+- Shared volumes for HLS data exchange between services
 - Build context is project root, allowing access to `app/` files
 
 **Streaming to local development:**
 ```bash
-ffmpeg -re -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
 ```
+
+**Processor pipeline:**
+- Watch HLS directory: `/var/www/html/hls`
+- Process each segment with frame-level operations (currently: grayscale conversion)
+- Output to: `/var/www/html/processed_hls`
+- Access processed stream at: `http://localhost:8080/processed_hls/sparrow_cam.m3u8`
 
 ### Testing
 

@@ -1,3 +1,7 @@
+volumes:
+  hls_data:
+  processed_hls_data:
+
 services:
   sparrow-cam:
     build:
@@ -15,3 +19,26 @@ services:
       - "8081:8081"  # RTMP server
     volumes:
       - ../app/index.html:/var/www/html/index.html
+      - hls_data:/var/www/html/hls
+      - processed_hls_data:/var/www/html/processed_hls
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'nc -z localhost $$RTMP_PORT || curl -fsS http://localhost:$$WEB_PORT >/dev/null'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  processor:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.processor
+    container_name: sparrow_cam_processor
+    depends_on:
+      sparrow-cam:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../app/processor/setup.py:/app/setup.py
+      - ../app/processor/processor/:/app/processor/
+      - hls_data:/var/www/html/hls
+      - processed_hls_data:/var/www/html/processed_hls

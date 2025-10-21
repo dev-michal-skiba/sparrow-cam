@@ -1,6 +1,8 @@
 # Local Development
 
-Docker-based local development environment. Runs both nginx services in a single container using supervisord.
+Docker-based local development environment with two services:
+- **sparrow-cam**: nginx servers (web on :8080, RTMP on :8081)
+- **processor**: HLS segment processor (video processing pipeline)
 
 ## Quick Start
 
@@ -8,7 +10,7 @@ Docker-based local development environment. Runs both nginx services in a single
 # Build
 make -C local build
 
-# Start (web on :8080, RTMP on :8081)
+# Start all services
 make -C local start
 
 # Stop
@@ -18,22 +20,34 @@ make -C local stop
 make -C local clean
 ```
 
-## Usage
+## Services
 
-**Access**:
+**sparrow-cam**: Runs nginx web server and nginx-rtmp using supervisord
 - Web: http://localhost:8080
 - RTMP: rtmp://localhost:8081/live/sparrow_cam
 
+**processor**: Monitors HLS segments and applies frame-level processing
+- Reads from shared HLS volume
+- Processes each segment (currently: grayscale conversion)
+- Outputs to processed_hls volume
+
+## Usage
+
 **Stream video**:
 ```bash
-ffmpeg -re -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
 ```
+
+**Access HLS streams**:
+- Original: http://localhost:8080/hls/sparrow_cam.m3u8
+- Processed: http://localhost:8080/processed_hls/sparrow_cam.m3u8
 
 **Troubleshooting**:
 ```bash
 # Check logs
 docker logs sparrow_cam_local
+docker logs sparrow_cam_processor
 
-# Remove stuck container
-docker rm -f sparrow_cam_local
+# View processor details
+docker logs -f sparrow_cam_processor
 ```

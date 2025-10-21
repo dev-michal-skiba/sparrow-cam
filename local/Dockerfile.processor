@@ -1,0 +1,19 @@
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV OPENCV_LOG_LEVEL=DEBUG
+ENV OPENCV_VIDEOIO_DEBUG=1
+
+WORKDIR /app
+
+# Install ffmpeg for video processing
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY app/processor/setup.py .
+COPY app/processor/processor/ processor/
+
+RUN pip install --no-cache-dir -e .
+
+CMD ["python3", "-u", "processor/app.py"]
