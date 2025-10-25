@@ -5,6 +5,7 @@ RUN apk add --no-cache \
     ansible \
     openssh-client \
     sshpass \
+    acl \
     && rm -rf /var/cache/apk/*
 
 # Create ansible user and directory

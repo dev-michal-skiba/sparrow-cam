@@ -34,12 +34,13 @@ make -C deploy ping
 ## Deploy
 
 ```bash
-# Deploy both servers
+# Deploy web, RTMP, and processor services
 make -C deploy all
 
 # Or deploy separately
-make -C deploy web   # Web server (port 80)
-make -C deploy rtmp  # RTMP server (port 1935)
+make -C deploy web       # Web server (port 80)
+make -C deploy rtmp      # RTMP server (port 1935)
+make -C deploy processor # Processor service
 ```
 
 ## Usage
@@ -50,7 +51,7 @@ make -C deploy rtmp  # RTMP server (port 1935)
 
 **Stream video**:
 ```bash
-ffmpeg -re -i video.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
 ```
 
 ## Troubleshooting
@@ -59,9 +60,13 @@ ffmpeg -re -i video.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
 # Check connectivity
 make -C deploy ping
 
+# Clean HLS files and recordings (keeps directories)
+make -C deploy clean
+
 # View service status
-ssh <user>@<ip> "sudo systemctl status nginx nginx-rtmp"
+ssh <user>@<ip> "sudo systemctl status nginx nginx-rtmp sparrow-processor"
 
 # View logs
 ssh <user>@<ip> "sudo journalctl -u nginx-rtmp -f"
+ssh <user>@<ip> "sudo journalctl -u sparrow-processor -f"
 ```

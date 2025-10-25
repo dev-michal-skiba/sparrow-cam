@@ -1,0 +1,259 @@
+---
+- name: Deploy Processor Service
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Create processed_hls directory
+      file:
+        path: /var/www/html/processed_hls
+        state: directory
+        owner: sparrow_cam_processor
+        group: www-data
+        mode: '0775'
+
+    - name: Install build dependencies for pyenv
+      apt:
+        name:
+          - build-essential
+          - libssl-dev
+          - zlib1g-dev
+          - libbz2-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - curl
+          - git
+          - libncursesw5-dev
+          - xz-utils
+          - tk-dev
+          - libxml2-dev
+          - libxmlsec1-dev
+          - libffi-dev
+          - liblzma-dev
+          - ffmpeg
+          - acl
+        state: present
+
+    - name: Create sparrow_cam_processor user
+      user:
+        name: sparrow_cam_processor
+        shell: /bin/bash
+        home: /opt/sparrow_cam_processor
+        create_home: yes
+        system: no
+
+    - name: Create temp directory for sparrow_cam_processor
+      file:
+        path: /opt/sparrow_cam_processor/tmp
+        state: directory
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0700'
+
+    - name: Check if pyenv is already installed for sparrow_cam_processor
+      stat:
+        path: /opt/sparrow_cam_processor/.pyenv
+      register: pyenv_installed
+
+    - name: Install pyenv for sparrow_cam_processor user
+      shell: curl https://pyenv.run | bash
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        TMPDIR: /opt/sparrow_cam_processor/tmp
+      when: not pyenv_installed.stat.exists
+
+    - name: Create pyenv initialization script
+      copy:
+        content: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          eval "$(pyenv virtualenv-init -)"
+        dest: /opt/sparrow_cam_processor/.pyenvrc
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0644'
+
+    - name: Setup pyenv in .bashrc for sparrow_cam_processor
+      blockinfile:
+        path: /opt/sparrow_cam_processor/.bashrc
+        block: |
+          # Load pyenv configuration
+          if [ -f "$HOME/.pyenvrc" ]; then
+            source "$HOME/.pyenvrc"
+          fi
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - PYENV"
+        create: yes
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0644'
+
+    - name: Get latest Python 3.13.x version available in pyenv
+      shell: |
+        source ~/.pyenvrc
+        pyenv install --list | grep -E '^\s*3\.13\.[0-9]+$' | tail -1 | tr -d ' '
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      register: latest_python_313
+      changed_when: false
+
+    - name: Check if Python {{ latest_python_313.stdout }} is already installed
+      stat:
+        path: /opt/sparrow_cam_processor/.pyenv/versions/{{ latest_python_313.stdout }}
+      register: python_313_installed
+
+    - name: Install Python {{ latest_python_313.stdout }} via pyenv
+      shell: |
+        source ~/.pyenvrc
+        pyenv install {{ latest_python_313.stdout }}
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+        TMPDIR: /opt/sparrow_cam_processor/tmp
+      when: not python_313_installed.stat.exists
+
+    - name: Check current Python version of sparrow_cam_processor virtualenv
+      shell: |
+        source ~/.pyenvrc
+        if pyenv versions | grep -q 'sparrow_cam_processor'; then
+          pyenv virtualenvs --bare | grep 'sparrow_cam_processor' | awk '{print $1}' | cut -d'/' -f1
+        else
+          echo "none"
+        fi
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      register: current_venv_python
+      changed_when: false
+
+    - name: Remove old sparrow_cam_processor virtualenv if Python version changed
+      shell: |
+        source ~/.pyenvrc
+        pyenv uninstall -f sparrow_cam_processor
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      when:
+        - current_venv_python.stdout != "none"
+        - current_venv_python.stdout != latest_python_313.stdout
+
+    - name: Create sparrow_cam_processor virtual environment with Python {{ latest_python_313.stdout }}
+      shell: |
+        source ~/.pyenvrc
+        pyenv virtualenv {{ latest_python_313.stdout }} sparrow_cam_processor
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      when:
+        - current_venv_python.stdout == "none" or current_venv_python.stdout != latest_python_313.stdout
+
+    - name: Create processor app directory
+      file:
+        path: /opt/sparrow_cam_processor/apps
+        state: directory
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0755'
+
+    - name: Copy processor application files
+      copy:
+        src: /app/processor/
+        dest: /opt/sparrow_cam_processor/apps/processor
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0755'
+        directory_mode: '0755'
+
+    - name: Install processor app with dependencies
+      shell: |
+        source ~/.pyenvrc
+        pyenv activate sparrow_cam_processor
+        pip install --upgrade pip setuptools wheel
+        pip install -e /opt/sparrow_cam_processor/apps/processor
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+
+    - name: Create processor systemd service file
+      copy:
+        content: |
+          [Unit]
+          Description=SparrowCam HLS Segment Processor
+          After=network.target nginx.service nginx-rtmp.service
+          Wants=nginx.service nginx-rtmp.service
+
+          [Service]
+          Type=simple
+          User=sparrow_cam_processor
+          Group=sparrow_cam_processor
+          WorkingDirectory=/opt/sparrow_cam_processor/apps/processor
+          Environment="PATH=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin:/opt/sparrow_cam_processor/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          Environment="HOME=/opt/sparrow_cam_processor"
+          Environment="PYENV_ROOT=/opt/sparrow_cam_processor/.pyenv"
+          ExecStart=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin/python -m processor.app
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=sparrow-processor
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/sparrow-processor.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload and restart processor
+
+    - name: Enable processor service to start on boot
+      systemd:
+        name: sparrow-processor
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Start processor service
+      systemd:
+        name: sparrow-processor
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload and restart processor
+      systemd:
+        name: sparrow-processor
+        state: restarted
+        daemon_reload: yes

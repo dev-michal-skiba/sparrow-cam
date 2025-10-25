@@ -1,0 +1,31 @@
+---
+- name: Clean HLS Files and Recordings
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Remove all files from HLS directory
+      shell: find /var/www/html/hls -type f -delete
+      changed_when: true
+      register: hls_cleanup
+
+    - name: Remove all files from recordings directory
+      shell: find /var/www/html/recordings -type f -delete
+      changed_when: true
+      register: recordings_cleanup
+
+    - name: Remove all files from processed HLS directory
+      shell: find /var/www/html/processed_hls -type f -delete
+      changed_when: true
+      register: processed_hls_cleanup
+      ignore_errors: yes
+
+    - name: Display cleanup summary
+      debug:
+        msg:
+          - "Cleanup completed successfully"
+          - "- HLS directory cleaned: /var/www/html/hls"
+          - "- Recordings directory cleaned: /var/www/html/recordings"
+          - "- Processed HLS directory cleaned: /var/www/html/processed_hls"
+          - "Note: Directories have been preserved, only files were removed"
+
