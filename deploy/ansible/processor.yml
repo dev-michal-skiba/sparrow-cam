@@ -224,6 +224,7 @@
           Environment="PATH=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin:/opt/sparrow_cam_processor/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           Environment="HOME=/opt/sparrow_cam_processor"
           Environment="PYENV_ROOT=/opt/sparrow_cam_processor/.pyenv"
+          Environment="PYTHONUNBUFFERED=1"
           ExecStart=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin/python -m processor.app
           Restart=always
           RestartSec=10

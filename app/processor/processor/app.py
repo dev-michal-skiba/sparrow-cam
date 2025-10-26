@@ -3,8 +3,17 @@ import time
 import subprocess
 import re
 import shutil
+import logging
 from pathlib import Path
 import cv2
+
+# Configure logging for systemd journal
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 # Paths - using shared volumes
 INPUT_HLS_DIR = "/var/www/html/hls"
@@ -41,22 +50,23 @@ class HLSSegmentProcessor:
             return segments, media_seq
 
         except Exception as e:
-            print(f"Error reading playlist: {e}")
+            logger.error(f"Error reading playlist: {e}")
             return [], -1
 
     def process_segment(self, input_segment_path, output_segment_path):
         """Process a single segment file frame-by-frame with grayscale conversion."""
+        start_time = time.time()
         cap = None
         ffmpeg_process = None
         temp_output_path = None
         
         try:
-            print(f"Processing segment: {os.path.basename(input_segment_path)}")
+            logger.info(f"Processing segment: {os.path.basename(input_segment_path)}")
             
             # Open input video
             cap = cv2.VideoCapture(input_segment_path)
             if not cap.isOpened():
-                print(f"Failed to open video: {input_segment_path}")
+                logger.error(f"Failed to open video: {input_segment_path}")
                 return False
             
             # Get video properties
@@ -66,10 +76,10 @@ class HLSSegmentProcessor:
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
             if fps <= 0 or width <= 0 or height <= 0:
-                print(f"Invalid video properties: fps={fps}, width={width}, height={height}")
+                logger.error(f"Invalid video properties: fps={fps}, width={width}, height={height}")
                 return False
             
-            print(f"  Properties: {width}x{height} @ {fps:.2f} fps, {total_frames} frames")
+            logger.info(f"  Properties: {width}x{height} @ {fps:.2f} fps, {total_frames} frames")
             
             # Use a temporary file first, then move to final location
             temp_output_path = output_segment_path + ".tmp"
@@ -117,7 +127,7 @@ class HLSSegmentProcessor:
                 try:
                     ffmpeg_process.stdin.write(gray_bgr.tobytes())
                 except BrokenPipeError:
-                    print(f"FFmpeg pipe broken while writing frame {frame_count}")
+                    logger.error(f"FFmpeg pipe broken while writing frame {frame_count}")
                     break
                     
                 frame_count += 1
@@ -134,7 +144,7 @@ class HLSSegmentProcessor:
             
             if ffmpeg_process.returncode != 0:
                 stderr_output = ffmpeg_process.stderr.read().decode() if ffmpeg_process.stderr else ""
-                print(f"FFmpeg encoding failed: {stderr_output}")
+                logger.error(f"FFmpeg encoding failed: {stderr_output}")
                 ffmpeg_process = None
                 if os.path.exists(temp_output_path):
                     os.remove(temp_output_path)
@@ -143,7 +153,7 @@ class HLSSegmentProcessor:
             ffmpeg_process = None
             
             if frame_count == 0:
-                print(f"No frames processed from {input_segment_path}")
+                logger.error(f"No frames processed from {input_segment_path}")
                 if os.path.exists(temp_output_path):
                     os.remove(temp_output_path)
                 return False
@@ -152,13 +162,18 @@ class HLSSegmentProcessor:
             shutil.move(temp_output_path, output_segment_path)
             os.chmod(output_segment_path, 0o664)
             
-            print(f"Successfully processed: {os.path.basename(output_segment_path)} ({frame_count} frames)")
+            logger.info(f"Successfully processed: {os.path.basename(output_segment_path)} ({frame_count} frames)")
+
+            # Calculate and print performance metrics
+            processing_time = time.time() - start_time
+            segment_duration = total_frames / fps
+            ratio = processing_time / segment_duration if segment_duration > 0 else 0
+            logger.info(f"Performance: Processing time: {processing_time:.2f}s vs Segment duration: {segment_duration:.2f}s (ratio: {ratio:.2f}x)")
+
             return True
             
         except Exception as e:
-            print(f"Error processing segment: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error processing segment: {e}", exc_info=True)
             # Clean up on error
             if temp_output_path and os.path.exists(temp_output_path):
                 try:
@@ -185,28 +200,27 @@ class HLSSegmentProcessor:
         try:
             shutil.copy2(INPUT_PLAYLIST, OUTPUT_PLAYLIST)
             os.chmod(OUTPUT_PLAYLIST, 0o664)
-            print(f"Copied playlist: {os.path.basename(INPUT_PLAYLIST)}")
+            logger.info(f"Copied playlist: {os.path.basename(INPUT_PLAYLIST)}")
             return True
 
         except Exception as e:
-            print(f"Error copying playlist: {e}")
+            logger.error(f"Error copying playlist: {e}")
             return False
 
     def run(self):
         """Main processing loop."""
         retry_delay = self.INITIAL_RETRY_DELAY
 
-        print(f"HLS Segment Processor started")
-        print(f"Input HLS directory: {INPUT_HLS_DIR}")
-        print(f"Output HLS directory: {OUTPUT_HLS_DIR}")
-        print(f"Processing .ts segments with grayscale conversion and copying .m3u8 playlist")
-        print()
+        logger.info(f"HLS Segment Processor started")
+        logger.info(f"Input HLS directory: {INPUT_HLS_DIR}")
+        logger.info(f"Output HLS directory: {OUTPUT_HLS_DIR}")
+        logger.info(f"Processing .ts segments with grayscale conversion and copying .m3u8 playlist")
 
         while True:
             try:
                 # Check if input playlist exists
                 if not os.path.exists(INPUT_PLAYLIST):
-                    print(f"Waiting for playlist: {INPUT_PLAYLIST}")
+                    logger.warning(f"Waiting for playlist: {INPUT_PLAYLIST}")
                     time.sleep(retry_delay)
                     retry_delay = min(retry_delay * 1.5, self.MAX_RETRY_DELAY)
                     continue
@@ -215,7 +229,7 @@ class HLSSegmentProcessor:
                 segments, media_seq = self.read_playlist(INPUT_PLAYLIST)
 
                 if not segments:
-                    print("No segments in playlist yet")
+                    logger.debug("No segments in playlist yet")
                     time.sleep(1)
                     continue
 
@@ -233,10 +247,10 @@ class HLSSegmentProcessor:
                                 self.processed_segments.add(segment)
                                 processed_any = True
                             else:
-                                print(f"Failed to process {segment}, will retry")
+                                logger.warning(f"Failed to process {segment}, will retry")
                                 # Don't add to processed_segments so we retry
                         else:
-                            print(f"Input segment not found: {input_path}")
+                            logger.warning(f"Input segment not found: {input_path}")
 
                 # Copy playlist if we processed segments
                 if processed_any or media_seq != self.last_playlist_seq:
@@ -252,19 +266,19 @@ class HLSSegmentProcessor:
                     try:
                         if os.path.exists(output_path):
                             os.remove(output_path)
-                            print(f"Cleaned up old segment: {old_segment}")
+                            logger.info(f"Cleaned up old segment: {old_segment}")
                     except Exception as e:
-                        print(f"Error cleaning up {old_segment}: {e}")
+                        logger.error(f"Error cleaning up {old_segment}: {e}")
 
                 self.processed_segments &= current_segment_set
 
                 time.sleep(1)
 
             except KeyboardInterrupt:
-                print("\nShutting down gracefully...")
+                logger.info("Shutting down gracefully...")
                 break
             except Exception as e:
-                print(f"Error in segment processing loop: {e}")
+                logger.error(f"Error in segment processing loop: {e}", exc_info=True)
                 time.sleep(retry_delay)
                 retry_delay = min(retry_delay * 1.5, self.MAX_RETRY_DELAY)
 
