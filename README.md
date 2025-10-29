@@ -37,7 +37,11 @@ See [local/README.md](local/README.md)
 ### Testing
 
 ```bash
+# End-to-end tests
 make -C tests e2e
+
+# Processor unit tests
+make -C local unit
 ```
 
 See [tests/README.md](tests/README.md)

@@ -11,9 +11,11 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY app/processor/setup.py .
-COPY app/processor/processor/ processor/
+COPY app/processor/ .
 
 RUN pip install --no-cache-dir -e .
+
+# Install pytest and coverage tools for unit tests
+RUN pip install --no-cache-dir pytest
 
 CMD ["python3", "-u", "processor/app.py"]

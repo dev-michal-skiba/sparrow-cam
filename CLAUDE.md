@@ -16,8 +16,8 @@ Main application directory containing:
 - **index.html**: Simple web interface that displays the video stream
 - **processor/**: Python video processing service
   - `processor/app.py`: HLSSegmentProcessor - monitors and processes HLS segments frame-by-frame
-  - `setup.py`: Package configuration with opencv-python dependency
-  - `tests/test_app.py`: Processor tests
+  - `setup.py`: Package configuration with opencv-python dependency (excludes tests from package)
+  - `tests/test_app.py`: Pytest-based unit tests
 
 ### `local/`
 Local development environment using Docker:
@@ -128,6 +128,9 @@ make -C local stop
 # Clean up (stop containers and remove generated files)
 make -C local clean
 
+# Run processor unit tests
+make -C local unit
+
 # View all local commands
 make -C local help
 ```
@@ -154,6 +157,11 @@ ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:808
 **Run end-to-end tests** (run from project root):
 ```bash
 make -C tests e2e
+```
+
+**Run processor unit tests** (run from project root):
+```bash
+make -C local unit
 ```
 
 **End-to-end tests verify:**

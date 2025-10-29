@@ -1,13 +1,14 @@
-.PHONY: help build start stop clean
+.PHONY: help build start stop clean unit
 
 help:
 	@echo "SparrowCam Local Development"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build   - Build the Docker image"
-	@echo "  make start     - Start the application (web on :8080, RTMP on :8081)"
+	@echo "  make start   - Start the application (web on :8080, RTMP on :8081)"
 	@echo "  make stop    - Stop the application"
 	@echo "  make clean   - Stop and remove containers, volumes, and generated files"
+	@echo "  make unit    - Run unit tests for processor package"
 
 build:
 	docker compose build
@@ -28,3 +29,6 @@ stop:
 clean:
 	docker compose down -v
 	docker run --rm -v $(PWD)/recordings:/recordings -v $(PWD)/hls:/hls alpine sh -c "rm -rf /recordings/* /hls/*"
+
+unit:
+	docker compose run --rm --no-deps processor pytest tests/ -v
