@@ -4,17 +4,23 @@ help:
 	@echo "SparrowCam Local Development"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make build   - Build the Docker image"
-	@echo "  make start   - Start the application (web on :8080, RTMP on :8081)"
-	@echo "  make stop    - Stop the application"
-	@echo "  make clean   - Stop and remove containers, volumes, and generated files"
-	@echo "  make unit    - Run unit tests for processor package"
+	@echo "  make build                - Build the Docker image"
+	@echo "  make start                - Start the application (web on :8080, RTMP on :8081)"
+	@echo "  make start OPENCV_LOGS=1  - Start with OpenCV debug logging enabled"
+	@echo "  make stop                 - Stop the application"
+	@echo "  make clean                - Stop and remove containers, volumes, and generated files"
+	@echo "  make unit                 - Run unit tests for processor package"
 
 build:
 	docker compose build
 
 start:
-	docker compose up -d
+	@if [ "$(OPENCV_LOGS)" = "1" ]; then \
+		echo "Starting with OpenCV debug logging enabled..."; \
+		OPENCV_LOG_LEVEL=DEBUG OPENCV_VIDEOIO_DEBUG=1 docker compose up -d; \
+	else \
+		docker compose up -d; \
+	fi
 	@echo ""
 	@echo "SparrowCam is running!"
 	@echo "  Web interface: http://localhost:8080"

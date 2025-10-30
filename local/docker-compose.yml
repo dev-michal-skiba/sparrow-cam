@@ -35,6 +35,9 @@ services:
     depends_on:
       sparrow-cam:
         condition: service_healthy
+    environment:
+      - OPENCV_LOG_LEVEL=${OPENCV_LOG_LEVEL:-ERROR}
+      - OPENCV_VIDEOIO_DEBUG=${OPENCV_VIDEOIO_DEBUG:-0}
     ports:
       - "5000:5000"
     volumes:
