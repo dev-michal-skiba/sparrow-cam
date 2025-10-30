@@ -41,7 +41,6 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ../app/processor/setup.py:/app/setup.py
-      - ../app/processor/processor/:/app/processor/
+      - ../app/processor/:/app/
       - hls_data:/var/www/html/hls
       - processed_hls_data:/var/www/html/processed_hls

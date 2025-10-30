@@ -1,11 +1,11 @@
 import os
 import time
 import subprocess
-import re
 import shutil
 import logging
-from pathlib import Path
 import cv2
+
+from processor.hls_watchtower import HLSWatchtower
 
 # Configure logging for systemd journal
 logging.basicConfig(
@@ -16,9 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Paths - using shared volumes
-INPUT_HLS_DIR = "/var/www/html/hls"
 OUTPUT_HLS_DIR = "/var/www/html/processed_hls"
-INPUT_PLAYLIST = os.path.join(INPUT_HLS_DIR, "sparrow_cam.m3u8")
 OUTPUT_PLAYLIST = os.path.join(OUTPUT_HLS_DIR, "sparrow_cam.m3u8")
 
 # Ensure output directory exists
@@ -28,30 +26,8 @@ os.makedirs(OUTPUT_HLS_DIR, exist_ok=True)
 class HLSSegmentProcessor:
     """Process HLS segments frame-by-frame with grayscale conversion and create output HLS playlist."""
 
-    INITIAL_RETRY_DELAY = 1  # seconds
-    MAX_RETRY_DELAY = 10  # seconds
-
     def __init__(self):
-        self.processed_segments = set()
         self.last_playlist_seq = -1
-
-    def read_playlist(self, playlist_path):
-        """Read HLS playlist and extract segment filenames and media sequence."""
-        try:
-            with open(playlist_path, 'r') as f:
-                content = f.read()
-
-            # Extract media sequence
-            media_seq_match = re.search(r'#EXT-X-MEDIA-SEQUENCE:(\d+)', content)
-            media_seq = int(media_seq_match.group(1)) if media_seq_match else 0
-
-            # Extract segment filenames
-            segments = re.findall(r'^([a-z0-9_-]+\.ts)$', content, re.MULTILINE)
-            return segments, media_seq
-
-        except Exception as e:
-            logger.error(f"Error reading playlist: {e}")
-            return [], -1
 
     def process_segment(self, input_segment_path, output_segment_path):
         """Process a single segment file frame-by-frame with grayscale conversion."""
@@ -197,90 +173,47 @@ class HLSSegmentProcessor:
 
     def copy_playlist(self):
         """Copy HLS playlist from input to output."""
-        try:
-            shutil.copy2(INPUT_PLAYLIST, OUTPUT_PLAYLIST)
-            os.chmod(OUTPUT_PLAYLIST, 0o664)
-            logger.info(f"Copied playlist: {os.path.basename(INPUT_PLAYLIST)}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error copying playlist: {e}")
-            return False
+        shutil.copy2(HLSWatchtower.INPUT_PLAYLIST, OUTPUT_PLAYLIST)
+        os.chmod(OUTPUT_PLAYLIST, 0o664)
+        logger.info(f"Copied playlist: {os.path.basename(HLSWatchtower.INPUT_PLAYLIST)}")
+        return True
 
     def run(self):
         """Main processing loop."""
-        retry_delay = self.INITIAL_RETRY_DELAY
+        hls_watchtower = HLSWatchtower()
+        for input_segment_path in hls_watchtower.segments_iterator:
+            # Get segment filename and create output path
+            segment_name = os.path.basename(input_segment_path)
+            output_segment_path = os.path.join(OUTPUT_HLS_DIR, segment_name)
 
-        logger.info(f"HLS Segment Processor started")
-        logger.info(f"Input HLS directory: {INPUT_HLS_DIR}")
-        logger.info(f"Output HLS directory: {OUTPUT_HLS_DIR}")
-        logger.info(f"Processing .ts segments with grayscale conversion and copying .m3u8 playlist")
+            # Process the segment
+            if self.process_segment(input_segment_path, output_segment_path):
+                # Copy playlist after successful processing
+                self.copy_playlist()  # TODO Playlist should be generated, not copied
+            else:
+                logger.error(f"Failed to process {segment_name}, skipping")
 
-        while True:
-            try:
-                # Check if input playlist exists
-                if not os.path.exists(INPUT_PLAYLIST):
-                    logger.warning(f"Waiting for playlist: {INPUT_PLAYLIST}")
-                    time.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 1.5, self.MAX_RETRY_DELAY)
-                    continue
+            # Clean up old output segments that are no longer in the input playlist
+            self._cleanup_old_segments(hls_watchtower)
 
-                # Read input playlist
-                segments, media_seq = self.read_playlist(INPUT_PLAYLIST)
+    def _cleanup_old_segments(self, hls_watchtower):
+        """Remove output segments that are no longer in the input playlist."""
+        # Get current segments from the watchtower's tracking
+        current_segments = hls_watchtower.seen_segments  # TODO Segments cleanup should be done based on the generated playlist segments
 
-                if not segments:
-                    logger.debug("No segments in playlist yet")
-                    time.sleep(1)
-                    continue
+        # Get all output segment files
+        output_files = set()
+        if os.path.exists(OUTPUT_HLS_DIR):
+            for file in os.listdir(OUTPUT_HLS_DIR):
+                if file.endswith('.ts'):
+                    output_files.add(file)
 
-                retry_delay = self.INITIAL_RETRY_DELAY
-
-                # Process new segments
-                processed_any = False
-                for segment in segments:
-                    if segment not in self.processed_segments:
-                        input_path = os.path.join(INPUT_HLS_DIR, segment)
-                        output_path = os.path.join(OUTPUT_HLS_DIR, segment)
-
-                        if os.path.exists(input_path):
-                            if self.process_segment(input_path, output_path):
-                                self.processed_segments.add(segment)
-                                processed_any = True
-                            else:
-                                logger.warning(f"Failed to process {segment}, will retry")
-                                # Don't add to processed_segments so we retry
-                        else:
-                            logger.warning(f"Input segment not found: {input_path}")
-
-                # Copy playlist if we processed segments
-                if processed_any or media_seq != self.last_playlist_seq:
-                    self.copy_playlist()
-                    self.last_playlist_seq = media_seq
-
-                # Clean up old segments we're no longer tracking
-                # Keep only the segments currently in the playlist
-                current_segment_set = set(segments)
-                old_segments = self.processed_segments - current_segment_set
-                for old_segment in old_segments:
-                    output_path = os.path.join(OUTPUT_HLS_DIR, old_segment)
-                    try:
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
-                            logger.info(f"Cleaned up old segment: {old_segment}")
-                    except Exception as e:
-                        logger.error(f"Error cleaning up {old_segment}: {e}")
-
-                self.processed_segments &= current_segment_set
-
-                time.sleep(1)
-
-            except KeyboardInterrupt:
-                logger.info("Shutting down gracefully...")
-                break
-            except Exception as e:
-                logger.error(f"Error in segment processing loop: {e}", exc_info=True)
-                time.sleep(retry_delay)
-                retry_delay = min(retry_delay * 1.5, self.MAX_RETRY_DELAY)
+        # Remove output files that are no longer in the input playlist
+        for output_file in output_files:
+            if output_file not in current_segments:
+                output_path = os.path.join(OUTPUT_HLS_DIR, output_file)
+                os.remove(output_path)
+                logger.info(f"Cleaned up old segment: {output_file}")
 
 
 if __name__ == "__main__":
