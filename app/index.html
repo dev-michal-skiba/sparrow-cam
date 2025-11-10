@@ -76,6 +76,7 @@
       <video id="video" controls autoplay playsinline></video>
       <div id="fragment-info-processed" class="fragment-info">
         <strong>Current fragment:</strong> <span class="fragment-name">-</span>
+        <br><strong>Bird detected:</strong> <span class="bird-status">-</span>
       </div>
     </div>
 
@@ -92,10 +93,14 @@
     // Store HLS instances for both streams
     const hlsInstances = {};
 
+    // Store bird detection metadata: segment_name -> bird_detected (boolean)
+    const birdDetectionData = {};
+
     function setupHLS(videoElementId, playlistUrl, description, fragmentInfoId) {
       const video = document.getElementById(videoElementId);
       const fragmentInfo = document.getElementById(fragmentInfoId);
       const fragmentNameSpan = fragmentInfo ? fragmentInfo.querySelector('.fragment-name') : null;
+      const birdStatusSpan = fragmentInfo ? fragmentInfo.querySelector('.bird-status') : null;
 
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = playlistUrl;
@@ -115,12 +120,29 @@
         });
 
         // Track fragment changes
-        hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
+        hls.on(Hls.Events.FRAG_CHANGED, async (event, data) => {
           if (data.frag && data.frag.url && fragmentNameSpan) {
             // Extract filename from URL
             const url = data.frag.url;
             const filename = url.substring(url.lastIndexOf('/') + 1);
             fragmentNameSpan.textContent = filename;
+
+            // Update bird detection status (only for processed stream)
+            if (birdStatusSpan && videoElementId === 'video') {
+              // Fetch latest metadata immediately if we don't have data for this segment
+              if (!(filename in birdDetectionData)) {
+                await fetchBirdDetectionMetadata();
+              }
+
+              const birdDetected = birdDetectionData[filename];
+              if (birdDetected === true) {
+                birdStatusSpan.textContent = 'Yes';
+              } else if (birdDetected === false) {
+                birdStatusSpan.textContent = 'No';
+              } else {
+                birdStatusSpan.textContent = '-';
+              }
+            }
           }
         });
 
@@ -175,6 +197,44 @@
         jumpToLive('video-original');
       }
     }
+
+    // Fetch and parse playlist to extract bird detection metadata
+    async function fetchBirdDetectionMetadata() {
+      try {
+        const response = await fetch('/processed_hls/sparrow_cam.m3u8');
+        if (!response.ok) {
+          return;
+        }
+
+        const playlistText = await response.text();
+        const lines = playlistText.split('\n');
+
+        // Parse playlist and extract bird detection metadata
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+
+          // Look for bird detection comment followed by segment name
+          if (line.startsWith('# BIRD-DETECTED:')) {
+            const birdDetected = line.includes('true');
+
+            // Next line should be the segment filename
+            if (i + 1 < lines.length) {
+              const segmentLine = lines[i + 1].trim();
+              if (segmentLine.endsWith('.ts')) {
+                birdDetectionData[segmentLine] = birdDetected;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching bird detection metadata:', error);
+      }
+    }
+
+    // Poll for playlist updates every 500ms for faster updates
+    setInterval(fetchBirdDetectionMetadata, 500);
+    // Fetch immediately on page load
+    fetchBirdDetectionMetadata();
 
     // Setup processed stream (from processor service)
     setupHLS('video', '/processed_hls/sparrow_cam.m3u8', 'processed', 'fragment-info-processed');
