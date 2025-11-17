@@ -2,6 +2,8 @@
 - name: Deploy Processor Service
   hosts: all
   become: yes
+  vars:
+    processor_python_version: "3.11.13"
 
   tasks:
     - name: Update apt cache
@@ -97,29 +99,15 @@
         group: sparrow_cam_processor
         mode: '0644'
 
-    - name: Get latest Python 3.13.x version available in pyenv
-      shell: |
-        source ~/.pyenvrc
-        pyenv install --list | grep -E '^\s*3\.13\.[0-9]+$' | tail -1 | tr -d ' '
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_processor
-      environment:
-        HOME: /opt/sparrow_cam_processor
-        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
-      register: latest_python_313
-      changed_when: false
-
-    - name: Check if Python {{ latest_python_313.stdout }} is already installed
+    - name: Check if Python {{ processor_python_version }} is already installed
       stat:
-        path: /opt/sparrow_cam_processor/.pyenv/versions/{{ latest_python_313.stdout }}
-      register: python_313_installed
+        path: /opt/sparrow_cam_processor/.pyenv/versions/{{ processor_python_version }}
+      register: python_version_installed
 
-    - name: Install Python {{ latest_python_313.stdout }} via pyenv
+    - name: Install Python {{ processor_python_version }} via pyenv
       shell: |
         source ~/.pyenvrc
-        pyenv install {{ latest_python_313.stdout }}
+        pyenv install {{ processor_python_version }}
       args:
         executable: /bin/bash
       become: yes
@@ -128,7 +116,7 @@
         HOME: /opt/sparrow_cam_processor
         PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
         TMPDIR: /opt/sparrow_cam_processor/tmp
-      when: not python_313_installed.stat.exists
+      when: not python_version_installed.stat.exists
 
     - name: Check current Python version of sparrow_cam_processor virtualenv
       shell: |
@@ -161,12 +149,12 @@
         PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
       when:
         - current_venv_python.stdout != "none"
-        - current_venv_python.stdout != latest_python_313.stdout
+        - current_venv_python.stdout != processor_python_version
 
-    - name: Create sparrow_cam_processor virtual environment with Python {{ latest_python_313.stdout }}
+    - name: Create sparrow_cam_processor virtual environment with Python {{ processor_python_version }}
       shell: |
         source ~/.pyenvrc
-        pyenv virtualenv {{ latest_python_313.stdout }} sparrow_cam_processor
+        pyenv virtualenv {{ processor_python_version }} sparrow_cam_processor
       args:
         executable: /bin/bash
       become: yes
@@ -175,7 +163,7 @@
         HOME: /opt/sparrow_cam_processor
         PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
       when:
-        - current_venv_python.stdout == "none" or current_venv_python.stdout != latest_python_313.stdout
+        - current_venv_python.stdout == "none" or current_venv_python.stdout != processor_python_version
 
     - name: Create processor app directory
       file:
@@ -193,6 +181,7 @@
         group: sparrow_cam_processor
         mode: '0755'
         directory_mode: '0755'
+      notify: reload and restart processor
 
     - name: Install processor app with dependencies
       shell: |
@@ -207,6 +196,7 @@
       environment:
         HOME: /opt/sparrow_cam_processor
         PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      notify: reload and restart processor
 
     - name: Create processor systemd service file
       copy:
