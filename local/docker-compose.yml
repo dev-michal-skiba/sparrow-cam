@@ -1,6 +1,6 @@
 volumes:
   hls_data:
-  processed_hls_data:
+  annotations_data:
 
 services:
   sparrow-cam:
@@ -20,7 +20,7 @@ services:
     volumes:
       - ../app/index.html:/var/www/html/index.html
       - hls_data:/var/www/html/hls
-      - processed_hls_data:/var/www/html/processed_hls
+      - annotations_data:/var/www/html/annotations
     healthcheck:
       test: ["CMD-SHELL", "bash -lc 'nc -z localhost $$RTMP_PORT || curl -fsS http://localhost:$$WEB_PORT >/dev/null'"]
       interval: 5s
@@ -43,4 +43,4 @@ services:
     volumes:
       - ../app/processor/:/app/
       - hls_data:/var/www/html/hls
-      - processed_hls_data:/var/www/html/processed_hls
+      - annotations_data:/var/www/html/annotations

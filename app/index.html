@@ -7,53 +7,26 @@
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-    }
-    .toggle-buttons {
       display: flex;
-      gap: 10px;
-      margin: 20px 0;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
     }
-    .toggle-btn {
-      padding: 12px 24px;
-      font-size: 16px;
-      border: 2px solid #0066cc;
-      background-color: white;
-      color: #0066cc;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s ease;
+    h1 {
+      margin-bottom: 0;
     }
-    .toggle-btn:hover {
-      background-color: #e6f2ff;
-    }
-    .toggle-btn.active {
-      background-color: #0066cc;
-      color: white;
-    }
-    .streams-container {
-      margin: 20px 0;
-      position: relative;
-    }
-    .stream-box {
-      display: none;
-    }
-    .stream-box.active {
-      display: block;
-    }
-    .stream-box h2 {
-      margin-top: 0;
-    }
-    video, img {
+    video {
       width: 100%;
       max-width: 640px;
       border: 2px solid #ccc;
       border-radius: 8px;
     }
     .fragment-info {
-      margin-top: 10px;
-      padding: 10px;
+      width: 100%;
+      max-width: 640px;
+      padding: 12px;
       background-color: #f0f0f0;
-      border-radius: 4px;
+      border-radius: 6px;
       font-family: monospace;
       font-size: 14px;
     }
@@ -66,181 +39,87 @@
   </style>
 </head>
 <body>
-  <div class="toggle-buttons">
-    <button class="toggle-btn active" onclick="switchStream('processed')">Processed</button>
-    <button class="toggle-btn" onclick="switchStream('original')">Original</button>
-  </div>
-
-  <div class="streams-container">
-    <div class="stream-box active" id="processed-box">
-      <video id="video" controls autoplay playsinline></video>
-      <div id="fragment-info-processed" class="fragment-info">
-        <strong>Current fragment:</strong> <span class="fragment-name">-</span>
-        <br><strong>Bird detected:</strong> <span class="bird-status">-</span>
-      </div>
-    </div>
-
-    <div class="stream-box" id="original-box">
-      <video id="video-original" controls autoplay playsinline></video>
-      <div id="fragment-info-original" class="fragment-info">
-        <strong>Current fragment:</strong> <span class="fragment-name">-</span>
-      </div>
-    </div>
+  <h1>Sparrow Cam</h1>
+  <video id="video" controls autoplay playsinline></video>
+  <div class="fragment-info">
+    <strong>Current fragment:</strong> <span id="fragment-name" class="fragment-name">-</span>
+    <br><strong>Bird detected:</strong> <span id="bird-status">-</span>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // Store HLS instances for both streams
-    const hlsInstances = {};
+    let annotations = {};
+    let currentSegment = null;
 
-    // Store bird detection metadata: segment_name -> bird_detected (boolean)
-    const birdDetectionData = {};
+    const fragmentNameSpan = document.getElementById('fragment-name');
+    const birdStatusSpan = document.getElementById('bird-status');
 
-    function setupHLS(videoElementId, playlistUrl, description, fragmentInfoId) {
+    function setupStream(videoElementId, playlistUrl) {
       const video = document.getElementById(videoElementId);
-      const fragmentInfo = document.getElementById(fragmentInfoId);
-      const fragmentNameSpan = fragmentInfo ? fragmentInfo.querySelector('.fragment-name') : null;
-      const birdStatusSpan = fragmentInfo ? fragmentInfo.querySelector('.bird-status') : null;
 
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = playlistUrl;
-      } else if (Hls.isSupported()) {
-        // Configure HLS.js for stable, smooth streaming with better buffering
-        const hls = new Hls({});
+        video.addEventListener('loadedmetadata', () => video.play());
+        return;
+      }
 
-        hls.loadSource(playlistUrl);
-        hls.attachMedia(video);
-
-        // Store the instance for later use
-        hlsInstances[videoElementId] = hls;
-
-        // Auto-play when loaded
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
-        });
-
-        // Track fragment changes
-        hls.on(Hls.Events.FRAG_CHANGED, async (event, data) => {
-          if (data.frag && data.frag.url && fragmentNameSpan) {
-            // Extract filename from URL
-            const url = data.frag.url;
-            const filename = url.substring(url.lastIndexOf('/') + 1);
-            fragmentNameSpan.textContent = filename;
-
-            // Update bird detection status (only for processed stream)
-            if (birdStatusSpan && videoElementId === 'video') {
-              // Fetch latest metadata immediately if we don't have data for this segment
-              if (!(filename in birdDetectionData)) {
-                await fetchBirdDetectionMetadata();
-              }
-
-              const birdDetected = birdDetectionData[filename];
-              if (birdDetected === true) {
-                birdStatusSpan.textContent = 'Yes';
-              } else if (birdDetected === false) {
-                birdStatusSpan.textContent = 'No';
-              } else {
-                birdStatusSpan.textContent = '-';
-              }
-            }
-          }
-        });
-
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error(`HLS Error (${description}):`, data);
-        });
-      } else {
+      if (!Hls.isSupported()) {
         video.innerHTML = 'HLS not supported in this browser.';
+        return;
       }
-    }
 
-    function jumpToLive(videoElementId) {
-      const video = document.getElementById(videoElementId);
-      const hls = hlsInstances[videoElementId];
+      const hls = new Hls();
+      hls.loadSource(playlistUrl);
+      hls.attachMedia(video);
 
-      // HLS live edge is typically 5-9 seconds before the end of the buffer
-      const liveEdgeOffset = 7; // seconds from the end
-
-      if (hls && hls.media) {
-        // For HLS.js, jump to the live edge
-        const duration = hls.media.duration;
-        if (isFinite(duration)) {
-          hls.media.currentTime = Math.max(0, duration - liveEdgeOffset);
-        }
-        hls.media.play();
-      } else if (video.duration && isFinite(video.duration)) {
-        // For native HLS support (Safari)
-        video.currentTime = Math.max(0, video.duration - liveEdgeOffset);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play();
-      }
+      });
+
+      hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
+        if (data.frag && data.frag.url) {
+          const url = data.frag.url;
+          const filename = url.substring(url.lastIndexOf('/') + 1);
+          currentSegment = filename;
+          fragmentNameSpan.textContent = filename;
+          updateBirdStatus(filename);
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS Error:', data);
+      });
     }
 
-    function switchStream(streamType) {
-      // Update button states
-      const buttons = document.querySelectorAll('.toggle-btn');
-      buttons.forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
-
-      // Update stream box visibility
-      const processedBox = document.getElementById('processed-box');
-      const originalBox = document.getElementById('original-box');
-
-      if (streamType === 'processed') {
-        processedBox.classList.add('active');
-        originalBox.classList.remove('active');
-        // Jump to live for the processed stream
-        jumpToLive('video');
+    function updateBirdStatus(segmentName) {
+      const annotation = annotations[segmentName];
+      if (annotation && typeof annotation.bird_detected === 'boolean') {
+        birdStatusSpan.textContent = annotation.bird_detected ? 'Yes' : 'No';
       } else {
-        originalBox.classList.add('active');
-        processedBox.classList.remove('active');
-        // Jump to live for the original stream
-        jumpToLive('video-original');
+        birdStatusSpan.textContent = '-';
       }
     }
 
-    // Fetch and parse playlist to extract bird detection metadata
-    async function fetchBirdDetectionMetadata() {
+    async function fetchAnnotations() {
       try {
-        const response = await fetch('/processed_hls/sparrow_cam.m3u8');
+        const response = await fetch('/annotations/bird.json', { cache: 'no-store' });
         if (!response.ok) {
           return;
         }
 
-        const playlistText = await response.text();
-        const lines = playlistText.split('\n');
-
-        // Parse playlist and extract bird detection metadata
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-
-          // Look for bird detection comment followed by segment name
-          if (line.startsWith('# BIRD-DETECTED:')) {
-            const birdDetected = line.includes('true');
-
-            // Next line should be the segment filename
-            if (i + 1 < lines.length) {
-              const segmentLine = lines[i + 1].trim();
-              if (segmentLine.endsWith('.ts')) {
-                birdDetectionData[segmentLine] = birdDetected;
-              }
-            }
-          }
+        const data = await response.json();
+        annotations = data || {};
+        if (currentSegment) {
+          updateBirdStatus(currentSegment);
         }
       } catch (error) {
-        console.error('Error fetching bird detection metadata:', error);
+        console.error('Error fetching annotations:', error);
       }
     }
 
-    // Poll for playlist updates every 500ms for faster updates
-    setInterval(fetchBirdDetectionMetadata, 500);
-    // Fetch immediately on page load
-    fetchBirdDetectionMetadata();
-
-    // Setup processed stream (from processor service)
-    setupHLS('video', '/processed_hls/sparrow_cam.m3u8', 'processed', 'fragment-info-processed');
-
-    // Setup original stream (from nginx-rtmp)
-    setupHLS('video-original', '/hls/sparrow_cam.m3u8', 'original', 'fragment-info-original');
+    setupStream('video', '/hls/sparrow_cam.m3u8');
+    fetchAnnotations();
+    setInterval(fetchAnnotations, 500);
   </script>
 </body>
 </html>

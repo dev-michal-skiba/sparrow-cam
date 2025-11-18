@@ -11,9 +11,9 @@
         update_cache: yes
         cache_valid_time: 3600
 
-    - name: Create processed_hls directory
+    - name: Create annotations directory
       file:
-        path: /var/www/html/processed_hls
+        path: /var/www/html/annotations
         state: directory
         owner: sparrow_cam_processor
         group: www-data

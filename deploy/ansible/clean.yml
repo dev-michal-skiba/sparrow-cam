@@ -15,9 +15,9 @@
       register: recordings_cleanup
 
     - name: Remove all files from processed HLS directory
-      shell: find /var/www/html/processed_hls -type f -delete
+      shell: find /var/www/html/annotations -type f -delete
       changed_when: true
-      register: processed_hls_cleanup
+      register: annotations_cleanup
       ignore_errors: yes
 
     - name: Display cleanup summary
@@ -26,6 +26,6 @@
           - "Cleanup completed successfully"
           - "- HLS directory cleaned: /var/www/html/hls"
           - "- Recordings directory cleaned: /var/www/html/recordings"
-          - "- Processed HLS directory cleaned: /var/www/html/processed_hls"
+          - "- Annotations directory cleaned: /var/www/html/annotations"
           - "Note: Directories have been preserved, only files were removed"
 
