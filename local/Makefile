@@ -1,15 +1,16 @@
-.PHONY: help build start stop clean unit
+.PHONY: help build start stop clean check test
 
 help:
 	@echo "SparrowCam Local Development"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make build                - Build the Docker image"
-	@echo "  make start                - Start the application (web on :8080, RTMP on :8081)"
-	@echo "  make start OPENCV_LOGS=1  - Start with OpenCV debug logging enabled"
-	@echo "  make stop                 - Stop the application"
-	@echo "  make clean                - Stop and remove containers, volumes, and generated files"
-	@echo "  make unit                 - Run unit tests for processor package"
+	@echo "  make build                 - Build the Docker image"
+	@echo "  make check                 - Run formatting, lint, type and security checks"
+	@echo "  make start                 - Start the application (web on :8080, RTMP on :8081)"
+	@echo "  make start OPENCV_LOGS=1   - Start with OpenCV debug logging enabled"
+	@echo "  make stop                  - Stop the application"
+	@echo "  make clean                 - Stop and remove containers, volumes, and generated files"
+	@echo "  make test                  - Run unit tests for processor package"
 
 build:
 	docker compose build
@@ -36,5 +37,16 @@ clean:
 	docker compose down -v
 	docker run --rm -v $(PWD)/recordings:/recordings -v $(PWD)/hls:/hls alpine sh -c "rm -rf /recordings/* /hls/*"
 
-unit:
-	docker compose run --rm --no-deps processor pytest tests/ -v
+check:
+	docker compose run --rm --no-deps processor bash -lc "\
+		black processor tests && \
+		printf '\033[32mBlack formatting complete\033[0m\n' && \
+		ruff check && \
+		printf '\033[32mRuff check passed\033[0m\n' && \
+		PYRIGHT_PYTHON_PATH=\$(which python3) pyright && \
+		printf '\033[32mPyright check passed\033[0m\n' && \
+		bandit -r processor && \
+		printf '\033[32mBandit check passed\033[0m\n'"
+
+test:
+	docker compose run --rm --no-deps processor pytest

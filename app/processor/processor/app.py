@@ -1,17 +1,18 @@
+import logging
 import os
 import time
-import logging
+
 import cv2
 
-from processor.hls_watchtower import HLSWatchtower
-from processor.bird_detector import BirdDetector
 from processor.bird_annotator import BirdAnnotator
+from processor.bird_detector import BirdDetector
+from processor.hls_watchtower import HLSWatchtower
 
 # Configure logging for systemd journal
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 

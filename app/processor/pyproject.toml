@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "processor"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python-headless",
+    "ultralytics",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["processor*"]
+exclude = ["tests", "tests.*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+src = ["processor", "tests"]
+target-version = "py311"
+fix = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "TID"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["processor"]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+include = "\\.pyi?$"
+
+[tool.pyright]
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+typeCheckingMode = "basic"
+include = ["processor", "tests"]
+extraPaths = ["."]
+executionEnvironments = [
+    { root = "." },
+]

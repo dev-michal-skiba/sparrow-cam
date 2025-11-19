@@ -19,8 +19,11 @@ make -C local stop
 # Clean up everything
 make -C local clean
 
+# Run formatting, lint, type and security checks
+make -C local check
+
 # Run unit tests
-make -C local unit
+make -C local test
 ```
 
 ## Services

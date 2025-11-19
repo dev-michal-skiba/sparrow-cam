@@ -1,9 +1,7 @@
 import json
 import logging
 import os
-import tempfile
-from typing import Dict, Iterable
-
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +31,9 @@ class BirdAnnotator:
         if removed:
             self._write(annotations)
 
-    def _load(self) -> Dict[str, Dict[str, bool]]:
+    def _load(self) -> dict[str, dict[str, bool]]:
         try:
-            with open(ANNOTATIONS_PATH, "r") as f:
+            with open(ANNOTATIONS_PATH) as f:
                 return json.load(f)
         except FileNotFoundError:
             logger.warning("Annotations file missing; recreating.")
@@ -43,8 +41,7 @@ class BirdAnnotator:
             logger.warning("Annotations file corrupt; resetting.")
         return {}
 
-    def _write(self, annotations: Dict[str, Dict[str, bool]]) -> None:
+    def _write(self, annotations: dict[str, dict[str, bool]]) -> None:
         with open(ANNOTATIONS_PATH, "w") as f:
             json.dump(annotations, f)
-            os.chmod(ANNOTATIONS_PATH, 0o664)
-
+            os.chmod(ANNOTATIONS_PATH, 0o644)

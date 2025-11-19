@@ -1,7 +1,7 @@
-import os
-import time
-import re
 import logging
+import os
+import re
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +33,10 @@ class HLSWatchtower:
             self.retry_delay = min(self.retry_delay * 1.5, self.MAX_RETRY_DELAY)
             return None
         # Read input playlist
-        with open(playlist_path, 'r') as f:
+        with open(playlist_path) as f:
             content = f.read()
         # Extract segment filenames
-        segments = re.findall(r'^([a-z0-9_-]+\.ts)$', content, re.MULTILINE)
+        segments = re.findall(r"^([a-z0-9_-]+\.ts)$", content, re.MULTILINE)
         # Return None if no segments are found
         if not segments:
             logger.debug("No segments in playlist yet")

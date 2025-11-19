@@ -1,19 +1,14 @@
 FROM ultralytics/ultralytics:latest@sha256:6bff428cd62fd6efab8a4d6a9c7cdfa4f79a10778574840e036fc2e858ea52d9
 
 ENV PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
-# Install ffmpeg for video processing
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
+# Install processor package
 COPY app/processor/ .
-
 RUN pip install --no-cache-dir -e .
 
-# Install pytest and coverage tools for unit tests
-RUN pip install --no-cache-dir pytest
+# Install tooling for tests, linting, formatting, etc.
+COPY local/requirements.dev.txt /tmp/requirements.dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.dev.txt
 
 CMD ["python3", "-u", "processor/app.py"]
