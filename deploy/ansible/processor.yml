@@ -121,8 +121,9 @@
     - name: Check current Python version of sparrow_cam_processor virtualenv
       shell: |
         source ~/.pyenvrc
-        if pyenv versions | grep -q 'sparrow_cam_processor'; then
-          pyenv virtualenvs --bare | grep 'sparrow_cam_processor' | awk '{print $1}' | cut -d'/' -f1
+        venv_path=$(find "$PYENV_ROOT/versions" -maxdepth 3 -type d -path "*/envs/sparrow_cam_processor" -print -quit)
+        if [ -n "$venv_path" ]; then
+          basename "$(dirname "$(dirname "$venv_path")")"
         else
           echo "none"
         fi
@@ -173,14 +174,28 @@
         group: sparrow_cam_processor
         mode: '0755'
 
+    - name: Clean processor app directory if it exists
+      file:
+        path: /opt/sparrow_cam_processor/apps/processor
+        state: absent
+
     - name: Copy processor application files
       copy:
-        src: /app/processor/
-        dest: /opt/sparrow_cam_processor/apps/processor
+        src: /app/processor/processor/
+        dest: /opt/sparrow_cam_processor/apps/processor/processor
         owner: sparrow_cam_processor
         group: sparrow_cam_processor
         mode: '0755'
         directory_mode: '0755'
+      notify: reload and restart processor
+
+    - name: Copy processor .toml file
+      copy:
+        src: /app/processor/pyproject.toml
+        dest: /opt/sparrow_cam_processor/apps/processor/pyproject.toml
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0644'
       notify: reload and restart processor
 
     - name: Install processor app with dependencies
@@ -215,7 +230,7 @@
           Environment="HOME=/opt/sparrow_cam_processor"
           Environment="PYENV_ROOT=/opt/sparrow_cam_processor/.pyenv"
           Environment="PYTHONUNBUFFERED=1"
-          ExecStart=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin/python -m processor.app
+          ExecStart=/opt/sparrow_cam_processor/.pyenv/versions/sparrow_cam_processor/bin/python -m processor
           Restart=always
           RestartSec=10
           StandardOutput=journal

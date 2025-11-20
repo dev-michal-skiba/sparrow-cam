@@ -24,10 +24,8 @@ class HLSSegmentProcessor:
         self.bird_detector = BirdDetector()
         self.bird_annotator = BirdAnnotator()
 
-    def process_segment(self, input_segment_path):
+    def process_segment(self, input_segment_path, segment_name):
         """Process a single segment: detect bird in first frame and log result."""
-        start_time = time.time()
-        segment_name = os.path.basename(input_segment_path)
         bird_detected = False
         cap = None
 
@@ -45,11 +43,8 @@ class HLSSegmentProcessor:
             bird_detected = self.bird_detector.detect(frame)
             self.bird_annotator.annotate(segment_name, bird_detected)
             logger.info(f"{segment_name}: {'Bird detected' if bird_detected else 'No bird detected'}")
-            processing_time = time.time() - start_time
-            logger.info(f"{segment_name}: Performance: Processing time: {processing_time:.2f}s")
         except Exception as e:
-            logger.error(f"Error processing segment: {e}", exc_info=True)
-
+            logger.error(f"{segment_name}: Error processing segment - {e}", exc_info=True)
         finally:
             if cap is not None:
                 cap.release()
@@ -58,10 +53,9 @@ class HLSSegmentProcessor:
         """Main processing loop."""
         hls_watchtower = HLSWatchtower()
         for input_segment_path in hls_watchtower.segments_iterator:
-            self.process_segment(input_segment_path)
+            segment_name = os.path.basename(input_segment_path)
+            start_time = time.time()
+            self.process_segment(input_segment_path, segment_name)
             self.bird_annotator.prune(hls_watchtower.seen_segments)
-
-
-if __name__ == "__main__":
-    processor = HLSSegmentProcessor()
-    processor.run()
+            processing_time = time.time() - start_time
+            logger.info(f"{segment_name}: Performance: Processing time: {processing_time:.2f}s")

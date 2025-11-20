@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -e .
 COPY local/requirements.dev.txt /tmp/requirements.dev.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.dev.txt
 
-CMD ["python3", "-u", "processor/app.py"]
+CMD ["python3", "-u", "processor"]
