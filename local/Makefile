@@ -49,4 +49,4 @@ check:
 		printf '\033[32mBandit check passed\033[0m\n'"
 
 test:
-	docker compose run --rm --no-deps processor pytest
+	docker compose run --rm --no-deps processor pytest --cov=processor --cov-report=term --cov-report=term-missing

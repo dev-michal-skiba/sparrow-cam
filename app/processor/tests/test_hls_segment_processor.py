@@ -104,7 +104,7 @@ class TestHLSSegmentProcessor:
     def test_process_segment_handles_failed_frame_read(
         self, hls_processor, mock_bird_detector, mock_bird_annotator, setup_video_capture
     ):
-        capture = setup_video_capture(opened=False, read_return=(False, None))
+        capture = setup_video_capture(opened=True, read_return=(False, None))
 
         hls_processor.process_segment("/tmp/segment_003.ts", "segment_003.ts")
 

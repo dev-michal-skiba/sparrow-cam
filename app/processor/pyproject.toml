@@ -47,3 +47,12 @@ extraPaths = ["."]
 executionEnvironments = [
     { root = "." },
 ]
+
+[tool.coverage.run]
+source = ["processor"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 90
