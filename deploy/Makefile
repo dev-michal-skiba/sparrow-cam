@@ -8,7 +8,7 @@ help:
 	@echo "  make rtmp        - Deploy RTMP server (nginx-rtmp) to Raspberry Pi"
 	@echo "  make processor   - Deploy processor service with isolated Python environment"
 	@echo "  make all         - Deploy web, RTMP, and processor services"
-	@echo "  make clean       - Clean all HLS files and recordings (keeps directories)"
+	@echo "  make clean       - Clean streaming data and annotations"
 
 build:
 	docker build --tag sparrow_cam_deploy ./

@@ -60,7 +60,7 @@ ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://192.168.1.100/liv
 # Check connectivity
 make -C deploy ping
 
-# Clean HLS files and recordings (keeps directories)
+# Clean streaming data and annotations (keeps directories)
 make -C deploy clean
 
 # View service status

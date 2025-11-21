@@ -51,21 +51,21 @@ cleanup() {
 # Set trap to cleanup on exit
 trap cleanup EXIT
 
-# Test 1: Check if Docker is running
+# Test: Check if Docker is running
 test_start "Docker availability"
 if ! docker info > /dev/null 2>&1; then
     test_fail "Docker is not running"
 fi
 test_pass
 
-# Test 2: Build the image
+# Test: Build the image
 test_start "Docker image build"
 if ! (cd "$LOCAL_DIR" && docker compose build > /dev/null 2>&1); then
     test_fail "Failed to build Docker image"
 fi
 test_pass
 
-# Test 3: Start the application
+# Test: Start the application
 test_start "Application startup"
 if ! (cd "$LOCAL_DIR" && docker compose up -d > /dev/null 2>&1); then
     test_fail "Failed to start application"
@@ -77,45 +77,42 @@ echo -ne "  Waiting for services to start... "
 sleep 5
 test_pass
 
-# Test 4: Check if container is running
+# Test: Check if container is running
 test_start "Container health"
 if ! docker ps | grep -q "$CONTAINER_NAME"; then
     test_fail "Container is not running"
 fi
 test_pass
 
-# Test 5: Check web server is responding
+# Test: Check web server is responding
 test_start "Web server (port 8080)"
 if ! curl -s -o /dev/null -w "%{http_code}" "$WEB_URL" | grep -q "200"; then
     test_fail "Web server is not responding on port 8080"
 fi
 test_pass
 
-# Test 6: Check if index.html is served
+# Test: Check if index.html is served
 test_start "Web server content"
 if ! curl -s "$WEB_URL" | grep -q "Live Stream"; then
     test_fail "Web server is not serving correct content"
 fi
 test_pass
 
-# Test 7: Check RTMP port is open
+# Test: Check RTMP port is open
 test_start "RTMP server (port 8081)"
 if ! nc -z localhost 8081 2>/dev/null; then
     test_fail "RTMP server is not listening on port 8081"
 fi
 test_pass
 
-# Test 8: Check directories exist inside container
+# Test: Check directories exist inside container
 test_start "Output directories in container"
 if ! docker exec "$CONTAINER_NAME" test -d /var/www/html/hls; then
     test_fail "HLS directory does not exist in container"
 fi
-if ! docker exec "$CONTAINER_NAME" test -d /var/www/html/recordings; then
-    test_fail "Recordings directory does not exist in container"
-fi
 test_pass
 
-# Test 9: Stream video to RTMP server
+# Test: Stream video to RTMP server
 test_start "RTMP stream acceptance (${STREAM_DURATION}s)"
 # Run ffmpeg in background and capture its PID
 ffmpeg -re -i "$PROJECT_ROOT/sample.mp4" -c copy -f flv "$RTMP_URL" > /tmp/ffmpeg.log 2>&1 &
@@ -146,7 +143,7 @@ echo -ne "  Waiting for HLS generation... "
 sleep 3
 test_pass
 
-# Test 10: Check if HLS files are generated
+# Test: Check if HLS files are generated
 test_start "HLS stream generation"
 HLS_COUNT=$(docker exec "$CONTAINER_NAME" sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
 if [ "$HLS_COUNT" -lt 1 ]; then
@@ -154,30 +151,14 @@ if [ "$HLS_COUNT" -lt 1 ]; then
 fi
 test_pass
 
-# Test 11: Check if HLS playlist is accessible
+# Test: Check if HLS playlist is accessible
 test_start "HLS playlist access"
 if ! curl -s -o /dev/null -w "%{http_code}" "$HLS_URL" | grep -q "200"; then
     test_fail "HLS playlist is not accessible"
 fi
 test_pass
 
-# Test 12: Check if recording files are created
-test_start "Recording file creation"
-RECORDING_COUNT=$(docker exec "$CONTAINER_NAME" sh -c "ls /var/www/html/recordings/*.flv 2>/dev/null | wc -l" || echo "0")
-if [ "$RECORDING_COUNT" -lt 1 ]; then
-    test_fail "Recording files were not created"
-fi
-test_pass
-
-# Test 13: Verify recording file is not empty
-test_start "Recording file content"
-RECORDING_SIZE=$(docker exec "$CONTAINER_NAME" sh -c "du -b /var/www/html/recordings/*.flv 2>/dev/null | head -1 | cut -f1" || echo "0")
-if [ "$RECORDING_SIZE" -lt 1000 ]; then
-    test_fail "Recording file is too small or empty"
-fi
-test_pass
-
-# Test 14: Check nginx processes in container
+# Test: Check nginx processes in container
 test_start "Nginx processes"
 NGINX_COUNT=$(docker exec "$CONTAINER_NAME" ps aux | grep -c "[n]ginx" || echo "0")
 if [ "$NGINX_COUNT" -lt 2 ]; then
@@ -185,7 +166,7 @@ if [ "$NGINX_COUNT" -lt 2 ]; then
 fi
 test_pass
 
-# Test 15: Check supervisord is running
+# Test: Check supervisord is running
 test_start "Supervisord process"
 if ! docker exec "$CONTAINER_NAME" ps aux | grep -q "[s]upervisord"; then
     test_fail "Supervisord is not running"

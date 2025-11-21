@@ -85,7 +85,6 @@ The target system (Raspberry Pi) also consists of **two separate nginx services*
 1. **Web Server (nginx)** - Port 80
    - Serves web interface (index.html)
    - Serves HLS streams to browsers
-   - Provides recordings directory browser
    - Config: `/etc/nginx/nginx.conf` (from `app/nginx-web.conf`)
 
 2. **RTMP Server (nginx-rtmp)** - Port 1935
@@ -261,7 +260,6 @@ ffmpeg -re -i input.mp4 -c copy -f flv rtmp://<raspberry-pi-ip>/live/sparrow_cam
 **Access points:**
 - Web interface: `http://<raspberry-pi-ip>/`
 - HLS playlist: `http://<raspberry-pi-ip>/hls/sparrow_cam.m3u8`
-- Recordings browser: `http://<raspberry-pi-ip>/recordings/`
 
 **Check service status:**
 ```bash

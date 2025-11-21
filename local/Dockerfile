@@ -13,12 +13,6 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create necessary directories
-RUN mkdir -p /var/www/html/hls && \
-    mkdir -p /var/www/html/recordings && \
-    chown -R www-data:www-data /var/www/html/hls && \
-    chown -R www-data:www-data /var/www/html/recordings
-
 # Create nginx-rtmp config directory
 RUN mkdir -p /etc/nginx-rtmp
 

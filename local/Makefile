@@ -34,8 +34,14 @@ stop:
 	docker compose down
 
 clean:
-	docker compose down -v
-	docker run --rm -v $(PWD)/recordings:/recordings -v $(PWD)/hls:/hls alpine sh -c "rm -rf /recordings/* /hls/*"
+	@echo "Cleaning HLS and annotations data volumes (containers stay up)..."
+	@# Use a temporary container with the same volume mounts to clean data
+	docker compose run --rm --entrypoint sh sparrow-cam -c "\
+		rm -rf /var/www/html/hls/* && \
+		rm -rf /var/www/html/annotations/*"
+	@echo "Cleanup completed successfully"
+	@echo "- HLS volume cleaned"
+	@echo "- Annotations volume cleaned"
 
 check:
 	docker compose run --rm --no-deps processor bash -lc "\
