@@ -28,7 +28,7 @@ start:
 	@echo "  RTMP endpoint: rtmp://localhost:8081/live/sparrow_cam"
 	@echo ""
 	@echo "To stream a video:"
-	@echo "  ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam"
+	@echo "  ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam"
 
 stop:
 	docker compose down

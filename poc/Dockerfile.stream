@@ -1,7 +1,0 @@
-FROM alpine:latest
-
-RUN apk add --no-cache ffmpeg
-
-WORKDIR /app
-
-CMD ["sh", "-c", "ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://rtmp-server:1935/stream/sparrow_cam"]

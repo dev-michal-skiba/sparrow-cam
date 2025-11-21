@@ -51,7 +51,7 @@ make -C deploy processor # Processor service
 
 **Stream video**:
 ```bash
-ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
 ```
 
 ## Troubleshooting

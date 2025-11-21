@@ -52,9 +52,6 @@ Ansible-based deployment system that deploys to local server (typically Raspberr
 
 See `deploy/README.md` for detailed deployment instructions.
 
-### `poc/`
-Proof of concept directory - **no longer actively developed**. Contains Docker-based bird detection system using YOLOv8n. For reference only.
-
 ## Architecture
 
 ### Local Development Stack
@@ -143,7 +140,7 @@ make -C local help
 
 **Streaming to local development:**
 ```bash
-ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
 ```
 
 **Processor pipeline:**

@@ -118,7 +118,7 @@ test_pass
 # Test 9: Stream video to RTMP server
 test_start "RTMP stream acceptance (${STREAM_DURATION}s)"
 # Run ffmpeg in background and capture its PID
-ffmpeg -re -i "$PROJECT_ROOT/poc/sample.mp4" -c copy -f flv "$RTMP_URL" > /tmp/ffmpeg.log 2>&1 &
+ffmpeg -re -i "$PROJECT_ROOT/sample.mp4" -c copy -f flv "$RTMP_URL" > /tmp/ffmpeg.log 2>&1 &
 FFMPEG_PID=$!
 
 # Wait for specified duration

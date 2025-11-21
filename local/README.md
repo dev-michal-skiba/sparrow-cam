@@ -41,7 +41,7 @@ make -C local test
 
 **Stream video**:
 ```bash
-ffmpeg -re -stream_loop -1 -i poc/sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
+ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
 ```
 
 **Access HLS streams**:
