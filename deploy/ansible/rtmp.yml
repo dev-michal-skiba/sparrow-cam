@@ -14,7 +14,6 @@
         name:
           - nginx
           - libnginx-mod-rtmp
-          - ffmpeg
           - ufw
         state: present
 

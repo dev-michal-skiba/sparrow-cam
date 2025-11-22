@@ -11,15 +11,7 @@
         update_cache: yes
         cache_valid_time: 3600
 
-    - name: Create annotations directory
-      file:
-        path: /var/www/html/annotations
-        state: directory
-        owner: sparrow_cam_processor
-        group: www-data
-        mode: '0775'
-
-    - name: Install build dependencies for pyenv
+    - name: Install build dependencies for pyenv and Python packages
       apt:
         name:
           - build-essential
@@ -32,12 +24,10 @@
           - git
           - libncursesw5-dev
           - xz-utils
-          - tk-dev
-          - libxml2-dev
-          - libxmlsec1-dev
           - libffi-dev
           - liblzma-dev
-          - ffmpeg
+          - libgl1
+          - libglib2.0-0
           - acl
         state: present
 
@@ -48,6 +38,14 @@
         home: /opt/sparrow_cam_processor
         create_home: yes
         system: no
+
+    - name: Create annotations directory
+      file:
+        path: /var/www/html/annotations
+        state: directory
+        owner: sparrow_cam_processor
+        group: www-data
+        mode: '0775'
 
     - name: Create temp directory for sparrow_cam_processor
       file:

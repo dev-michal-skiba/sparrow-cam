@@ -42,6 +42,14 @@
         group: www-data
         mode: '0755'
 
+    - name: Create annotations directory
+      file:
+        path: /var/www/html/annotations
+        state: directory
+        owner: sparrow_cam_processor
+        group: www-data
+        mode: '0775'
+
     - name: Copy nginx web server configuration
       copy:
         src: /app/nginx-web.conf
