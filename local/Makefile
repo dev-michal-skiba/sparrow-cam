@@ -1,4 +1,4 @@
-.PHONY: help build start stop clean check test e2e
+.PHONY: help build start stop clean format check test e2e
 
 help:
 	@echo "SparrowCam Local Development"
@@ -9,7 +9,8 @@ help:
 	@echo "  make start OPENCV_LOGS=1   - Start with OpenCV debug logging enabled"
 	@echo "  make clean                 - Stop and remove containers, volumes, and generated files"
 	@echo "  make stop                  - Stop the application"
-	@echo "  make check                 - Run formatting, lint, type and security checks"
+	@echo "  make format                - Format code with black and ruff"
+	@echo "  make check                 - Run lint, type and security checks (no formatting)"
 	@echo "  make test                  - Run unit tests for processor package"
 	@echo "  make e2e                   - Run end-to-end integration tests"
 
@@ -44,10 +45,15 @@ clean:
 	@echo "- HLS volume cleaned"
 	@echo "- Annotations volume cleaned"
 
-check:
+format:
 	docker compose run --rm --no-deps processor bash -lc "\
 		black processor tests && \
 		printf '\033[32mBlack formatting complete\033[0m\n' && \
+		ruff check --fix && \
+		printf '\033[32mRuff formatting complete\033[0m\n'"
+
+check:
+	docker compose run --rm --no-deps processor bash -lc "\
 		ruff check && \
 		printf '\033[32mRuff check passed\033[0m\n' && \
 		PYRIGHT_PYTHON_PATH=\$(which python3) pyright && \

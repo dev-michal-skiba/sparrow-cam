@@ -30,7 +30,10 @@ make -C local stop
 # Access: http://localhost:8080
 # Stream: rtmp://localhost:8081/live/sparrow_cam
 
-# Code quality checks
+# Format code (black and ruff)
+make -C local format
+
+# Code quality checks (linting, type, security)
 make -C local check
 
 # Run tests

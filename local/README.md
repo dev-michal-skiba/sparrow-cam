@@ -20,7 +20,10 @@ make -C local stop
 # Clean up everything
 make -C local clean
 
-# Run formatting, lint, type and security checks
+# Format code with black and ruff
+make -C local format
+
+# Run code quality checks (linting, type, security - no formatting)
 make -C local check
 
 # Run unit tests
@@ -57,7 +60,10 @@ ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/li
 ## Code Quality and Testing
 
 ```bash
-# Run formatting, linting, type checking, and security analysis
+# Format code with black and ruff
+make -C local format
+
+# Run code quality checks (linting, type checking, and security analysis)
 make -C local check
 
 # Run unit tests with coverage report
@@ -67,9 +73,12 @@ make -C local test
 make -C local e2e
 ```
 
-**Check** performs:
+**Format** performs:
 - `black` - Code formatting
-- `ruff` - Linting
+- `ruff check --fix` - Linting with auto-fixes
+
+**Check** performs (verification only):
+- `ruff check` - Linting verification
 - `pyright` - Type checking
 - `bandit` - Security analysis
 

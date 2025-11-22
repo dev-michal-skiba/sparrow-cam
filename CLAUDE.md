@@ -179,7 +179,10 @@ make -C local stop
 # Clean HLS and annotations data (containers keep running)
 make -C local clean
 
-# Run code quality checks (formatting, linting, type checking, security)
+# Format code (black and ruff --fix)
+make -C local format
+
+# Run code quality checks (linting, type checking, security - no formatting)
 make -C local check
 
 # Run processor tests with coverage report
@@ -211,9 +214,12 @@ ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/li
 ```
 
 **Code Quality Tools**:
-The `make -C local check` command runs:
+The `make -C local format` command runs:
 - `black` - Code formatting
-- `ruff` - Linting
+- `ruff check --fix` - Linting with auto-fixes
+
+The `make -C local check` command runs (verification only, no formatting):
+- `ruff check` - Linting verification
 - `pyright` - Type checking
 - `bandit` - Security analysis
 
