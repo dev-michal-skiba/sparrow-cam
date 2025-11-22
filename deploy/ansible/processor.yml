@@ -187,6 +187,14 @@
         directory_mode: '0755'
       notify: reload and restart processor
 
+    - name: Clean __pycache__ from deployed processor
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /opt/sparrow_cam_processor/apps/processor/processor/__pycache__
+        - /opt/sparrow_cam_processor/apps/processor/tests/__pycache__
+
     - name: Copy processor .toml file
       copy:
         src: /app/processor/pyproject.toml
