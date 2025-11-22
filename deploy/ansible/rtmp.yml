@@ -52,13 +52,20 @@
         group: www-data
         mode: '0755'
 
-    - name: Deploy nginx-rtmp configuration with production port
-      template:
+    - name: Copy nginx-rtmp configuration
+      copy:
         src: /app/nginx-rtmp.conf
         dest: /etc/nginx-rtmp/nginx.conf
         owner: root
         group: root
         mode: '0644'
+      notify: restart nginx-rtmp
+
+    - name: Set production RTMP port
+      replace:
+        path: /etc/nginx-rtmp/nginx.conf
+        regexp: '\$\{RTMP_PORT\}'
+        replace: "{{ RTMP_PORT }}"
       vars:
         RTMP_PORT: 1935
       notify: restart nginx-rtmp

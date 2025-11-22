@@ -42,13 +42,20 @@
         group: www-data
         mode: '0755'
 
-    - name: Deploy nginx web server configuration with production port
-      template:
+    - name: Copy nginx web server configuration
+      copy:
         src: /app/nginx-web.conf
         dest: /etc/nginx/nginx.conf
         owner: root
         group: root
         mode: '0644'
+      notify: restart nginx
+
+    - name: Set production WEB port
+      replace:
+        path: /etc/nginx/nginx.conf
+        regexp: '\$\{WEB_PORT\}'
+        replace: "{{ WEB_PORT }}"
       vars:
         WEB_PORT: 80
       notify: restart nginx

@@ -26,7 +26,6 @@ Local development environment using Docker:
 - **Dockerfile.processor**: Creates processor service container (Python 3.13, OpenCV, FFmpeg)
 - **docker-compose.yml**: Orchestrates both services and shared HLS volumes
 - **supervisord.conf**: Configuration for running both nginx processes
-- **render-template.py**: Template rendering script for environment-specific configs
 
 See `local/README.md` for detailed usage instructions.
 
