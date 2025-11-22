@@ -1,8 +1,9 @@
 # Local Development
 
 Docker-based local development environment with two services:
-- **sparrow-cam**: nginx servers (web on :8080, RTMP on :8081)
+- **rtmp**: nginx rtmp server on port 8081
 - **processor**: HLS segment processor (video processing pipeline)
+- **web**: nginx server on port 8080
 
 ## Quick Start
 
@@ -28,14 +29,16 @@ make -C local test
 
 ## Services
 
-**sparrow-cam**: Runs nginx web server and nginx-rtmp using supervisord
-- Web: http://localhost:8080
+**rtmp**: Runs nginx rtmp server
 - RTMP: rtmp://localhost:8081/live/sparrow_cam
 
 **processor**: Monitors HLS segments and applies frame-level processing
 - Reads from shared HLS volume
 - Processes each segment (currently: grayscale conversion)
 - Outputs to processed_hls volume
+
+**web**: Runs nginx web server
+- Web: http://localhost:8080
 
 ## Usage
 
@@ -51,9 +54,7 @@ ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/li
 **Troubleshooting**:
 ```bash
 # Check logs
-docker logs sparrow_cam_local
+docker logs sparrow_cam_rtmp
 docker logs sparrow_cam_processor
-
-# View processor details
-docker logs -f sparrow_cam_processor
+docker logs sparrow_cam_web
 ```

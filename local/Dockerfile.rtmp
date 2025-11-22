@@ -1,0 +1,34 @@
+FROM ubuntu:25.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install nginx with RTMP support plus helpers for health checks/template rendering
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        nginx \
+        libnginx-mod-rtmp \
+        netcat-openbsd \
+        gettext-base && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create required directories
+RUN mkdir -p /etc/nginx-rtmp /var/www/html/hls
+
+# Copy nginx-rtmp configuration template
+COPY app/nginx-rtmp.conf /tmp/nginx-rtmp.conf.template
+
+# Build-time port (injected by docker-compose)
+ARG RTMP_PORT
+ENV RTMP_PORT=${RTMP_PORT}
+
+# Render RTMP config
+RUN envsubst '${RTMP_PORT}' < /tmp/nginx-rtmp.conf.template > /etc/nginx-rtmp/nginx.conf && \
+    rm /tmp/nginx-rtmp.conf.template
+
+# Expose RTMP port
+EXPOSE 8081
+
+# Run nginx with RTMP config
+CMD ["/usr/sbin/nginx", "-g", "daemon off;", "-c", "/etc/nginx-rtmp/nginx.conf"]
+

@@ -1,0 +1,34 @@
+FROM ubuntu:25.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install nginx plus helpers for health checks/template rendering
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        nginx \
+        curl \
+        gettext-base && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Ensure content directories exist
+RUN mkdir -p /var/www/html/hls /var/www/html/annotations
+
+# Copy nginx web configuration template + static assets
+COPY app/nginx-web.conf /tmp/nginx-web.conf.template
+COPY app/index.html /var/www/html/index.html
+
+# Build-time port (injected by docker-compose)
+ARG WEB_PORT
+ENV WEB_PORT=${WEB_PORT}
+
+# Render web config
+RUN envsubst '${WEB_PORT}' < /tmp/nginx-web.conf.template > /etc/nginx/nginx.conf && \
+    rm /tmp/nginx-web.conf.template
+
+# Expose HTTP port
+EXPOSE 8080
+
+# Run nginx with web config
+CMD ["/usr/sbin/nginx", "-g", "daemon off;", "-c", "/etc/nginx/nginx.conf"]
+

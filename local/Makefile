@@ -5,11 +5,11 @@ help:
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build                 - Build the Docker image"
-	@echo "  make check                 - Run formatting, lint, type and security checks"
 	@echo "  make start                 - Start the application (web on :8080, RTMP on :8081)"
 	@echo "  make start OPENCV_LOGS=1   - Start with OpenCV debug logging enabled"
-	@echo "  make stop                  - Stop the application"
 	@echo "  make clean                 - Stop and remove containers, volumes, and generated files"
+	@echo "  make stop                  - Stop the application"
+	@echo "  make check                 - Run formatting, lint, type and security checks"
 	@echo "  make test                  - Run unit tests for processor package"
 
 build:
@@ -36,7 +36,7 @@ stop:
 clean:
 	@echo "Cleaning HLS and annotations data volumes (containers stay up)..."
 	@# Use a temporary container with the same volume mounts to clean data
-	docker compose run --rm --entrypoint sh sparrow-cam -c "\
+	docker compose run --rm --entrypoint sh processor -c "\
 		rm -rf /var/www/html/hls/* && \
 		rm -rf /var/www/html/annotations/*"
 	@echo "Cleanup completed successfully"

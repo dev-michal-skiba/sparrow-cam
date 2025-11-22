@@ -57,21 +57,20 @@ See `deploy/README.md` for detailed deployment instructions.
 
 Three services communicate via shared volumes:
 
+1. **RTMP Server (nginx-rtmp)** - Port 8081
+   - Receives RTMP streams from clients
+   - Generates HLS segments to shared volume → `/var/www/html/hls`
+
+2. **Processor Service (Python)** - Background
+   - Monitors shared volume `/var/www/html/hls` for new segments
+   - Processes each segment and detects birds
+   - Each segment is annotated in `/var/www/html/annotations/bird.json`
+
 1. **Web Server (nginx)** - Port 8080
    - Serves web interface (index.html)
-   - Serves HLS and processed_hls streams
+   - Serves HLS stream
+   - Serves annonations file `/var/www/html/annotations/bird.json`
    - Root: `/var/www/html`
-
-2. **RTMP Server (nginx-rtmp)** - Port 8081
-   - Receives RTMP streams from clients
-   - Generates HLS segments → `/var/www/html/hls`
-   - Runs under supervisord in sparrow-cam container
-
-3. **Processor Service (Python)** - Background
-   - Monitors `/var/www/html/hls` for new segments
-   - Processes each segment frame-by-frame (OpenCV + FFmpeg)
-   - Outputs processed segments → `/var/www/html/processed_hls`
-   - Copies and maintains playlist synchronization
 
 **Shared Volumes**:
 - `hls_data`: Original HLS segments and playlist from RTMP server
@@ -131,9 +130,13 @@ make -C local help
 ```
 
 **Local development architecture:**
-- sparrow-cam container: nginx-web (port 8080) + nginx-rtmp (port 8081) + supervisord
-- processor container: HLS segment processing pipeline
-- Shared volumes for HLS data exchange between services
+- Docker containers
+   - `rtmp` container: nginx-rtmp (port 8081)
+   - `processor` container: HLS segment processing pipeline
+   - `web` container: nginx-web (port 8080)
+- Shared volumes
+   - HLS data exchange between all containers
+   - Annotations data echange between `processor` and `web` container
 - Build context is project root, allowing access to `app/` files
 
 **Streaming to local development:**
