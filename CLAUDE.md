@@ -4,46 +4,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SparrowCam is a local bird feeder observation system that monitors a camera feed, automatically detects birds, and records video clips. The system runs entirely on a local network (typically on a Raspberry Pi) with no cloud dependency.
+SparrowCam is a local bird feeder observation system that monitors a camera feed, automatically detects birds via YOLOv8, and streams HLS video. The system runs entirely on a local network (typically on a Raspberry Pi) with no cloud dependency.
 
 ## Repository Structure
 
 ### `app/`
-Main application directory containing:
-- **nginx-web.conf**: Web server (nginx) configuration for port 80
-- **nginx-rtmp.conf**: RTMP server (nginx-rtmp) configuration for port 1935
+Main application directory containing configurations and processor service:
+
+**Nginx Configuration**:
+- **nginx-web.conf**: Web server configuration (template with ${WEB_PORT} substitution)
+  - Serves web interface on configurable port
+  - Serves HLS streams from `/var/www/html/hls/` with CORS headers
+  - Serves bird detection annotations from `/var/www/html/annotations/bird.json`
+- **nginx-rtmp.conf**: RTMP server configuration (template with ${RTMP_PORT} substitution)
+  - Receives RTMP streams on configurable port
+  - Generates HLS segments to `/var/www/html/hls/`
+  - HLS fragment: 1s
+  - HLS playlist: 60s buffer
 - **nginx-rtmp.service**: Systemd service file for RTMP server
-- **index.html**: Simple web interface that displays the video stream
-- **processor/**: Python video processing service
-  - `processor/app.py`: HLSSegmentProcessor - monitors and processes HLS segments frame-by-frame
-  - `setup.py`: Package configuration with opencv-python dependency (excludes tests from package)
-  - `tests/test_app.py`: Pytest-based unit tests
+  - Type: forking with PIDFile tracking
+  - Validates config before startup
+
+**Web Interface**:
+- **index.html**: Interactive web interface with HLS.js
+  - Displays live video stream using HLS protocol
+  - Shows current HLS segment filename
+  - Displays bird detection status (fetched every 500ms from `/annotations/bird.json`)
+  - Responsive design with video player controls
+
+**Processor Service** (Python package at `processor/`):
+- **pyproject.toml**: Package configuration
+  - Name: `processor`, version: `0.1.0`
+  - Requires Python >=3.11
+  - Dependencies: `opencv-python-headless`, `ultralytics`
+  - Test coverage requirement: >=90%
+  - Linting: ruff (line length 120), black, pyright
+- **processor/__main__.py**: Entry point
+  - Initializes and runs HLSSegmentProcessor
+  - Sets up logging to stdout
+- **processor/hls_segment_processor.py**: Main orchestrator
+  - Coordinates bird detection and annotation
+  - Processes segments: reads first frame, detects birds, logs results
+  - Measures and logs processing time per segment
+- **processor/bird_detector.py**: Bird detection engine
+  - Uses YOLOv8 nano model (`yolov8n.pt`)
+  - Detects birds (COCO class ID 14) at 480px resolution
+  - Returns boolean: bird detected or not
+- **processor/bird_annotator.py**: Annotation persistence
+  - Reads/writes annotations to `/var/www/html/annotations/bird.json`
+  - Prunes outdated annotations for segments no longer in HLS playlist
+  - Handles file corruption/missing file gracefully
+- **processor/hls_watchtower.py**: HLS playlist monitor
+  - Monitors `/var/www/html/hls/sparrow_cam.m3u8` for new segments
+  - Yields each new segment path exactly once
+  - Exponential backoff retry (1-10s) if playlist not available
+  - Polls every 1 second for new segments
+- **tests/**: Test suite
+  - `conftest.py`: Pytest configuration
+  - `test_app.py`: HLSSegmentProcessor tests
+  - `test_bird_detector.py`: Bird detection tests with sample images
+  - `test_bird_annotator.py`: Annotation persistence tests
+  - `test_hls_watchtower.py`: Playlist monitoring tests
+  - `data/`: Test images (bird.png, no_bird.png)
 
 ### `local/`
-Local development environment using Docker:
-- **Makefile**: Defines local development commands (build, start, stop, clean)
-- **Dockerfile**: Creates local development container with nginx, nginx-rtmp, supervisord
-- **Dockerfile.processor**: Creates processor service container (Python 3.13, OpenCV, FFmpeg)
-- **docker-compose.yml**: Orchestrates both services and shared HLS volumes
-- **supervisord.conf**: Configuration for running both nginx processes
+Local development environment using Docker with three services:
+- **Makefile**: Defines local development commands (build, start, stop, clean, check, test)
+- **Dockerfile.rtmp**: Creates nginx RTMP server container (Ubuntu 25.04, nginx with RTMP module)
+- **Dockerfile.web**: Creates nginx web server container (Ubuntu 25.04, serves interface and annotations)
+- **Dockerfile.processor**: Creates processor service container (Python 3.13, OpenCV, FFmpeg, ultralytics)
+- **docker-compose.yml**: Orchestrates three services with shared HLS and annotations volumes
+- **requirements.dev.txt**: Development dependencies (pytest, ruff, black, pyright, bandit)
 
 See `local/README.md` for detailed usage instructions.
 
-### `tests/`
-Testing suite for the application:
-- **Makefile**: Defines test commands
-- **e2e-test.sh**: End-to-end tests that verify the full system functionality
-
-See `tests/README.md` for detailed testing instructions.
-
 ### `deploy/`
 Ansible-based deployment system that deploys to local server (typically Raspberry Pi):
-- **Makefile**: Defines deployment commands
+- **Makefile**: Defines deployment commands (build, ping, web, rtmp, processor, all, clean)
 - **Dockerfile**: Creates Ansible container with Alpine Linux, Ansible, and SSH tools
-- **docker-compose.yml**: Orchestrates deployment container
+- **docker-compose.yml**: Orchestrates deployment container with volume mounts to `app/`
 - **ansible/**: Contains playbooks and configuration
-  - `web.yml`: Deploys web server (nginx on port 80)
-  - `rtmp.yml`: Deploys RTMP server (nginx-rtmp on port 1935)
+  - `web.yml`: Deploys web server (nginx on port 80) serving interface and annotations
+  - `rtmp.yml`: Deploys RTMP server (nginx-rtmp on port 1935) with systemd service
+  - `processor.yml`: Deploys processor service (pyenv, Python virtualenv, systemd service)
+  - `clean.yml`: Cleans HLS segments and annotation files from target device
   - `inventory.yml`: Defines target server using variables
   - `group_vars/all.yml`: Target device IP and SSH username (git-ignored)
   - `group_vars/all.yml.example`: Template for variables
@@ -73,26 +117,33 @@ Three services communicate via shared volumes:
    - Root: `/var/www/html`
 
 **Shared Volumes**:
-- `hls_data`: Original HLS segments and playlist from RTMP server
-- `processed_hls_data`: Processed HLS segments and playlist from processor
+- `hls_data`: HLS segments and playlist generated by RTMP server (consumed by processor and web server)
+- `annotations_data`: Bird detection annotations from processor (served by web server)
 
 ### Deployed System
 
-The target system (Raspberry Pi) also consists of **two separate nginx services**:
+The target system (Raspberry Pi) consists of **three systemd services**:
 
 1. **Web Server (nginx)** - Port 80
    - Serves web interface (index.html)
    - Serves HLS streams to browsers
+   - Hosts bird detection annotations (`/var/www/html/annotations/bird.json`)
    - Config: `/etc/nginx/nginx.conf` (from `app/nginx-web.conf`)
+   - Systemd service: `nginx`
 
 2. **RTMP Server (nginx-rtmp)** - Port 1935
    - Receives RTMP video streams
    - Generates HLS output for web playback
-   - Records streams to disk
    - Config: `/etc/nginx-rtmp/nginx.conf` (from `app/nginx-rtmp.conf`)
-   - Runs as separate systemd service: `nginx-rtmp.service`
+   - Systemd service: `nginx-rtmp.service`
 
-Note: Processor service not yet deployed - currently local-only for development.
+3. **Processor Service** - Background
+   - Installed via pyenv with Python virtualenv at `/opt/sparrow_cam_processor`
+   - Monitors `/var/www/html/hls` for new segments
+   - Processes frames and detects birds
+   - Outputs annotations to `/var/www/html/annotations/bird.json`
+   - Runs as `sparrow_cam_processor` user
+   - Systemd service: `sparrow-processor`
 
 ## Common Development Commands
 
@@ -108,22 +159,28 @@ make help
 
 **Local development commands** (run from project root):
 ```bash
-# Build the Docker image
+# Build the Docker images
 make -C local build
 
-# Start the application
+# Start all services
 make -C local start
 # Web server runs on http://localhost:8080
 # RTMP server accepts streams on rtmp://localhost:8081/live/sparrow_cam
 
-# Stop the application
+# Stop all services
 make -C local stop
 
-# Clean up (stop containers and remove generated files)
+# Clean HLS and annotations data (containers keep running)
 make -C local clean
 
-# Run processor unit tests
-make -C local unit
+# Run code quality checks (formatting, linting, type checking, security)
+make -C local check
+
+# Run processor tests with coverage report
+make -C local test
+
+# Start with OpenCV debug logging enabled
+make -C local start OPENCV_LOGS=1
 
 # View all local commands
 make -C local help
@@ -144,39 +201,29 @@ make -C local help
 ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
 ```
 
-**Processor pipeline:**
-- Watch HLS directory: `/var/www/html/hls`
-- Process each segment with frame-level operations (currently: grayscale conversion)
-- Output to: `/var/www/html/processed_hls`
-- Access processed stream at: `http://localhost:8080/processed_hls/sparrow_cam.m3u8`
+**Code Quality Tools**:
+The `make -C local check` command runs:
+- `black` - Code formatting
+- `ruff` - Linting
+- `pyright` - Type checking
+- `bandit` - Security analysis
 
-### Testing
-
-**Run end-to-end tests** (run from project root):
+**Debugging**:
 ```bash
-make -C tests e2e
+# View logs for specific service
+docker logs -f sparrow_cam_processor
+docker logs -f sparrow_cam_rtmp
+docker logs -f sparrow_cam_web
+
+# Check Docker volumes
+docker volume ls | grep sparrow_cam
 ```
 
-**Run processor unit tests** (run from project root):
-```bash
-make -C local unit
-```
-
-**End-to-end tests verify:**
-- Docker availability and image build
-- Container startup and health
-- Web server responds on port 8080
-- RTMP server accepts streams on port 8081
-- HLS stream generation
-- Recording file creation
-- Both nginx processes running under supervisord
-
-Tests automatically:
-- Build the local development image
-- Start containers
-- Stream test video
-- Verify all functionality
-- Clean up containers and files
+**Processor pipeline**:
+- Monitors HLS directory: `/var/www/html/hls` for new segments
+- Processes each segment first frame (bird detection via ultralytics)
+- Outputs annotations to: `/var/www/html/annotations/bird.json`
+- Web server hosts annotations at: `http://localhost:8080/annotations/bird.json`
 
 ### Deployment Operations
 
@@ -195,8 +242,14 @@ make -C deploy web
 # Deploy RTMP server (nginx-rtmp on port 1935)
 make -C deploy rtmp
 
-# Deploy both servers
+# Deploy processor service
+make -C deploy processor
+
+# Deploy all services (rtmp, processor, web)
 make -C deploy all
+
+# Clean HLS segments and annotations on target device
+make -C deploy clean
 
 # View all available commands
 make -C deploy help
@@ -248,7 +301,10 @@ make -C deploy web
 # After editing app/nginx-rtmp.conf
 make -C deploy rtmp
 
-# Update both
+# After editing app/processor code
+make -C deploy processor
+
+# Update all services
 make -C deploy all
 ```
 
@@ -270,15 +326,24 @@ ssh <user>@<ip> "sudo systemctl status nginx"
 
 # RTMP server
 ssh <user>@<ip> "sudo systemctl status nginx-rtmp"
+
+# Processor service
+ssh <user>@<ip> "sudo systemctl status sparrow-processor"
+
+# All services
+ssh <user>@<ip> "sudo systemctl status nginx nginx-rtmp sparrow-processor"
 ```
 
 **View logs:**
 ```bash
 # Web server logs
-ssh <user>@<ip> "sudo tail -f /var/log/nginx/error.log"
+ssh <user>@<ip> "sudo journalctl -u nginx -f"
 
 # RTMP server logs
 ssh <user>@<ip> "sudo journalctl -u nginx-rtmp -f"
+
+# Processor service logs
+ssh <user>@<ip> "sudo journalctl -u sparrow-processor -f"
 ```
 
 **Restart services:**
@@ -288,6 +353,9 @@ ssh <user>@<ip> "sudo systemctl restart nginx"
 
 # RTMP server
 ssh <user>@<ip> "sudo systemctl restart nginx-rtmp"
+
+# Processor service
+ssh <user>@<ip> "sudo systemctl restart sparrow-processor"
 ```
 
 ## Technical Requirements

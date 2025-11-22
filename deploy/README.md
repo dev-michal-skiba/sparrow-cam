@@ -18,10 +18,10 @@ ssh-copy-id -i ~/.ssh/sparrowcam_deploy.pub <username>@<target-ip>
 
 **2. Configure deployment**:
 ```bash
-cp ~/.ssh/sparrowcam_deploy ansible/ssh_key
-chmod 600 ansible/ssh_key
+cp ~/.ssh/sparrowcam_deploy deploy/ansible/ssh_key
+chmod 600 deploy/ansible/ssh_key
 
-cp ansible/group_vars/all.yml.example ansible/group_vars/all.yml
+cp deploy/ansible/group_vars/all.yml.example deploy/ansible/group_vars/all.yml
 # Edit all.yml with your target IP and username
 ```
 
@@ -38,9 +38,9 @@ make -C deploy ping
 make -C deploy all
 
 # Or deploy separately
-make -C deploy web       # Web server (port 80)
 make -C deploy rtmp      # RTMP server (port 1935)
 make -C deploy processor # Processor service
+make -C deploy web       # Web server (port 80)
 ```
 
 ## Usage
@@ -53,6 +53,26 @@ make -C deploy processor # Processor service
 ```bash
 ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://192.168.1.100/live/sparrow_cam
 ```
+
+## Service Architecture
+
+The deployment creates three systemd services on the target device:
+
+1. **nginx** (port 80) - Web server
+   - Serves web interface and HLS streams
+   - Hosts annotation file from processor (`/var/www/html/annotations/bird.json`)
+   - Configuration: `/etc/nginx/nginx.conf`
+
+2. **nginx-rtmp** (port 1935) - RTMP server
+   - Receives RTMP streams and generates HLS segments
+   - Configuration: `/etc/nginx-rtmp/nginx.conf`
+   - Runs as separate systemd service
+
+3. **sparrow-processor** - HLS segment processor
+   - Monitors `/var/www/html/hls` for new segments
+   - Processes each frame and detects birds
+   - Outputs annotations to `/var/www/html/annotations/bird.json`
+   - Runs as `sparrow_cam_processor` user
 
 ## Troubleshooting
 
@@ -69,4 +89,55 @@ ssh <user>@<ip> "sudo systemctl status nginx nginx-rtmp sparrow-processor"
 # View logs
 ssh <user>@<ip> "sudo journalctl -u nginx-rtmp -f"
 ssh <user>@<ip> "sudo journalctl -u sparrow-processor -f"
+ssh <user>@<ip> "sudo journalctl -u nginx -f"
+
+# Restart individual services
+ssh <user>@<ip> "sudo systemctl restart nginx"
+ssh <user>@<ip> "sudo systemctl restart nginx-rtmp"
+ssh <user>@<ip> "sudo systemctl restart sparrow-processor"
+
+# Check service files
+ssh <user>@<ip> "ls -la /etc/systemd/system/ | grep -E 'nginx|sparrow'"
+```
+
+## Deployment Requirements
+
+- **Target OS**: Ubuntu Server 25.04 (64-bit recommended)
+- **SSH**: Target must have SSH enabled with key-based authentication
+- **Sudo**: SSH user must have passwordless sudo privileges
+- **Network**: Target device must be accessible from development machine
+- **Firewall**: Playbooks configure UFW to allow SSH (22), HTTP (80), and RTMP (1935)
+- **Disk Space**: Ensure sufficient space for HLS segments and recordings
+
+## Updating Configurations
+
+All Ansible playbooks are idempotent - run them anytime to update:
+
+```bash
+# After modifying app/nginx-web.conf or app/index.html
+make -C deploy web
+
+# After modifying app/nginx-rtmp.conf
+make -C deploy rtmp
+
+# After modifying processor app
+make -C deploy processor
+
+# Update all configurations
+make -C deploy all
+```
+
+## Directory Locations
+
+On the target device:
+
+```
+/var/www/html/hls/                            # HLS segments and playlist
+/var/www/html/annotations/bird.json           # Bird detection annotations
+/var/www/html/index.html                      # Web interface
+/etc/nginx/nginx.conf                         # Web server config
+/etc/nginx-rtmp/nginx.conf                    # RTMP server config
+/etc/systemd/system/nginx-rtmp.service        # RTMP service file
+/etc/systemd/system/sparrow-processor.service # Processor service file
+/opt/sparrow_cam_processor/                   # Processor home directory
 ```
