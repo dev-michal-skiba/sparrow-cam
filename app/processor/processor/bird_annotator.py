@@ -43,7 +43,7 @@ class BirdAnnotator:
             with open(ANNOTATIONS_PATH) as f:
                 return cast(BirdAnnotations, json.load(f))
         except FileNotFoundError:
-            logger.warning("Annotations file missing; recreating.")
+            logger.info("Annotations file missing; recreating.")
         except json.JSONDecodeError:
             logger.warning("Annotations file corrupt; resetting.")
         return {}

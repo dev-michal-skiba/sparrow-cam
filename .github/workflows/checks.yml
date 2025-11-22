@@ -29,6 +29,14 @@ jobs:
       - name: Test
         run: make -C local test
 
+      - name: Install E2E Test Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg netcat-openbsd
+
+      - name: E2E Tests
+        run: make -C local e2e
+
       - name: Cleanup
         if: always()
         run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans

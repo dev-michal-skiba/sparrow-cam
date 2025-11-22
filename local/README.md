@@ -25,6 +25,9 @@ make -C local check
 
 # Run unit tests
 make -C local test
+
+# Run end-to-end integration tests
+make -C local e2e
 ```
 
 ## Services
@@ -51,14 +54,17 @@ ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/li
 - Original: http://localhost:8080/hls/sparrow_cam.m3u8
 - Processed: http://localhost:8080/processed_hls/sparrow_cam.m3u8
 
-## Code Quality
+## Code Quality and Testing
 
 ```bash
 # Run formatting, linting, type checking, and security analysis
 make -C local check
 
-# Run tests with coverage report
+# Run unit tests with coverage report
 make -C local test
+
+# Run end-to-end integration tests
+make -C local e2e
 ```
 
 **Check** performs:
@@ -66,6 +72,19 @@ make -C local test
 - `ruff` - Linting
 - `pyright` - Type checking
 - `bandit` - Security analysis
+
+**E2E Tests** verify the complete system:
+- RTMP server accepts streams and generates HLS segments
+- Processor service monitors HLS directory and creates annotations
+- Web server serves HLS stream and annotations file
+- Shared volumes enable communication between all three services
+
+**E2E Test Host Requirements**:
+- `docker` and `docker-compose` installed
+- `ffmpeg` installed (for streaming test video)
+- `curl` and `nc` (netcat) available on PATH
+- Ports 8080 and 8081 available on localhost
+- `sample.mp4` file in project root (used for streaming test)
 
 ## Debugging
 

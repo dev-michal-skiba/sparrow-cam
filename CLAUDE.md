@@ -69,7 +69,13 @@ Main application directory containing configurations and processor service:
 
 ### `local/`
 Local development environment using Docker with three services:
-- **Makefile**: Defines local development commands (build, start, stop, clean, check, test)
+- **Makefile**: Defines local development commands (build, start, stop, clean, check, test, e2e)
+- **e2e-test.sh**: End-to-end integration test script
+  - Tests complete pipeline: RTMP → HLS → Processor → Annotations → Web
+  - 28 individual test assertions across 7 test phases
+  - Validates bird detection processing and error-free operation
+  - Automatic cleanup on success or failure
+  - Requirements: docker, ffmpeg, curl, nc, sample.mp4
 - **Dockerfile.rtmp**: Creates nginx RTMP server container (Ubuntu 25.04, nginx with RTMP module)
 - **Dockerfile.web**: Creates nginx web server container (Ubuntu 25.04, serves interface and annotations)
 - **Dockerfile.processor**: Creates processor service container (Python 3.13, OpenCV, FFmpeg, ultralytics)
@@ -154,7 +160,7 @@ The project is organized into three packages, each with its own Makefile:
 **View available packages:**
 ```bash
 make help
-# Shows: local, tests, and deploy packages
+# Shows: local and deploy packages
 ```
 
 **Local development commands** (run from project root):
@@ -178,6 +184,9 @@ make -C local check
 
 # Run processor tests with coverage report
 make -C local test
+
+# Run end-to-end integration tests
+make -C local e2e
 
 # Start with OpenCV debug logging enabled
 make -C local start OPENCV_LOGS=1

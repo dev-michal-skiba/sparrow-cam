@@ -1,4 +1,4 @@
-.PHONY: help build start stop clean check test
+.PHONY: help build start stop clean check test e2e
 
 help:
 	@echo "SparrowCam Local Development"
@@ -11,6 +11,7 @@ help:
 	@echo "  make stop                  - Stop the application"
 	@echo "  make check                 - Run formatting, lint, type and security checks"
 	@echo "  make test                  - Run unit tests for processor package"
+	@echo "  make e2e                   - Run end-to-end integration tests"
 
 build:
 	docker compose build
@@ -56,3 +57,6 @@ check:
 
 test:
 	docker compose run --rm --no-deps processor pytest --cov=processor --cov-report=term --cov-report=term-missing
+
+e2e:
+	@bash e2e-test.sh
