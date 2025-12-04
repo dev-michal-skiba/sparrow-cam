@@ -17,6 +17,7 @@ RUN mkdir -p /var/www/html/hls /var/www/html/annotations
 # Copy nginx web configuration template + static assets
 COPY app/nginx-web.conf /tmp/nginx-web.conf.template
 COPY app/index.html /var/www/html/index.html
+COPY app/icon.png /var/www/html/icon.png
 
 # Build-time port (injected by docker-compose)
 ARG WEB_PORT

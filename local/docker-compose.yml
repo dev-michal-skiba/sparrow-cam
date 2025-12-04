@@ -52,6 +52,7 @@ services:
       - "8080:8080"
     volumes:
       - ../app/index.html:/var/www/html/index.html
+      - ../app/icon.png:/var/www/html/icon.png
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
     healthcheck:

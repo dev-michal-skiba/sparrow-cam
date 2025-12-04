@@ -76,6 +76,14 @@
         group: www-data
         mode: '0644'
 
+    - name: Copy icon.png
+      copy:
+        src: /app/icon.png
+        dest: /var/www/html/icon.png
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
     - name: Validate nginx configuration
       command: nginx -t
       register: nginx_test
