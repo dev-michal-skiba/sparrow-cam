@@ -31,14 +31,6 @@
           - acl
         state: present
 
-    - name: Create sparrow_cam_processor user
-      user:
-        name: sparrow_cam_processor
-        shell: /bin/bash
-        home: /opt/sparrow_cam_processor
-        create_home: yes
-        system: no
-
     - name: Create annotations directory
       file:
         path: /var/www/html/annotations

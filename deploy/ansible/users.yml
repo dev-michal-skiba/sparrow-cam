@@ -1,0 +1,29 @@
+---
+- name: Setup Users and Groups
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Create www-data group if it doesn't exist
+      group:
+        name: www-data
+        state: present
+
+    - name: Create www-data user
+      user:
+        name: www-data
+        group: www-data
+        shell: /usr/sbin/nologin
+        home: /var/www
+        create_home: no
+        system: yes
+        state: present
+
+    - name: Create sparrow_cam_processor user
+      user:
+        name: sparrow_cam_processor
+        shell: /bin/bash
+        home: /opt/sparrow_cam_processor
+        create_home: yes
+        system: no
+        state: present

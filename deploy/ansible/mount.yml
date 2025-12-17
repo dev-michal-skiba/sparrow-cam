@@ -1,0 +1,71 @@
+---
+- name: Mount Hard Drive for Storage
+  hosts: all
+  become: yes
+  vars:
+    device_to_mount: /dev/sda1
+
+  tasks:
+    - name: Check if any drive is already mounted at target location
+      command: mountpoint -q /var/www/html/storage
+      register: mount_check
+      failed_when: false
+      changed_when: false
+
+    - name: Finish playbook if drive already mounted
+      meta: end_play
+      when: mount_check.rc == 0
+
+    - name: Check if device exists
+      stat:
+        path: "{{ device_to_mount }}"
+      register: device_stat
+
+    - name: Fail if device does not exist
+      fail:
+        msg: "No external hard drive found at {{ device_to_mount }}"
+      when: not device_stat.stat.exists
+
+    - name: Set partition path
+      set_fact:
+        partition_to_mount: "{{ device_to_mount }}"
+
+    - name: Check if partition has a filesystem
+      command: "lsblk -n -o FSTYPE {{ partition_to_mount }}"
+      register: fstype_check
+      changed_when: false
+
+    - name: Format partition with ext4 if needed
+      command: "mkfs.ext4 -F {{ partition_to_mount }}"
+      when: fstype_check.stdout | trim == ''
+
+    - name: Create storage mount point
+      file:
+        path: /var/www/html/storage
+        state: directory
+        mode: '0755'
+
+    - name: Mount the partition
+      mount:
+        path: /var/www/html/storage
+        src: "{{ partition_to_mount }}"
+        fstype: ext4
+        state: mounted
+        opts: defaults
+
+    - name: Add mount to fstab for persistent mounting
+      mount:
+        path: /var/www/html/storage
+        src: "{{ partition_to_mount }}"
+        fstype: ext4
+        state: present
+        opts: defaults
+
+    - name: Set storage directory ownership and permissions
+      file:
+        path: /var/www/html/storage
+        state: directory
+        owner: sparrow_cam_processor
+        group: www-data
+        mode: '0775'
+        recurse: yes

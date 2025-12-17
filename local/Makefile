@@ -6,7 +6,7 @@ help:
 	@echo "Available commands:"
 	@echo "  make build                 - Build the Docker image"
 	@echo "  make start                 - Start the application (web on :8080, RTMP on :8081)"
-	@echo "  make start OPENCV_LOGS=1   - Start with OpenCV debug logging enabled"
+	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make clean                 - Stop and remove containers, volumes, and generated files"
 	@echo "  make stop                  - Stop the application"
 	@echo "  make format                - Format code with black and ruff"
