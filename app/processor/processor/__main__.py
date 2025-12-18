@@ -1,10 +1,11 @@
 import logging
 
+from processor.constants import LOG_FORMAT
 from processor.hls_segment_processor import HLSSegmentProcessor
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=LOG_FORMAT,
     handlers=[logging.StreamHandler()],
 )
 

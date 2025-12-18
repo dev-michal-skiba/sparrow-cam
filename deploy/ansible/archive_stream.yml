@@ -1,0 +1,23 @@
+---
+- name: Run Stream Archiver
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Run stream archiver script
+      shell: |
+        source ~/.pyenvrc
+        pyenv activate sparrow_cam_processor
+        PYTHONUNBUFFERED=1 python -m processor.stream_archiver 2>&1
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_processor
+      environment:
+        HOME: /opt/sparrow_cam_processor
+        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+      register: stream_archiver_result
+
+    - name: Show stream archiver logs
+      debug:
+        var: stream_archiver_result.stdout_lines

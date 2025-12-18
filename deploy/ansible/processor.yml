@@ -39,6 +39,14 @@
         group: www-data
         mode: '0775'
 
+    - name: Create stream archive storage directory
+      file:
+        path: /var/www/html/storage/sparrow_cam/archive
+        state: directory
+        owner: sparrow_cam_processor
+        group: www-data
+        mode: '0775'
+
     - name: Create temp directory for sparrow_cam_processor
       file:
         path: /opt/sparrow_cam_processor/tmp
