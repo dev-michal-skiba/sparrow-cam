@@ -4,3 +4,4 @@ ruff
 black
 pyright
 bandit
+freezegun

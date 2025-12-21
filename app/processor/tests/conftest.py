@@ -1,24 +1,28 @@
 import logging
-import os
+from pathlib import Path
 
 import cv2
 import pytest
 
 
 @pytest.fixture
-def bird_frame():
+def data_dir():
+    """Return the path to the test data directory."""
+    return Path(__file__).parent / "data"
+
+
+@pytest.fixture
+def bird_frame(data_dir):
     """Load test image containing a bird."""
-    test_data_dir = os.path.join(os.path.dirname(__file__), "data")
-    image_path = os.path.join(test_data_dir, "bird.png")
+    image_path = data_dir / "bird.png"
     frame = cv2.imread(image_path)
     return frame
 
 
 @pytest.fixture
-def no_bird_frame():
+def no_bird_frame(data_dir):
     """Load test image without a bird."""
-    test_data_dir = os.path.join(os.path.dirname(__file__), "data")
-    image_path = os.path.join(test_data_dir, "no_bird.png")
+    image_path = data_dir / "no_bird.png"
     frame = cv2.imread(image_path)
     return frame
 

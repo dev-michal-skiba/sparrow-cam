@@ -1,84 +1,375 @@
-from pathlib import Path
+import re
 
 import pytest
+from freezegun import freeze_time
 
-from processor.stream_archiver import StreamArchiver
-
-
-@pytest.fixture
-def temp_hls_path(tmp_path):
-    """Create a temporary HLS segments directory."""
-    hls_path = tmp_path / "hls"
-    hls_path.mkdir()
-    return str(hls_path)
+from processor.stream_archiver import CopyResult, PlaylistData, SegmentData, StreamArchiver
 
 
 @pytest.fixture
-def temp_archive_path(tmp_path):
-    """Create a temporary archive storage directory."""
-    archive_path = tmp_path / "storage" / "sparrow_cam" / "archive"
-    archive_path.mkdir(parents=True)
-    return str(archive_path)
+def playlist_file_content(data_dir):
+    """Playlist file content."""
+    with open(data_dir / "playlist.m3u8") as f:
+        return f.read()
 
 
 @pytest.fixture
-def sample_files(temp_hls_path):
-    """Create sample files in the HLS directory."""
-    files = []
-    for i in range(3):
-        file_path = Path(temp_hls_path) / f"segment_{i:03d}.ts"
-        file_path.write_text(f"test segment {i} content")
-        files.append(file_path)
-    return files
+def populate_path(playlist_file_content):
+    """Populate path with playlist and segment files."""
+
+    def inner(path):
+        playlist_file = path / "playlist.m3u8"
+        playlist_file.touch()
+        playlist_file.write_text(playlist_file_content)
+        for i in range(4):
+            segment_file = path / f"segment-{i}.ts"
+            segment_file.touch()
+            segment_file.write_text(f"Dummy segment data: {i}\n")
+
+    return inner
 
 
 @pytest.fixture
-def archiver_with_mocked_paths(monkeypatch, temp_hls_path, temp_archive_path):
-    """Create a StreamArchiver instance with mocked paths."""
-    monkeypatch.setattr("processor.stream_archiver.HLS_SEGMENTS_PATH", temp_hls_path)
-    monkeypatch.setattr("processor.stream_archiver.ARCHIVE_STORAGE_PATH", temp_archive_path)
-    return StreamArchiver()
+def stream_path(tmp_path, monkeypatch, populate_path):
+    """Fixture for archive storage directory."""
+    stream_dir = tmp_path / "stream"
+    stream_dir.mkdir()
+    populate_path(stream_dir)
+    monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_dir)
+    return stream_dir
+
+
+@pytest.fixture
+def archive_path(tmp_path, monkeypatch, populate_path):
+    """Fixture for archive storage directory."""
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    playlist_dir = archive_dir / "test"
+    playlist_dir.mkdir()
+    populate_path(playlist_dir)
+    monkeypatch.setattr("processor.stream_archiver.ARCHIVE_PATH", archive_dir)
+    return archive_dir
+
+
+@pytest.fixture
+def empty_stream_path(tmp_path, monkeypatch):
+    """Fixture for empty stream directory."""
+    stream_dir = tmp_path / "stream"
+    stream_dir.mkdir()
+
+    monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_dir)
+    return stream_dir
+
+
+@pytest.fixture
+def multiple_playlist_stream_path(tmp_path, monkeypatch, playlist_file_content):
+    """Fixture for stream directory with multiple playlist files."""
+    stream_dir = tmp_path / "stream"
+    stream_dir.mkdir()
+    playlist_file_1 = stream_dir / "playlist_1.m3u8"
+    playlist_file_1.touch()
+    playlist_file_1.write_text(playlist_file_content)
+    playlist_file_2 = stream_dir / "playlist_2.m3u8"
+    playlist_file_2.touch()
+    playlist_file_2.write_text(playlist_file_content)
+    monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_dir)
+    return stream_dir
+
+
+@pytest.fixture
+def single_playlist_only_stream_path(tmp_path, monkeypatch, playlist_file_content):
+    """Fixture for stream directory with single playlist file only."""
+    stream_dir = tmp_path / "stream"
+    stream_dir.mkdir()
+    playlist_file = stream_dir / "playlist.m3u8"
+    playlist_file.touch()
+    playlist_file.write_text(playlist_file_content)
+    monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_dir)
+    return stream_dir
 
 
 class TestStreamArchiver:
     """Test suite for StreamArchiver class."""
 
-    def test_archive_copies_files_to_timestamped_directory(
-        self, archiver_with_mocked_paths, sample_files, temp_archive_path, caplog
-    ):
-        """Test that archive creates timestamped UUID directory and copies files."""
-        archiver_with_mocked_paths.archive()
+    class TestArchive:
+        """Test suite for Archive method."""
 
-        # Check that a directory was created
-        archived_dirs = list(Path(temp_archive_path).iterdir())
-        assert len(archived_dirs) == 1
-        archived_dir = archived_dirs[0]
-        assert f"Archived 3 files to {archived_dir}" in caplog.text
+        @pytest.mark.usefixtures("stream_path")
+        @freeze_time("2024-12-21T15:30:45")
+        def test_archive_success(self, archive_path, playlist_file_content, caplog):
+            """Test successful archiving of stream files to archive directory."""
+            archiver = StreamArchiver()
 
-        # Check that all files were copied
-        archived_files = list(archived_dir.iterdir())
-        assert len(archived_files) == 3
+            archiver.archive()
 
-        # Verify file content
-        for original_file in sample_files:
-            archived_file = archived_dir / original_file.name
-            assert archived_file.exists()
-            assert archived_file.read_text() == original_file.read_text()
+            destination_path = next(archive_path.glob("2024-12-21T15:30:45Z_*"))
+            assert (destination_path / "playlist.m3u8").exists() is True
+            assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content.strip()
+            assert (destination_path / "segment-0.ts").exists() is True
+            assert (destination_path / "segment-1.ts").exists() is True
+            assert (destination_path / "segment-2.ts").exists() is True
+            assert (destination_path / "segment-3.ts").exists() is True
+            assert f"Archived to {destination_path} with 4 segment(s)" in caplog.text
 
-    def test_archive_with_no_files(self, archiver_with_mocked_paths, temp_archive_path, caplog):
-        """Test that archive handles empty HLS directory gracefully."""
-        archiver_with_mocked_paths.archive()
+        @pytest.mark.usefixtures("stream_path")
+        @freeze_time("2024-12-21T15:30:45")
+        def test_archive_success_with_limit(self, archive_path, caplog):
+            """Test successful archiving of stream files to archive directory."""
+            archiver = StreamArchiver()
 
-        # An empty archive directory is created but contains no files
-        archived_dirs = list(Path(temp_archive_path).iterdir())
-        assert len(archived_dirs) == 0
-        assert "No files found to archive." in caplog.text
+            archiver.archive(limit=1)
 
-    def test_archive_returns_early_if_root_directory_missing(self, monkeypatch, caplog):
-        """Test that archive returns early when root directory doesn't exist."""
-        monkeypatch.setattr("processor.stream_archiver.ARCHIVE_STORAGE_PATH", "/nonexistent/path")
+            destination_path = next(archive_path.glob("2024-12-21T15:30:45Z_*"))
+            assert (destination_path / "playlist.m3u8").exists() is True
+            assert (destination_path / "playlist.m3u8").read_text().splitlines() == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+                "#EXT-X-DISCONTINUITY",
+                "#EXTINF:1.668,",
+                "segment-3.ts",
+            ]
+            assert (destination_path / "segment-0.ts").exists() is False
+            assert (destination_path / "segment-1.ts").exists() is False
+            assert (destination_path / "segment-2.ts").exists() is False
+            assert (destination_path / "segment-3.ts").exists() is True
+            assert f"Archived to {destination_path} with 1 segment(s)" in caplog.text
+
+    def test_archive_failure(self, caplog):
+        """Test failed archiving of stream files to archive directory."""
         archiver = StreamArchiver()
 
         archiver.archive()
 
-        assert "Root archive storage directory does not exist: /nonexistent/path" in caplog.text
+        assert "Archive directory does not exist" in caplog.text
+
+    class TestValidate:
+        """Test suite for Validate method."""
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_validate_success(self):
+            """Test successful validation with valid stream and archive paths."""
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is True
+            assert result.error_message is None
+            assert result.playlist_filename == "playlist.m3u8"
+
+        @pytest.mark.parametrize("limit", [0, -1])
+        def test_validate_failure_invalid_limit(self, limit):
+            """Test validation fails with invalid (non-positive) limit."""
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=limit)
+
+            assert result.is_valid is False
+            assert f"Segment limit must be positive, got {limit}" in result.error_message
+
+        @pytest.mark.usefixtures("archive_path")
+        def test_validate_failure_invalid_stream_path(self, tmp_path, monkeypatch):
+            """Test validation fails when stream path does not exist."""
+            non_existent_path = tmp_path / "non_existent"
+            monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", non_existent_path)
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is False
+            assert "Stream directory does not exist" in result.error_message
+
+        @pytest.mark.usefixtures("stream_path")
+        def test_validate_failure_invalid_archive_path(self, tmp_path, monkeypatch):
+            """Test validation fails when archive path does not exist."""
+            non_existent_path = tmp_path / "non_existent"
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_PATH", non_existent_path)
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is False
+            assert "Archive directory does not exist" in result.error_message
+
+        @pytest.mark.usefixtures("archive_path", "empty_stream_path")
+        def test_validate_failure_no_playlist_file(self):
+            """Test validation fails when no playlist file is found."""
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is False
+            assert "No playlist file found in stream directory" in result.error_message
+
+        @pytest.mark.usefixtures("archive_path", "multiple_playlist_stream_path")
+        def test_validate_failure_multiple_playlist_files(self):
+            """Test validation fails when multiple playlist files are found."""
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is False
+            assert "Multiple playlist files found in stream directory" in result.error_message
+
+        @pytest.mark.usefixtures("archive_path", "single_playlist_only_stream_path")
+        def test_validate_failure_no_segment_files(self):
+            """Test validation fails when no segment files are found."""
+            archiver = StreamArchiver()
+
+            result = archiver.validate(limit=None)
+
+            assert result.is_valid is False
+            assert "No segment files found in stream directory" in result.error_message
+
+    class TestCopyStream:
+        """Test suite for CopyStream method."""
+
+        @freeze_time("2024-12-21T15:30:45")
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_copy_stream_success(self, stream_path, archive_path):
+            """Test successful copying of stream files to archive directory."""
+            archiver = StreamArchiver()
+
+            result = archiver.copy_stream("playlist.m3u8")
+
+            # Verify playlist filename
+            assert result.playlist_filename == "playlist.m3u8"
+            # Check directory name format: timestamp_uuid
+            timestamp_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z_"
+            assert re.match(
+                timestamp_pattern, result.destination_path.name
+            ), f"Directory name doesn't match timestamp pattern: {result.destination_path.name}"
+            # Extract UUID part and validate format (8-4-4-4-12 hex digits)
+            uuid_part = result.destination_path.name.split("_", 1)[1]
+            uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            assert re.match(uuid_pattern, uuid_part), f"UUID format is invalid: {uuid_part}"
+            # Verify directory was created in archive path
+            assert result.destination_path.parent == archive_path
+            assert result.destination_path.is_dir()
+            # Verify playlist file was copied
+            assert (result.destination_path / "playlist.m3u8").exists()
+            assert (result.destination_path / "playlist.m3u8").read_text() == (
+                stream_path / "playlist.m3u8"
+            ).read_text()
+            # Verify all segment files were copied
+            for i in range(4):
+                segment_file = f"segment-{i}.ts"
+                assert (result.destination_path / segment_file).exists()
+                assert (result.destination_path / segment_file).read_text() == (stream_path / segment_file).read_text()
+
+    class TestGetPlaylistData:
+        """Test suite for GetPlaylistData method."""
+
+        def test_get_whole_playlist_data(self, archive_path):
+            """Test successful getting of whole playlist data."""
+            archiver = StreamArchiver()
+            copy_result = CopyResult(
+                destination_path=archive_path / "test",
+                playlist_filename="playlist.m3u8",
+            )
+
+            playlist_data = archiver.get_playlist_data(copy_result, limit=None)
+
+            assert playlist_data.filename == "playlist.m3u8"
+            assert playlist_data.header_lines == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+            ]
+            assert playlist_data.segments_data == [
+                SegmentData(
+                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                    name="segment-0.ts",
+                ),
+                SegmentData(
+                    metadata=["#EXTINF:1.669,"],
+                    name="segment-1.ts",
+                ),
+                SegmentData(
+                    metadata=["#EXTINF:0.667,"],
+                    name="segment-2.ts",
+                ),
+                SegmentData(
+                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                    name="segment-3.ts",
+                ),
+            ]
+
+        def test_get_limited_playlist_data(self, archive_path):
+            """Test successful getting of limited playlist data."""
+            archiver = StreamArchiver()
+            copy_result = CopyResult(
+                destination_path=archive_path / "test",
+                playlist_filename="playlist.m3u8",
+            )
+
+            playlist_data = archiver.get_playlist_data(copy_result, limit=2)
+
+            assert playlist_data.filename == "playlist.m3u8"
+            assert playlist_data.header_lines == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+            ]
+            assert playlist_data.segments_data == [
+                SegmentData(
+                    metadata=["#EXTINF:0.667,"],
+                    name="segment-2.ts",
+                ),
+                SegmentData(
+                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                    name="segment-3.ts",
+                ),
+            ]
+
+    class TestCleanArchive:
+        """Test suite for CleanArchive method."""
+
+        def test_clean_archive_success(self, archive_path, playlist_file_content):
+            """Test successful cleaning of archive directory."""
+            archiver = StreamArchiver()
+            playlist_data = PlaylistData(
+                filename="playlist.m3u8",
+                header_lines=[
+                    "#EXTM3U",
+                    "#EXT-X-VERSION:3",
+                    "#EXT-X-MEDIA-SEQUENCE:0",
+                    "#EXT-X-TARGETDURATION:2",
+                ],
+                segments_data=[
+                    SegmentData(
+                        metadata=["#EXTINF:0.667,"],
+                        name="segment-2.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-3.ts",
+                    ),
+                ],
+            )
+            assert (archive_path / "test" / "segment-0.ts").exists() is True
+            assert (archive_path / "test" / "segment-1.ts").exists() is True
+            assert (archive_path / "test" / "segment-2.ts").exists() is True
+            assert (archive_path / "test" / "segment-3.ts").exists() is True
+            assert (archive_path / "test" / "playlist.m3u8").read_text() == playlist_file_content
+
+            archiver.clean_archive(archive_path / "test", playlist_data)
+
+            assert (archive_path / "test" / "segment-0.ts").exists() is False
+            assert (archive_path / "test" / "segment-1.ts").exists() is False
+            assert (archive_path / "test" / "segment-2.ts").exists() is True
+            assert (archive_path / "test" / "segment-3.ts").exists() is True
+            assert (archive_path / "test" / "playlist.m3u8").read_text().splitlines() == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+                "#EXTINF:0.667,",
+                "segment-2.ts",
+                "#EXT-X-DISCONTINUITY",
+                "#EXTINF:1.668,",
+                "segment-3.ts",
+            ]

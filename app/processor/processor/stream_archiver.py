@@ -1,6 +1,7 @@
+import argparse
 import logging
-import os
 import shutil
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -9,40 +10,202 @@ from processor.constants import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 
-HLS_SEGMENTS_PATH = "/var/www/html/hls"
-ARCHIVE_STORAGE_PATH = "/var/www/html/storage/sparrow_cam/archive"
+STREAM_PATH = Path("/var/www/html/hls")
+ARCHIVE_PATH = Path("/var/www/html/storage/sparrow_cam/archive")
+M3U8_HEADER_TAGS = ["#EXTM3U", "#EXT-X-VERSION", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-TARGETDURATION", "#EXT-X-STREAM-INF"]
+
+
+@dataclass
+class ValidationResult:
+    """Result of validation check for archiving."""
+
+    is_valid: bool
+    error_message: str | None = None
+    playlist_filename: str | None = None
+
+
+@dataclass
+class CopyResult:
+    """Result of copying stream files to archive directory."""
+
+    destination_path: str
+    playlist_filename: str
+
+
+@dataclass
+class SegmentData:
+    """A segment of a stream."""
+
+    metadata: list[str]
+    name: str
+
+
+@dataclass
+class PlaylistData:
+    filename: str
+    header_lines: list[str]
+    segments_data: list[SegmentData]
 
 
 class StreamArchiver:
     """Archive current HLS segments to timestamped UUID directories."""
 
-    def archive(self) -> None:
-        """Copy all files from the stream directory to a timestamped UUID directory."""
-        if not self._check_root_directory():
-            logger.error(f"Root archive storage directory does not exist: {ARCHIVE_STORAGE_PATH}")
-            return
+    def archive(self, limit: int | None = None) -> None:
+        """Copy playlist file and its referenced segment files to a timestamped UUID directory.
 
-        files = [p for p in Path(HLS_SEGMENTS_PATH).iterdir() if p.is_file()]
-        if not files:
-            logger.info("No files found to archive.")
+        Args:
+            limit: Maximum number of segments to keep. If None, all segments are kept.
+        """
+
+        # Validate archive prerequisites
+        validation_result = self.validate(limit)
+        if not validation_result.is_valid:
+            logger.error(validation_result.error_message)
             return
+        # Copy stream files to archive directory
+        copy_result = self.copy_stream(validation_result.playlist_filename)
+        # Get playlist data
+        playlist_data = self.get_playlist_data(copy_result, limit)
+        # Clean archive directory
+        self.clean_archive(copy_result.destination_path, playlist_data)
+
+        logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
+
+    def validate(self, limit: int | None) -> ValidationResult:
+        """Validate archive prerequisites.
+
+        Args:
+            limit: Maximum number of segments to archive.
+
+        Returns:
+            ValidationResult object.
+        """
+
+        if limit is not None and limit <= 0:
+            return ValidationResult(is_valid=False, error_message=f"Segment limit must be positive, got {limit}")
+
+        if not STREAM_PATH.is_dir():
+            return ValidationResult(is_valid=False, error_message="Stream directory does not exist")
+
+        if not ARCHIVE_PATH.is_dir():
+            return ValidationResult(is_valid=False, error_message="Archive directory does not exist")
+
+        # Check for required files
+        playlist_files = list(STREAM_PATH.glob("*.m3u8"))
+        if not playlist_files:
+            return ValidationResult(is_valid=False, error_message="No playlist file found in stream directory")
+        if len(playlist_files) > 1:
+            return ValidationResult(is_valid=False, error_message="Multiple playlist files found in stream directory")
+
+        ts_files = list(STREAM_PATH.glob("*.ts"))
+        if not ts_files:
+            return ValidationResult(is_valid=False, error_message="No segment files found in stream directory")
+
+        return ValidationResult(
+            is_valid=True,
+            playlist_filename=playlist_files[0].name,
+        )
+
+    def copy_stream(self, playlist_filename: str) -> str:
+        """Create archive directory with timestamped UUID name and copy all streamfiles from HLS directory.
+
+        Args:
+            playlist_filename: Name of the playlist file to copy.
+
+        Returns:
+            CopyResult object.
+        """
 
         timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         uuid = str(uuid4())
         directory_name = f"{timestamp}_{uuid}"
-        destination_path = os.path.join(ARCHIVE_STORAGE_PATH, directory_name)
-        os.makedirs(destination_path, exist_ok=True)
+        destination_path = ARCHIVE_PATH / directory_name
+        destination_path.mkdir(parents=True, exist_ok=True)
 
-        for file_path in files:
-            shutil.copy2(file_path, destination_path)
+        # Copy playlist file to archive directory
+        shutil.copy2(STREAM_PATH / playlist_filename, destination_path / playlist_filename)
 
-        logger.info(f"Archived {len(files)} files to {destination_path}")
+        # Copy all segments files to archive directory
+        for file in STREAM_PATH.glob("*.ts"):
+            shutil.copy2(file, destination_path / file.name)
 
-    def _check_root_directory(self) -> bool:
-        """Check if the root archive storage directory exists."""
-        if not os.path.isdir(ARCHIVE_STORAGE_PATH):
-            return False
-        return True
+        return CopyResult(
+            destination_path=destination_path,
+            playlist_filename=playlist_filename,
+        )
+
+    def get_playlist_data(self, copy_result: CopyResult, limit: int | None) -> PlaylistData:
+        """Get data from playlist file.
+
+        Args:
+            copy_result: CopyResult object.
+            limit: Maximum number of segments to keep. If None, all segments are kept.
+
+        Returns:
+            PlaylistData object.
+        """
+
+        with open(copy_result.destination_path / copy_result.playlist_filename) as f:
+            playlist_lines = list(
+                filter(
+                    None,
+                    [line.strip() for line in f.readlines()],
+                ),
+            )
+
+        header_lines = []
+        segment_lines = []
+
+        for line in playlist_lines:
+            for header_tag in M3U8_HEADER_TAGS:
+                if line.startswith(header_tag):
+                    header_lines.append(line)
+                    break
+            else:
+                segment_lines.append(line)
+
+        segments_data = []
+        current_segment_data = SegmentData(metadata=[], name="")
+        for line in segment_lines:
+            if line.startswith("#"):
+                current_segment_data.metadata.append(line)
+            else:
+                current_segment_data.name = line
+                segments_data.append(current_segment_data)
+                current_segment_data = SegmentData(metadata=[], name="")
+
+        if limit is not None and limit < len(segments_data):
+            segments_data = segments_data[-limit:]
+
+        return PlaylistData(
+            filename=copy_result.playlist_filename,
+            header_lines=header_lines,
+            segments_data=segments_data,
+        )
+
+    def clean_archive(self, destination_path: str, playlist_data: PlaylistData):
+        """Remove excess files from archive directory and update playlist file.
+
+        Args:
+            destination_path: Path to the archive directory.
+            playlist_data: PlaylistData object.
+        """
+
+        # Get list of segment files
+        segment_files = [segment.name for segment in playlist_data.segments_data]
+        # Remove excess segments from archive directory
+        destination = Path(destination_path)
+        for file in destination.iterdir():
+            if file.is_file() and file.name not in segment_files:
+                file.unlink()
+        # Update playlist file
+        playlist_lines = playlist_data.header_lines
+        for segment_data in playlist_data.segments_data:
+            for metadata in segment_data.metadata:
+                playlist_lines.append(metadata)
+            playlist_lines.append(segment_data.name)
+        with open(destination_path / playlist_data.filename, "w") as f:
+            f.write("\n".join(playlist_lines))
 
 
 if __name__ == "__main__":
@@ -51,5 +214,15 @@ if __name__ == "__main__":
         format=LOG_FORMAT,
         handlers=[logging.StreamHandler()],
     )
+
+    parser = argparse.ArgumentParser(description="Archive HLS segments to timestamped UUID directories")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of segments to archive. Must be positive. If not specified, all segments are archived.",
+    )
+    args = parser.parse_args()
+
     archiver = StreamArchiver()
-    archiver.archive()
+    archiver.archive(limit=args.limit)
