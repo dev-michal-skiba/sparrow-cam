@@ -46,6 +46,13 @@ def mock_bird_annotator(monkeypatch):
 
 
 @pytest.fixture
+def mock_stream_archiver(monkeypatch):
+    mock_archiver = MagicMock()
+    monkeypatch.setattr("processor.hls_segment_processor.StreamArchiver", lambda: mock_archiver)
+    return mock_archiver
+
+
+@pytest.fixture
 def dummy_watchtower(monkeypatch):
     class DummyWatchtower:
         def __init__(self):
@@ -65,7 +72,7 @@ def dummy_watchtower(monkeypatch):
 
 
 @pytest.fixture
-def hls_processor(mock_bird_detector, mock_bird_annotator):
+def hls_processor(mock_bird_detector, mock_bird_annotator, mock_stream_archiver):
     """Provide an HLSSegmentProcessor with patched dependencies."""
     return HLSSegmentProcessor()
 
@@ -77,6 +84,7 @@ class TestHLSSegmentProcessor:
         hls_processor,
         mock_bird_detector,
         mock_bird_annotator,
+        mock_stream_archiver,
         setup_video_capture,
         detect_return_value,
         annotate_call_value,
@@ -88,10 +96,14 @@ class TestHLSSegmentProcessor:
 
         mock_bird_detector.detect.assert_called_once_with("frame")
         mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", annotate_call_value)
+        if detect_return_value:
+            mock_stream_archiver.archive.assert_called_once_with(limit=1)
+        else:
+            mock_stream_archiver.archive.assert_not_called()
         assert capture.release_called is True
 
     def test_process_segment_handles_failed_video_open(
-        self, hls_processor, mock_bird_detector, mock_bird_annotator, setup_video_capture
+        self, hls_processor, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, setup_video_capture
     ):
         capture = setup_video_capture(opened=False, read_return=None)
 
@@ -99,10 +111,11 @@ class TestHLSSegmentProcessor:
 
         mock_bird_detector.detect.assert_not_called()
         mock_bird_annotator.annotate.assert_not_called()
+        mock_stream_archiver.archive.assert_not_called()
         assert capture.release_called is True
 
     def test_process_segment_handles_failed_frame_read(
-        self, hls_processor, mock_bird_detector, mock_bird_annotator, setup_video_capture
+        self, hls_processor, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, setup_video_capture
     ):
         capture = setup_video_capture(opened=True, read_return=(False, None))
 
@@ -110,6 +123,7 @@ class TestHLSSegmentProcessor:
 
         mock_bird_detector.detect.assert_not_called()
         mock_bird_annotator.annotate.assert_not_called()
+        mock_stream_archiver.archive.assert_not_called()
         assert capture.release_called is True
 
     def test_run_processes_segments_and_prunes(self, hls_processor, mock_bird_annotator, dummy_watchtower):

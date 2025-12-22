@@ -8,7 +8,7 @@
       shell: |
         source ~/.pyenvrc
         pyenv activate sparrow_cam_processor
-        PYTHONUNBUFFERED=1 python -m processor.stream_archiver 2>&1
+        PYTHONUNBUFFERED=1 python -m processor.stream_archiver --limit {{ limit | default('None') }} 2>&1
       args:
         executable: /bin/bash
       become: yes

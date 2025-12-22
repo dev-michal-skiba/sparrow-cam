@@ -7,6 +7,7 @@ import cv2
 from processor.bird_annotator import BirdAnnotator
 from processor.bird_detector import BirdDetector
 from processor.hls_watchtower import HLSWatchtower
+from processor.stream_archiver import StreamArchiver
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class HLSSegmentProcessor:
     def __init__(self):
         self.bird_detector = BirdDetector()
         self.bird_annotator = BirdAnnotator()
+        self.stream_archiver = StreamArchiver()
 
     def process_segment(self, input_segment_path, segment_name):
         """Process a single segment: detect bird in first frame and log result."""
@@ -35,6 +37,8 @@ class HLSSegmentProcessor:
                 return
 
             bird_detected = self.bird_detector.detect(frame)
+            if bird_detected:
+                self.stream_archiver.archive(limit=1)
             self.bird_annotator.annotate(segment_name, bird_detected)
             logger.info(f"{segment_name}: {'Bird detected' if bird_detected else 'No bird detected'}")
         except Exception as e:

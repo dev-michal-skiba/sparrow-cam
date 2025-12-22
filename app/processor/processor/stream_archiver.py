@@ -204,8 +204,20 @@ class StreamArchiver:
             for metadata in segment_data.metadata:
                 playlist_lines.append(metadata)
             playlist_lines.append(segment_data.name)
+        playlist_lines.append("")
         with open(destination_path / playlist_data.filename, "w") as f:
             f.write("\n".join(playlist_lines))
+
+
+def parse_limit(value: str | None) -> int | None:
+    """Argparse helper to allow int or explicit None."""
+
+    if value is None or value.strip().lower() == "none" or value.strip() == "":
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid limit '{value}', expected integer or None") from exc
 
 
 if __name__ == "__main__":
@@ -218,7 +230,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Archive HLS segments to timestamped UUID directories")
     parser.add_argument(
         "--limit",
-        type=int,
+        type=parse_limit,
         default=None,
         help="Maximum number of segments to archive. Must be positive. If not specified, all segments are archived.",
     )

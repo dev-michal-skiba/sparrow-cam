@@ -1,9 +1,10 @@
+import argparse
 import re
 
 import pytest
 from freezegun import freeze_time
 
-from processor.stream_archiver import CopyResult, PlaylistData, SegmentData, StreamArchiver
+from processor.stream_archiver import CopyResult, PlaylistData, SegmentData, StreamArchiver, parse_limit
 
 
 @pytest.fixture
@@ -104,7 +105,7 @@ class TestStreamArchiver:
 
             destination_path = next(archive_path.glob("2024-12-21T15:30:45Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
-            assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content.strip()
+            assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content
             assert (destination_path / "segment-0.ts").exists() is True
             assert (destination_path / "segment-1.ts").exists() is True
             assert (destination_path / "segment-2.ts").exists() is True
@@ -373,3 +374,31 @@ class TestStreamArchiver:
                 "#EXTINF:1.668,",
                 "segment-3.ts",
             ]
+
+
+class TestParseLimit:
+    """Test suite for parse_limit function."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("-1", -1),
+            ("0", 0),
+            ("10", 10),
+            ("None", None),
+            ("none", None),
+            ("nOnE", None),
+            ("", None),
+        ],
+    )
+    def test_parse_limit_success(self, value, expected):
+        """Test successful parsing of limit."""
+        assert parse_limit(value) == expected
+
+    @pytest.mark.parametrize("value", ["abc", "10.5"])
+    def test_parse_limit_failure(self, value):
+        """Test failed parsing of limit."""
+        with pytest.raises(argparse.ArgumentTypeError) as e:
+            parse_limit(value)
+
+        assert str(e.value) == f"Invalid limit '{value}', expected integer or None"

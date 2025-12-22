@@ -11,6 +11,7 @@ help:
 	@echo "  make processor       - Deploy processor service"
 	@echo "  make web             - Deploy web server (nginx)"
 	@echo "  make archive_stream  - Run archive stream script"
+	@echo "    LIMIT=<number>     - Limit the number of segments to archive (default: None)"
 	@echo "  make all             - Deploy all services (users, mount, RTMP, processor, web)"
 	@echo "  make clean           - Clean streaming data and annotations"
 
@@ -30,7 +31,7 @@ processor:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml processor.yml
 
 archive_stream:
-	docker-compose run --rm deploy ansible-playbook -i inventory.yml archive_stream.yml
+	docker-compose run --rm deploy ansible-playbook -i inventory.yml archive_stream.yml $(if $(LIMIT),-e "limit=$(LIMIT)",)
 
 web:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml web.yml
