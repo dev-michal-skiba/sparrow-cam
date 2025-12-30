@@ -23,7 +23,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-src = ["processor", "tests"]
+src = ["processor", "tests", "bird_detector_lab"]
 target-version = "py311"
 fix = true
 
@@ -42,7 +42,7 @@ include = "\\.pyi?$"
 pythonVersion = "3.11"
 pythonPlatform = "Linux"
 typeCheckingMode = "basic"
-include = ["processor", "tests"]
+include = ["processor", "tests", "bird_detector_lab"]
 extraPaths = ["."]
 executionEnvironments = [
     { root = "." },
