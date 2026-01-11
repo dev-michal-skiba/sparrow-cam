@@ -1,12 +1,11 @@
 from pathlib import Path
 
-import cv2  # type: ignore
+import cv2
 
-ARCHIVE_PATH = Path("bird_detector_lab/.storage/archive")
-IMAGES_PATH = Path("bird_detector_lab/.storage/images")
+from lab.constants import ARCHIVE_DIR, IMAGES_DIR
 
 
-def get_missing_archive_folders(archive_path: Path = ARCHIVE_PATH, images_path: Path = IMAGES_PATH) -> set[str]:
+def get_missing_archive_folders(archive_path: Path = ARCHIVE_DIR, images_path: Path = IMAGES_DIR) -> set[str]:
     """
     Return folder names that exist in the archive but not in images.
 
@@ -26,7 +25,7 @@ def get_missing_archive_folders(archive_path: Path = ARCHIVE_PATH, images_path: 
     return archive_dirs - image_dirs
 
 
-def convert_ts_frames_to_pngs(folder_path: Path, images_base_path: Path = IMAGES_PATH) -> None:
+def convert_ts_frames_to_pngs(folder_path: Path, images_base_path: Path = IMAGES_DIR) -> None:
     """
     Convert all .ts files in folder_path to PNG frames under images_base_path.
 
@@ -76,7 +75,7 @@ def main():
 
     for index, folder_name in enumerate(sorted(missing_folders), start=1):
         print(f"Converting {index} of {len(missing_folders)}: {folder_name}")
-        folder_path = ARCHIVE_PATH / folder_name
+        folder_path = ARCHIVE_DIR / folder_name
         try:
             convert_ts_frames_to_pngs(folder_path)
         except Exception:  # keep going on individual folder failures

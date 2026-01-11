@@ -48,7 +48,7 @@ clean:
 
 format:
 	docker compose run --rm --no-deps processor bash -lc "\
-		black processor tests bird_detector_lab && \
+		black processor tests lab && \
 		printf '\033[32mBlack formatting complete\033[0m\n' && \
 		ruff check --fix && \
 		printf '\033[32mRuff formatting complete\033[0m\n'"
@@ -59,16 +59,22 @@ check:
 		printf '\033[32mRuff check passed\033[0m\n' && \
 		PYRIGHT_PYTHON_PATH=\$(which python3) pyright && \
 		printf '\033[32mPyright check passed\033[0m\n' && \
-		bandit -r processor bird_detector_lab && \
+		bandit -r processor lab && \
 		printf '\033[32mBandit check passed\033[0m\n'"
 
 test:
-	docker compose run --rm --no-deps processor pytest --cov=processor --cov-report=term --cov-report=term-missing
+	docker compose run --rm --no-deps processor pytest --cov --cov-report=term --cov-report=term-missing
 
 e2e:
 	@bash e2e-test.sh
 
+lab:
+	docker compose run --rm --no-deps \
+		-e DISPLAY \
+		-v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+		processor python -m lab
+
 lab-convert:
 	docker compose run --rm --no-deps \
 		--workdir /app \
-		processor python bird_detector_lab/converter.py
+		processor python lab/converter.py

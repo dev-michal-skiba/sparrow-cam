@@ -23,7 +23,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-src = ["processor", "tests", "bird_detector_lab"]
+src = ["processor", "tests", "lab"]
 target-version = "py311"
 fix = true
 
@@ -42,15 +42,16 @@ include = "\\.pyi?$"
 pythonVersion = "3.11"
 pythonPlatform = "Linux"
 typeCheckingMode = "basic"
-include = ["processor", "tests", "bird_detector_lab"]
+include = ["processor", "tests", "lab"]
 extraPaths = ["."]
 executionEnvironments = [
     { root = "." },
 ]
 
 [tool.coverage.run]
-source = ["processor"]
+source = ["processor", "lab"]
 branch = true
+omit = ["*/__main__.py"]
 
 [tool.coverage.report]
 show_missing = true
