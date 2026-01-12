@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from lab.exception import UserFacingError
 from lab.utils import (
+    Region,
     annotate_frame,
     get_annotated_image_bytes,
     is_outside_storage,
@@ -281,3 +282,61 @@ class TestgetAnnotatedImageBytes:
 
             assert exc_info.value.title == "Preview error"
             assert exc_info.value.message == "Could not render annotated preview."
+
+    def test_get_annotated_image_bytes_with_regions(self, mock_detector, data_dir):
+        """Test get_annotated_image_bytes with selected regions."""
+        # Setup
+        boxes = [(10, 10, 50, 50)]
+        mock_detector.detect_boxes.return_value = boxes
+        regions = [Region(20, 20, 100, 100)]
+
+        # Execute
+        result = get_annotated_image_bytes(mock_detector, data_dir / "bird.png", regions=regions)
+
+        # Assert
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+        # Verify detector was called for the cropped region
+        mock_detector.detect_boxes.assert_called_once()
+
+    def test_get_annotated_image_bytes_with_multiple_regions_and_detections(self, mock_detector, data_dir):
+        """Test get_annotated_image_bytes with multiple regions each having detections."""
+        # Setup - detector returns boxes for each region call
+        boxes_per_region = [(10, 10, 30, 30)]
+        mock_detector.detect_boxes.return_value = boxes_per_region
+        regions = [Region(20, 20, 100, 100), Region(150, 150, 250, 250)]
+
+        # Execute
+        result = get_annotated_image_bytes(mock_detector, data_dir / "bird.png", regions=regions)
+
+        # Assert
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+        # Verify detector was called twice (once per region)
+        assert mock_detector.detect_boxes.call_count == 2
+
+    def test_get_annotated_image_bytes_with_regions_no_detections(self, mock_detector, data_dir):
+        """Test get_annotated_image_bytes with regions but no detections raises error."""
+        # Setup - detector returns no boxes
+        mock_detector.detect_boxes.return_value = []
+        regions = [Region(20, 20, 100, 100)]
+
+        # Execute and assert
+        with pytest.raises(UserFacingError) as exc_info:
+            get_annotated_image_bytes(mock_detector, data_dir / "bird.png", regions=regions)
+
+        assert exc_info.value.title == "No bird detected"
+        assert exc_info.value.severity == "info"
+
+
+class TestRegionDataclass:
+    """Tests for Region dataclass."""
+
+    def test_region_creation(self):
+        """Test Region can be created with coordinates."""
+        region = Region(10, 20, 100, 200)
+
+        assert region.x1 == 10
+        assert region.y1 == 20
+        assert region.x2 == 100
+        assert region.y2 == 200

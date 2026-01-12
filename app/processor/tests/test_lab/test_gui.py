@@ -122,6 +122,7 @@ class TestLabGUIBasic:
         assert LabGUI is not None
 
     @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
     @patch("lab.gui.tk.StringVar")
     @patch("lab.gui.tk.Label")
     @patch("lab.gui.tk.Button")
@@ -134,6 +135,7 @@ class TestLabGUIBasic:
         mock_button_class,
         mock_label_class,
         mock_stringvar_class,
+        mock_canvas_class,
         mock_bird_detector_class,
         mock_tk_root,
     ):
@@ -147,6 +149,8 @@ class TestLabGUIBasic:
         mock_button_class.return_value = mock_button
         mock_label = Mock()
         mock_label_class.return_value = mock_label
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
         mock_detector = Mock()
         mock_bird_detector_class.return_value = mock_detector
 
@@ -163,7 +167,7 @@ class TestLabGUIBasic:
         assert gui.button_frame is not None
         assert gui.select_btn is not None
         assert gui.detect_btn is not None
-        assert gui.image_preview is not None
+        assert gui.image_canvas is not None
         assert gui.path_hint is not None
 
         # Verify content padding
@@ -367,6 +371,7 @@ class TestLabGUIBasic:
         mock_string_var.set.assert_called_with(str(test_path.resolve()))
 
     @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
     @patch("lab.gui.tk.StringVar")
     @patch("lab.gui.tk.Label")
     @patch("lab.gui.tk.Button")
@@ -379,27 +384,36 @@ class TestLabGUIBasic:
         mock_button_class,
         mock_label_class,
         mock_stringvar_class,
+        mock_canvas_class,
         mock_bird_detector_class,
         mock_tk_root,
     ):
-        """Test set_image_preview updates the image label."""
+        """Test set_image_preview updates the image canvas."""
         mock_tk_class.return_value = mock_tk_root
         mock_stringvar_class.return_value = Mock()
         mock_frame_class.return_value = Mock()
         mock_button_class.return_value = Mock()
         mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas.width.return_value = 800
+        mock_canvas.height.return_value = 600
+        mock_canvas_class.return_value = mock_canvas
 
         gui = LabGUI()
 
         # Create a mock PhotoImage
         mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
         gui._LabGUI__image_obj = mock_image
 
         # Call set_image_preview
         gui.set_image_preview()
 
-        # Verify the image label was configured with the mock image
-        gui.image_preview.config.assert_called_with(image=mock_image)
+        # Verify the canvas was configured with dimensions
+        mock_canvas.config.assert_called_with(width=800, height=600)
+        # Verify create_image was called
+        mock_canvas.create_image.assert_called_once()
 
     @patch("lab.gui.BirdDetector")
     @patch("lab.gui.tk.StringVar")
@@ -563,6 +577,7 @@ class TestLabGUIBasic:
 
     @patch("lab.gui.get_annotated_image_bytes")
     @patch("lab.gui.tk.PhotoImage")
+    @patch("lab.gui.tk.Canvas")
     @patch("lab.gui.BirdDetector")
     @patch("lab.gui.tk.StringVar")
     @patch("lab.gui.tk.Label")
@@ -577,6 +592,7 @@ class TestLabGUIBasic:
         mock_label_class,
         mock_stringvar_class,
         mock_bird_detector_class,
+        mock_canvas_class,
         mock_photoimage_class,
         mock_get_annotated,
         mock_tk_root,
@@ -587,9 +603,15 @@ class TestLabGUIBasic:
         mock_frame_class.return_value = Mock()
         mock_button_class.return_value = Mock()
         mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas.width.return_value = 800
+        mock_canvas.height.return_value = 600
+        mock_canvas_class.return_value = mock_canvas
         mock_annotated_bytes = b"fake_image_data"
         mock_get_annotated.return_value = mock_annotated_bytes
         mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
         mock_photoimage_class.return_value = mock_image
 
         gui = LabGUI()
@@ -598,16 +620,18 @@ class TestLabGUIBasic:
         gui.detect_bird()
 
         # Verify get_annotated_image_bytes was called
-        mock_get_annotated.assert_called_once_with(gui.detector, Path("/test/image.png"))
+        mock_get_annotated.assert_called_once_with(gui.detector, Path("/test/image.png"), regions=None)
 
         # Verify PhotoImage was created with correct parameters
-        mock_photoimage_class.assert_called_once_with(data=mock_annotated_bytes, format="png")
+        mock_photoimage_class.assert_called_with(data=mock_annotated_bytes, format="png")
 
         # Verify image preview was updated
         assert gui._LabGUI__image_obj is mock_image
 
     @patch("lab.gui.messagebox.showinfo")
     @patch("lab.gui.get_annotated_image_bytes")
+    @patch("lab.gui.tk.PhotoImage")
+    @patch("lab.gui.tk.Canvas")
     @patch("lab.gui.BirdDetector")
     @patch("lab.gui.tk.StringVar")
     @patch("lab.gui.tk.Label")
@@ -622,6 +646,8 @@ class TestLabGUIBasic:
         mock_label_class,
         mock_stringvar_class,
         mock_bird_detector_class,
+        mock_canvas_class,
+        mock_photoimage_class,
         mock_get_annotated,
         mock_info_box,
         mock_tk_root,
@@ -632,6 +658,9 @@ class TestLabGUIBasic:
         mock_frame_class.return_value = Mock()
         mock_button_class.return_value = Mock()
         mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_photoimage_class.return_value = Mock()
         error = UserFacingError("No bird", "No birds found", severity="info")
         mock_get_annotated.side_effect = error
 
@@ -736,6 +765,8 @@ class TestLabGUIBasic:
 
     @patch("lab.gui.messagebox.showerror")
     @patch("lab.gui.get_annotated_image_bytes")
+    @patch("lab.gui.tk.PhotoImage")
+    @patch("lab.gui.tk.Canvas")
     @patch("lab.gui.BirdDetector")
     @patch("lab.gui.tk.StringVar")
     @patch("lab.gui.tk.Label")
@@ -750,6 +781,8 @@ class TestLabGUIBasic:
         mock_label_class,
         mock_stringvar_class,
         mock_bird_detector_class,
+        mock_canvas_class,
+        mock_photoimage_class,
         mock_get_annotated,
         mock_error_box,
         mock_tk_root,
@@ -760,6 +793,9 @@ class TestLabGUIBasic:
         mock_frame_class.return_value = Mock()
         mock_button_class.return_value = Mock()
         mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_photoimage_class.return_value = Mock()
         error = UserFacingError("Error", "Something went wrong", severity="error")
         mock_get_annotated.side_effect = error
 
@@ -914,3 +950,997 @@ class TestLabGUIBasic:
 
         # Verify minsize was called
         mock_tk_root.minsize.assert_called_once_with(640, 480)
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_start(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_start initiates rectangle drawing."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_canvas.create_rectangle.return_value = 1
+
+        gui = LabGUI()
+        # Set up image object so selection can be drawn
+        gui._LabGUI__image_obj = Mock()
+
+        event = Mock()
+        event.x = 100
+        event.y = 150
+
+        gui.on_selection_start(event)
+
+        # Verify rectangle was created
+        mock_canvas.create_rectangle.assert_called_once_with(100, 150, 100, 150, outline="blue", width=2)
+        assert gui._LabGUI__selection_start == (100, 150)
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_drag(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_drag updates rectangle during dragging."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__image_obj = Mock()
+        gui._LabGUI__selection_start = (50, 50)
+        gui._LabGUI__current_rect = 1
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_drag(event)
+
+        # Verify coords and text were updated
+        mock_canvas.coords.assert_called()
+        mock_canvas.create_text.assert_called_once()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_end_valid_region(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_end finalizes valid region."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_start = (50, 50)
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__dimension_text = 2
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_end(event)
+
+        # Verify region was added
+        assert len(gui._LabGUI__selection_regions) == 1
+        assert gui._LabGUI__selection_regions[0] == (50, 50, 200, 200)
+
+        # Verify clear button was shown
+        assert gui.clear_btn.pack.called
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_end_small_region(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_end ignores regions smaller than 10x10."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_start = (100, 100)
+        gui._LabGUI__current_rect = 1
+
+        event = Mock()
+        event.x = 105
+        event.y = 105
+
+        gui.on_selection_end(event)
+
+        # Verify no region was added (too small)
+        assert len(gui._LabGUI__selection_regions) == 0
+
+        # Verify rectangle was deleted
+        mock_canvas.delete.assert_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_move(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_move shows crosshairs."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_canvas.create_line.side_effect = [10, 11]
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+
+        event = Mock()
+        event.x = 400
+        event.y = 300
+
+        gui.on_mouse_move(event)
+
+        # Verify crosshairs were created
+        assert gui._LabGUI__crosshair_h == 10
+        assert gui._LabGUI__crosshair_v == 11
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_leave(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_leave hides crosshairs."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__crosshair_h = 10
+        gui._LabGUI__crosshair_v = 11
+
+        event = Mock()
+        gui.on_mouse_leave(event)
+
+        # Verify crosshairs were deleted
+        assert gui._LabGUI__crosshair_h is None
+        assert gui._LabGUI__crosshair_v is None
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.PhotoImage")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_clear_all(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_photoimage_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test clear_all clears all selection regions and resets image."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        mock_photoimage_class.return_value = mock_image
+
+        gui = LabGUI()
+        gui._LabGUI__selected_image = Path("/test/image.png")
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__selection_rects = [2, 3]
+        gui._LabGUI__selection_texts = [4, 5]
+        gui._LabGUI__selection_regions = [(0, 0, 100, 100)]
+        gui._LabGUI__dimension_text = 6
+
+        gui.clear_all()
+
+        # Verify all regions were cleared
+        assert len(gui._LabGUI__selection_regions) == 0
+        assert len(gui._LabGUI__selection_rects) == 0
+        assert len(gui._LabGUI__selection_texts) == 0
+
+        # Verify clear button was hidden
+        gui.clear_btn.pack_forget.assert_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_set_image_preview_with_no_image(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test set_image_preview returns early when image_obj is None."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__image_obj = None
+
+        gui.set_image_preview()
+
+        # Verify canvas config was NOT called
+        mock_canvas.config.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_set_image_preview_with_existing_selections(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test set_image_preview raises existing selection rectangles above image."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_rects = [10, 11]
+        gui._LabGUI__selection_texts = [20, 21]
+        gui._LabGUI__current_rect = 30
+
+        gui.set_image_preview()
+
+        # Verify tag_raise was called for all selections
+        assert mock_canvas.tag_raise.call_count == 5  # 2 rects + 2 texts + 1 current
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_start_with_no_image(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_start returns early when no image."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__image_obj = None
+
+        event = Mock()
+        event.x = 100
+        event.y = 150
+
+        gui.on_selection_start(event)
+
+        # Verify no rectangle was created
+        mock_canvas.create_rectangle.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_drag_with_no_start(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_drag returns early when no selection started."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__selection_start = None
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_drag(event)
+
+        # Verify canvas was not updated
+        mock_canvas.coords.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_drag_with_existing_text(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_drag updates existing dimension text."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__selection_start = (50, 50)
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__dimension_text = 2  # Already exists
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_drag(event)
+
+        # Verify itemconfig was called to update text
+        mock_canvas.itemconfig.assert_called_once()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_end_with_no_image(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_end returns early when no image."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__image_obj = None
+        gui._LabGUI__selection_start = (50, 50)
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_end(event)
+
+        # Verify no regions were added
+        assert len(gui._LabGUI__selection_regions) == 0
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_end_clamps_to_bounds(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_end clamps coordinates to image bounds."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_start = (-50, -50)  # Outside bounds
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__dimension_text = None
+
+        event = Mock()
+        event.x = 900  # Also outside bounds
+        event.y = 700
+
+        gui.on_selection_end(event)
+
+        # Verify region was clamped to bounds
+        assert len(gui._LabGUI__selection_regions) == 1
+        clamped = gui._LabGUI__selection_regions[0]
+        assert clamped[0] >= 0 and clamped[2] <= 800
+        assert clamped[1] >= 0 and clamped[3] <= 600
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_move_outside_bounds(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_move hides crosshairs when cursor outside bounds."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__crosshair_h = 10
+        gui._LabGUI__crosshair_v = 11
+
+        event = Mock()
+        event.x = 900  # Outside bounds
+        event.y = 300
+
+        gui.on_mouse_move(event)
+
+        # Verify crosshairs were deleted
+        assert gui._LabGUI__crosshair_h is None
+        assert gui._LabGUI__crosshair_v is None
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_move_updates_existing_crosshairs(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_move updates existing crosshairs."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__crosshair_h = 10
+        gui._LabGUI__crosshair_v = 11
+
+        event = Mock()
+        event.x = 400
+        event.y = 300
+
+        gui.on_mouse_move(event)
+
+        # Verify coords were updated for existing crosshairs
+        coords_calls = mock_canvas.coords.call_count
+        assert coords_calls == 2  # One for h, one for v
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_move_while_dragging(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_move hides crosshairs while dragging selection."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_start = (100, 100)  # Dragging
+        gui._LabGUI__crosshair_h = 10
+        gui._LabGUI__crosshair_v = 11
+
+        event = Mock()
+        event.x = 400
+        event.y = 300
+
+        gui.on_mouse_move(event)
+
+        # Verify crosshairs were hidden
+        assert gui._LabGUI__crosshair_h is None
+        assert gui._LabGUI__crosshair_v is None
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_show_clear_button_when_not_mapped(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test show_clear_button displays button when not already shown."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas_class.return_value = Mock()
+
+        gui = LabGUI()
+        gui.clear_btn.winfo_ismapped.return_value = False
+
+        gui.show_clear_button()
+
+        # Verify pack was called with correct padding
+        gui.clear_btn.pack.assert_called()
+        call_kwargs = gui.clear_btn.pack.call_args[1]
+        assert call_kwargs.get("side") == "left"
+        assert call_kwargs.get("padx") == (8, 0)
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_show_clear_button_when_already_mapped(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test show_clear_button doesn't duplicate when already shown."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas_class.return_value = Mock()
+
+        gui = LabGUI()
+        # Reset the pack call count (was called during init)
+        gui.clear_btn.pack.reset_mock()
+        gui.clear_btn.winfo_ismapped.return_value = True
+
+        gui.show_clear_button()
+
+        # pack should not be called again
+        gui.clear_btn.pack.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_hide_clear_button_when_mapped(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test hide_clear_button hides button when shown."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas_class.return_value = Mock()
+
+        gui = LabGUI()
+        gui.clear_btn.winfo_ismapped.return_value = True
+
+        gui.hide_clear_button()
+
+        # Verify pack_forget was called
+        gui.clear_btn.pack_forget.assert_called_once()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_hide_clear_button_when_not_mapped(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test hide_clear_button does nothing when not shown."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas_class.return_value = Mock()
+
+        gui = LabGUI()
+        gui.clear_btn.winfo_ismapped.return_value = False
+
+        gui.hide_clear_button()
+
+        # Verify pack_forget was NOT called
+        gui.clear_btn.pack_forget.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_mouse_move_with_no_image(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_mouse_move returns early when no image."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__image_obj = None
+
+        event = Mock()
+        event.x = 400
+        event.y = 300
+
+        gui.on_mouse_move(event)
+
+        # Verify no crosshairs were created
+        mock_canvas.create_line.assert_not_called()
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_clear_all_with_no_selected_image(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test clear_all doesn't try to reload image if none selected."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__selected_image = None
+        gui._LabGUI__selection_regions = [(0, 0, 100, 100)]
+
+        gui.clear_all()
+
+        # Verify all regions were cleared
+        assert len(gui._LabGUI__selection_regions) == 0
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_on_selection_end_without_dimension_text(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test on_selection_end when dimension_text is None."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        mock_image = Mock()
+        mock_image.width.return_value = 800
+        mock_image.height.return_value = 600
+        gui._LabGUI__image_obj = mock_image
+        gui._LabGUI__selection_start = (50, 50)
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__dimension_text = None  # No text
+
+        event = Mock()
+        event.x = 200
+        event.y = 200
+
+        gui.on_selection_end(event)
+
+        # Verify region was added but no text handling
+        assert len(gui._LabGUI__selection_regions) == 1
+        assert gui._LabGUI__dimension_text is None
