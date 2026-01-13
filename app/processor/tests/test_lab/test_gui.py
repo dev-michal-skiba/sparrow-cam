@@ -1019,6 +1019,8 @@ class TestLabGUIBasic:
         mock_label_class.return_value = Mock()
         mock_canvas = Mock()
         mock_canvas_class.return_value = mock_canvas
+        # Mock bbox to return a tuple that can be indexed
+        mock_canvas.bbox.return_value = (50, 50, 100, 70)
 
         gui = LabGUI()
         gui._LabGUI__image_obj = Mock()
@@ -1026,8 +1028,8 @@ class TestLabGUIBasic:
         gui._LabGUI__current_rect = 1
 
         event = Mock()
-        event.x = 200
-        event.y = 200
+        event.x = 530  # Creates a 480x480 square (valid size)
+        event.y = 530
 
         gui.on_selection_drag(event)
 
@@ -1072,14 +1074,14 @@ class TestLabGUIBasic:
         gui._LabGUI__dimension_text = 2
 
         event = Mock()
-        event.x = 200
-        event.y = 200
+        event.x = 530  # Creates a 480x480 square (valid size)
+        event.y = 530
 
         gui.on_selection_end(event)
 
         # Verify region was added
         assert len(gui._LabGUI__selection_regions) == 1
-        assert gui._LabGUI__selection_regions[0] == (50, 50, 200, 200)
+        assert gui._LabGUI__selection_regions[0] == (50, 50, 530, 530)
 
         # Verify clear button was shown
         assert gui.clear_btn.pack.called
@@ -1936,11 +1938,205 @@ class TestLabGUIBasic:
         gui._LabGUI__dimension_text = None  # No text
 
         event = Mock()
-        event.x = 200
-        event.y = 200
+        event.x = 530  # Creates a 480x480 square (valid size)
+        event.y = 530
 
         gui.on_selection_end(event)
 
         # Verify region was added but no text handling
         assert len(gui._LabGUI__selection_regions) == 1
         assert gui._LabGUI__dimension_text is None
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_clear_canvas_elements(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test clear_canvas_elements clears canvas elements but preserves regions."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        gui._LabGUI__current_rect = 1
+        gui._LabGUI__selection_rects = [2, 3]
+        gui._LabGUI__selection_bgs = [4, 5]
+        gui._LabGUI__selection_texts = [6, 7]
+        gui._LabGUI__selection_regions = [(0, 0, 100, 100)]  # Should be preserved
+        gui._LabGUI__selection_start = (50, 50)
+        gui._LabGUI__dimension_text = 8
+        gui._LabGUI__dimension_bg = 9
+
+        gui.clear_canvas_elements()
+
+        # Verify canvas elements were deleted
+        assert (
+            mock_canvas.delete.call_count == 9
+        )  # current_rect + 2 rects + 2 bgs + 2 texts + dimension_bg + dimension_text + canvas_image_id
+
+        # Verify lists were cleared
+        assert len(gui._LabGUI__selection_rects) == 0
+        assert len(gui._LabGUI__selection_bgs) == 0
+        assert len(gui._LabGUI__selection_texts) == 0
+        assert gui._LabGUI__selection_start is None
+        assert gui._LabGUI__current_rect is None
+
+        # Verify regions were preserved
+        assert len(gui._LabGUI__selection_regions) == 1
+        assert gui._LabGUI__selection_regions[0] == (0, 0, 100, 100)
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_redraw_selections(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test redraw_selections recreates selection rectangles and labels."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        # For 2 regions: 2 rectangles + 2 background rectangles = 4 create_rectangle calls
+        mock_canvas.create_rectangle.side_effect = [10, 12, 20, 22]
+        # For 2 regions: 2 text elements = 2 create_text calls
+        mock_canvas.create_text.side_effect = [11, 21]
+        # For 2 regions: 2 bbox calls
+        mock_canvas.bbox.side_effect = [(50, 50, 100, 70), (150, 150, 200, 170)]
+
+        gui = LabGUI()
+        gui._LabGUI__selection_regions = [(50, 50, 530, 530), (150, 150, 630, 630)]
+        gui._LabGUI__selection_rects = []
+        gui._LabGUI__selection_bgs = []
+        gui._LabGUI__selection_texts = []
+
+        gui.redraw_selections()
+
+        # Verify rectangles were created
+        assert mock_canvas.create_rectangle.call_count == 4  # 2 rects + 2 backgrounds
+        assert len(gui._LabGUI__selection_rects) == 2
+        assert gui._LabGUI__selection_rects == [10, 20]
+
+        # Verify text and backgrounds were created
+        assert mock_canvas.create_text.call_count == 2
+        assert len(gui._LabGUI__selection_texts) == 2
+        assert len(gui._LabGUI__selection_bgs) == 2
+        assert gui._LabGUI__selection_bgs == [12, 22]
+
+        # Verify clear button was shown
+        assert gui.clear_btn.pack.called
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_redraw_selections_with_no_bbox(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test redraw_selections handles None bbox gracefully."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+        mock_canvas.create_rectangle.return_value = 10
+        mock_canvas.create_text.return_value = 11
+        mock_canvas.bbox.return_value = None  # No bbox
+
+        gui = LabGUI()
+        gui._LabGUI__selection_regions = [(50, 50, 530, 530)]
+
+        gui.redraw_selections()
+
+        # Verify rectangle was created
+        assert mock_canvas.create_rectangle.call_count == 1  # Only rect, no background
+        assert len(gui._LabGUI__selection_rects) == 1
+
+        # Verify text was created but no background
+        assert mock_canvas.create_text.call_count == 1
+        assert len(gui._LabGUI__selection_texts) == 1
+        assert len(gui._LabGUI__selection_bgs) == 0
+
+    @patch("lab.gui.BirdDetector")
+    @patch("lab.gui.tk.Canvas")
+    @patch("lab.gui.tk.StringVar")
+    @patch("lab.gui.tk.Label")
+    @patch("lab.gui.tk.Button")
+    @patch("lab.gui.tk.Frame")
+    @patch("lab.gui.tk.Tk")
+    def test_redraw_selections_with_empty_regions(
+        self,
+        mock_tk_class,
+        mock_frame_class,
+        mock_button_class,
+        mock_label_class,
+        mock_stringvar_class,
+        mock_canvas_class,
+        mock_bird_detector_class,
+        mock_tk_root,
+    ):
+        """Test redraw_selections with no regions doesn't show clear button."""
+        mock_tk_class.return_value = mock_tk_root
+        mock_stringvar_class.return_value = Mock()
+        mock_frame_class.return_value = Mock()
+        mock_button_class.return_value = Mock()
+        mock_label_class.return_value = Mock()
+        mock_canvas = Mock()
+        mock_canvas_class.return_value = mock_canvas
+
+        gui = LabGUI()
+        # Reset pack call count since detect_btn gets packed during init
+        gui.clear_btn.pack.reset_mock()
+        gui._LabGUI__selection_regions = []
+
+        gui.redraw_selections()
+
+        # Verify no rectangles were created
+        mock_canvas.create_rectangle.assert_not_called()
+
+        # Verify clear button pack was not called (only called if there are regions)
+        gui.clear_btn.pack.assert_not_called()

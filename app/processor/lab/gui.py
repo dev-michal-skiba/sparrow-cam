@@ -8,6 +8,8 @@ from lab.exception import UserFacingError
 from lab.utils import Region, get_annotated_image_bytes, validate_selected_image
 from processor.bird_detector import BirdDetector
 
+MIN_SELECTION_SIZE = 480
+
 
 def handle_user_error(method):
     """
@@ -54,6 +56,7 @@ class LabGUI:
         self.__current_rect: int | None = None  # Canvas rectangle ID being drawn
         self.__selection_rects: list[int] = []  # Canvas rectangle IDs for finalized selections
         self.__selection_texts: list[int] = []  # Canvas text IDs for finalized ROI labels
+        self.__selection_bgs: list[int] = []  # Canvas rectangle IDs for finalized ROI label backgrounds
         self.__selection_regions: list[tuple[int, int, int, int]] = []  # List of (x1, y1, x2, y2)
 
         # Crosshair lines for selection guidance
@@ -62,6 +65,7 @@ class LabGUI:
 
         # Dimension label shown while drawing selection
         self.__dimension_text: int | None = None  # Canvas text ID
+        self.__dimension_bg: int | None = None  # Canvas rectangle ID for text background
 
         # UI components
         self.button_frame = tk.Frame(self.root)
@@ -144,13 +148,19 @@ class LabGUI:
         # Draw image on canvas
         self.__canvas_image_id = self.image_canvas.create_image(0, 0, anchor="nw", image=self.__image_obj)
 
-        # Raise selection rectangles and ROI texts above the image so they remain visible
+        # Raise selection rectangles, ROI backgrounds and texts above the image so they remain visible
         for rect_id in self.__selection_rects:
             self.image_canvas.tag_raise(rect_id)
+        for bg_id in self.__selection_bgs:
+            self.image_canvas.tag_raise(bg_id)
         for text_id in self.__selection_texts:
             self.image_canvas.tag_raise(text_id)
         if self.__current_rect is not None:
             self.image_canvas.tag_raise(self.__current_rect)
+        if self.__dimension_bg is not None:
+            self.image_canvas.tag_raise(self.__dimension_bg)
+        if self.__dimension_text is not None:
+            self.image_canvas.tag_raise(self.__dimension_text)
 
     def show_detect_button(self) -> None:
         if not self.detect_btn.winfo_ismapped():
@@ -175,11 +185,19 @@ class LabGUI:
         )
 
     def on_selection_drag(self, event) -> None:
-        """Update selection rectangle while dragging."""
+        """Update selection rectangle while dragging (constrained to square)."""
         if self.__selection_start is None or self.__current_rect is None:
             return
         x1, y1 = self.__selection_start
         x2, y2 = event.x, event.y
+
+        # Constrain to square: use the larger dimension for both
+        dx = x2 - x1
+        dy = y2 - y1
+        side = max(abs(dx), abs(dy))
+        x2 = x1 + side * (1 if dx >= 0 else -1)
+        y2 = y1 + side * (1 if dy >= 0 else -1)
+
         self.image_canvas.coords(self.__current_rect, x1, y1, x2, y2)
 
         # Calculate normalized ROI coordinates
@@ -188,9 +206,19 @@ class LabGUI:
         # Position text at the top-left corner of the rectangle
         text_x = roi_x1 + 4
         text_y = roi_y1 + 4
-        roi_str = f"ROI: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2})"
+        # Show ROI coordinates and size (with min requirement indicator)
+        roi_str = f"ROI: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2})\nSize: {side}px (min: {MIN_SELECTION_SIZE}px)"
 
         if self.__dimension_text is None:
+            # Create background rectangle first (so it's behind text)
+            self.__dimension_bg = self.image_canvas.create_rectangle(
+                text_x - 2,
+                text_y - 2,
+                text_x + 2,
+                text_y + 2,
+                fill="white",
+                outline="",
+            )
             self.__dimension_text = self.image_canvas.create_text(
                 text_x,
                 text_y,
@@ -199,17 +227,32 @@ class LabGUI:
                 fill="blue",
                 font=("TkDefaultFont", 10, "bold"),
             )
+            # Update background to match text size
+            bbox = self.image_canvas.bbox(self.__dimension_text)
+            if bbox:
+                self.image_canvas.coords(self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2)
         else:
             self.image_canvas.coords(self.__dimension_text, text_x, text_y)
             self.image_canvas.itemconfig(self.__dimension_text, text=roi_str)
+            # Update background position and size
+            bbox = self.image_canvas.bbox(self.__dimension_text)
+            if bbox and self.__dimension_bg is not None:
+                self.image_canvas.coords(self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2)
 
     def on_selection_end(self, event) -> None:
-        """Finalize selection rectangle and add to the list of regions."""
+        """Finalize selection rectangle (constrained to square) and add to the list of regions."""
         if self.__selection_start is None or self.__image_obj is None:
             return
 
         x1, y1 = self.__selection_start
         x2, y2 = event.x, event.y
+
+        # Constrain to square: use the larger dimension for both
+        dx = x2 - x1
+        dy = y2 - y1
+        side = max(abs(dx), abs(dy))
+        x2 = x1 + side * (1 if dx >= 0 else -1)
+        y2 = y1 + side * (1 if dy >= 0 else -1)
 
         # Normalize coordinates (ensure x1 < x2, y1 < y2)
         x1, x2 = min(x1, x2), max(x1, x2)
@@ -223,31 +266,48 @@ class LabGUI:
         y1 = max(0, min(y1, height))
         y2 = max(0, min(y2, height))
 
-        # Only add region if it's a meaningful selection (at least 10x10 pixels)
-        if (x2 - x1) >= 10 and (y2 - y1) >= 10:
+        # Calculate actual side length after clamping
+        actual_side = x2 - x1  # Since it's a square, width == height
+
+        # Only add region if selection meets minimum size requirement
+        if actual_side >= MIN_SELECTION_SIZE:
             self.__selection_regions.append((x1, y1, x2, y2))
             self.__selection_rects.append(self.__current_rect)
             self.__current_rect = None
-            # Keep the ROI text and add to finalized list
+            # Keep the ROI text/background and add to finalized lists
             if self.__dimension_text is not None:
-                # Update text with clamped coordinates
-                roi_str = f"ROI: ({x1}, {y1}, {x2}, {y2})"
+                # Update text with clamped coordinates and size
+                roi_str = f"ROI: ({x1}, {y1}, {x2}, {y2})\nSize: {actual_side}px"
                 self.image_canvas.itemconfig(self.__dimension_text, text=roi_str)
                 self.image_canvas.coords(self.__dimension_text, x1 + 4, y1 + 4)
+                # Update background position and size
+                bbox = self.image_canvas.bbox(self.__dimension_text)
+                if bbox and self.__dimension_bg is not None:
+                    self.image_canvas.coords(self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2)
+                    self.__selection_bgs.append(self.__dimension_bg)
+                    self.__dimension_bg = None
                 self.__selection_texts.append(self.__dimension_text)
                 self.__dimension_text = None
             self.show_clear_button()
         else:
-            # Too small, delete the rectangle and text
+            # Too small, delete the rectangle and text, show error
             if self.__current_rect is not None:
                 self.image_canvas.delete(self.__current_rect)
                 self.__current_rect = None
             self.hide_dimension_text()
+            messagebox.showerror(
+                "Selection too small",
+                f"Selection must be at least {MIN_SELECTION_SIZE}x{MIN_SELECTION_SIZE} pixels.\n"
+                f"Your selection: {actual_side}x{actual_side} pixels.",
+            )
 
         self.__selection_start = None
 
     def hide_dimension_text(self) -> None:
-        """Remove the dimension text from the canvas."""
+        """Remove the dimension text and background from the canvas."""
+        if self.__dimension_bg is not None:
+            self.image_canvas.delete(self.__dimension_bg)
+            self.__dimension_bg = None
         if self.__dimension_text is not None:
             self.image_canvas.delete(self.__dimension_text)
             self.__dimension_text = None
@@ -306,6 +366,9 @@ class LabGUI:
         for rect_id in self.__selection_rects:
             self.image_canvas.delete(rect_id)
         self.__selection_rects.clear()
+        for bg_id in self.__selection_bgs:
+            self.image_canvas.delete(bg_id)
+        self.__selection_bgs.clear()
         for text_id in self.__selection_texts:
             self.image_canvas.delete(text_id)
         self.__selection_texts.clear()
@@ -320,6 +383,59 @@ class LabGUI:
 
         self.hide_clear_button()
 
+    def clear_canvas_elements(self) -> None:
+        """Clear all canvas elements but preserve selection regions data."""
+        if self.__current_rect is not None:
+            self.image_canvas.delete(self.__current_rect)
+            self.__current_rect = None
+        for rect_id in self.__selection_rects:
+            self.image_canvas.delete(rect_id)
+        self.__selection_rects.clear()
+        for bg_id in self.__selection_bgs:
+            self.image_canvas.delete(bg_id)
+        self.__selection_bgs.clear()
+        for text_id in self.__selection_texts:
+            self.image_canvas.delete(text_id)
+        self.__selection_texts.clear()
+        self.__selection_start = None
+        self.hide_dimension_text()
+
+    def redraw_selections(self) -> None:
+        """Redraw selection rectangles and labels from saved regions."""
+        for x1, y1, x2, y2 in self.__selection_regions:
+            # Draw selection rectangle
+            rect_id = self.image_canvas.create_rectangle(x1, y1, x2, y2, outline="blue", width=2)
+            self.__selection_rects.append(rect_id)
+
+            # Draw background for label
+            side = x2 - x1
+            roi_str = f"ROI: ({x1}, {y1}, {x2}, {y2})\nSize: {side}px"
+            text_id = self.image_canvas.create_text(
+                x1 + 4,
+                y1 + 4,
+                text=roi_str,
+                anchor="nw",
+                fill="blue",
+                font=("TkDefaultFont", 10, "bold"),
+            )
+            bbox = self.image_canvas.bbox(text_id)
+            if bbox:
+                bg_id = self.image_canvas.create_rectangle(
+                    bbox[0] - 2,
+                    bbox[1] - 2,
+                    bbox[2] + 2,
+                    bbox[3] + 2,
+                    fill="white",
+                    outline="",
+                )
+                # Move background behind text
+                self.image_canvas.tag_lower(bg_id, text_id)
+                self.__selection_bgs.append(bg_id)
+            self.__selection_texts.append(text_id)
+
+        if self.__selection_regions:
+            self.show_clear_button()
+
     @handle_user_error
     def choose_file(self) -> None:
         """Open a file dialog and update the preview if a valid PNG is selected."""
@@ -327,8 +443,11 @@ class LabGUI:
         validate_selected_image(path)
         self.set_selected_image(path)
         self.__image_obj = tk.PhotoImage(file=self.__selected_image)
-        self.clear_all()
+        # Clear canvas elements but preserve selection regions
+        self.clear_canvas_elements()
         self.set_image_preview()
+        # Redraw selections on the new image
+        self.redraw_selections()
         self.show_detect_button()
 
     @handle_user_error
