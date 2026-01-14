@@ -50,11 +50,15 @@ class PlaylistData:
 class StreamArchiver:
     """Archive current HLS segments to timestamped UUID directories."""
 
-    def archive(self, limit: int | None = None) -> None:
+    def archive(self, prefix: str, limit: int | None = None, end_segment: str | None = None) -> None:
         """Copy playlist file and its referenced segment files to a timestamped UUID directory.
 
         Args:
             limit: Maximum number of segments to keep. If None, all segments are kept.
+            prefix: Prefix for the archive directory name. Use "auto" for automatic bird detection,
+                "manual" for manual archiving via script.
+            end_segment: If provided, archive segments ending with this segment name.
+                This prevents race conditions when new segments appear during archiving.
         """
 
         # Validate archive prerequisites
@@ -63,9 +67,9 @@ class StreamArchiver:
             logger.error(validation_result.error_message)
             return
         # Copy stream files to archive directory
-        copy_result = self.copy_stream(validation_result.playlist_filename)
+        copy_result = self.copy_stream(validation_result.playlist_filename, prefix)
         # Get playlist data
-        playlist_data = self.get_playlist_data(copy_result, limit)
+        playlist_data = self.get_playlist_data(copy_result, limit, end_segment)
         # Clean archive directory
         self.clean_archive(copy_result.destination_path, playlist_data)
 
@@ -106,20 +110,23 @@ class StreamArchiver:
             playlist_filename=playlist_files[0].name,
         )
 
-    def copy_stream(self, playlist_filename: str) -> str:
+    def copy_stream(self, playlist_filename: str, prefix: str) -> CopyResult:
         """Create archive directory with timestamped UUID name and copy all streamfiles from HLS directory.
 
         Args:
             playlist_filename: Name of the playlist file to copy.
+            prefix: Prefix for the archive directory name (e.g., "auto" or "manual").
 
         Returns:
             CopyResult object.
         """
 
-        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now = datetime.now(UTC)
+        year_month_day = now.strftime("%Y/%m/%d")
+        timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         uuid = str(uuid4())
-        directory_name = f"{timestamp}_{uuid}"
-        destination_path = ARCHIVE_PATH / directory_name
+        directory_name = f"{prefix}_{timestamp}_{uuid}"
+        destination_path = ARCHIVE_PATH / year_month_day / directory_name
         destination_path.mkdir(parents=True, exist_ok=True)
 
         # Copy playlist file to archive directory
@@ -134,12 +141,15 @@ class StreamArchiver:
             playlist_filename=playlist_filename,
         )
 
-    def get_playlist_data(self, copy_result: CopyResult, limit: int | None) -> PlaylistData:
+    def get_playlist_data(
+        self, copy_result: CopyResult, limit: int | None, end_segment: str | None = None
+    ) -> PlaylistData:
         """Get data from playlist file.
 
         Args:
             copy_result: CopyResult object.
             limit: Maximum number of segments to keep. If None, all segments are kept.
+            end_segment: If provided, select segments ending with this segment name.
 
         Returns:
             PlaylistData object.
@@ -174,7 +184,17 @@ class StreamArchiver:
                 segments_data.append(current_segment_data)
                 current_segment_data = SegmentData(metadata=[], name="")
 
-        if limit is not None and limit < len(segments_data):
+        # Apply segment selection based on end_segment or limit
+        if end_segment is not None:
+            # Find index of end_segment and slice to get `limit` segments ending with it
+            end_idx = next((i for i, s in enumerate(segments_data) if s.name == end_segment), None)
+            if end_idx is not None:
+                if limit is not None:
+                    start_idx = max(0, end_idx - limit + 1)
+                    segments_data = segments_data[start_idx : end_idx + 1]
+                else:
+                    segments_data = segments_data[: end_idx + 1]
+        elif limit is not None and limit < len(segments_data):
             segments_data = segments_data[-limit:]
 
         return PlaylistData(
@@ -231,10 +251,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--limit",
         type=parse_limit,
-        default=None,
-        help="Maximum number of segments to archive. Must be positive. If not specified, all segments are archived.",
+        default=15,
+        help="Maximum number of segments to archive. Must be positive. Defaults to 15.",
     )
     args = parser.parse_args()
 
     archiver = StreamArchiver()
-    archiver.archive(limit=args.limit)
+    archiver.archive(limit=args.limit, prefix="manual")

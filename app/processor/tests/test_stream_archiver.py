@@ -97,13 +97,14 @@ class TestStreamArchiver:
 
         @pytest.mark.usefixtures("stream_path")
         @freeze_time("2024-12-21T15:30:45")
-        def test_archive_success(self, archive_path, playlist_file_content, caplog):
-            """Test successful archiving of stream files to archive directory."""
+        def test_archive_success_manual_prefix(self, archive_path, playlist_file_content, caplog):
+            """Test successful archiving with default manual prefix."""
             archiver = StreamArchiver()
 
-            archiver.archive()
+            archiver.archive(prefix="manual")
 
-            destination_path = next(archive_path.glob("2024-12-21T15:30:45Z_*"))
+            # Verify year/month/day directory structure with manual prefix
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content
             assert (destination_path / "segment-0.ts").exists() is True
@@ -114,13 +115,27 @@ class TestStreamArchiver:
 
         @pytest.mark.usefixtures("stream_path")
         @freeze_time("2024-12-21T15:30:45")
-        def test_archive_success_with_limit(self, archive_path, caplog):
-            """Test successful archiving of stream files to archive directory."""
+        def test_archive_success_auto_prefix(self, archive_path, playlist_file_content, caplog):
+            """Test successful archiving with auto prefix."""
             archiver = StreamArchiver()
 
-            archiver.archive(limit=1)
+            archiver.archive(prefix="auto")
 
-            destination_path = next(archive_path.glob("2024-12-21T15:30:45Z_*"))
+            # Verify year/month/day directory structure with auto prefix
+            destination_path = next(archive_path.glob("2024/12/21/auto_2024-12-21T15:30:45Z_*"))
+            assert (destination_path / "playlist.m3u8").exists() is True
+            assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content
+            assert f"Archived to {destination_path} with 4 segment(s)" in caplog.text
+
+        @pytest.mark.usefixtures("stream_path")
+        @freeze_time("2024-12-21T15:30:45")
+        def test_archive_success_with_limit(self, archive_path, caplog):
+            """Test successful archiving with limit parameter."""
+            archiver = StreamArchiver()
+
+            archiver.archive(limit=1, prefix="manual")
+
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text().splitlines() == [
                 "#EXTM3U",
@@ -137,11 +152,48 @@ class TestStreamArchiver:
             assert (destination_path / "segment-3.ts").exists() is True
             assert f"Archived to {destination_path} with 1 segment(s)" in caplog.text
 
-    def test_archive_failure(self, caplog):
+        @pytest.mark.usefixtures("stream_path")
+        @freeze_time("2024-12-21T15:30:45")
+        def test_archive_success_with_end_segment(self, archive_path, caplog):
+            """Test archiving with end_segment parameter to prevent race conditions."""
+            archiver = StreamArchiver()
+
+            # Archive 2 segments ending with segment-2.ts
+            archiver.archive(limit=2, prefix="manual", end_segment="segment-2.ts")
+
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
+            assert (destination_path / "playlist.m3u8").exists() is True
+            assert (destination_path / "playlist.m3u8").read_text().splitlines() == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+                "#EXTINF:1.669,",
+                "segment-1.ts",
+                "#EXTINF:0.667,",
+                "segment-2.ts",
+            ]
+            assert (destination_path / "segment-0.ts").exists() is False
+            assert (destination_path / "segment-1.ts").exists() is True
+            assert (destination_path / "segment-2.ts").exists() is True
+            assert (destination_path / "segment-3.ts").exists() is False
+            assert f"Archived to {destination_path} with 2 segment(s)" in caplog.text
+
+    def test_archive_failure(self, tmp_path, monkeypatch, populate_path, caplog):
         """Test failed archiving of stream files to archive directory."""
+        # Set up stream directory with files
+        stream_dir = tmp_path / "stream"
+        stream_dir.mkdir()
+        populate_path(stream_dir)
+        monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_dir)
+
+        # Archive directory is NOT set up, should use a non-existent path
+        non_existent_archive = tmp_path / "non_existent_archive"
+        monkeypatch.setattr("processor.stream_archiver.ARCHIVE_PATH", non_existent_archive)
+
         archiver = StreamArchiver()
 
-        archiver.archive()
+        archiver.archive(prefix="manual")
 
         assert "Archive directory does not exist" in caplog.text
 
@@ -228,25 +280,25 @@ class TestStreamArchiver:
 
         @freeze_time("2024-12-21T15:30:45")
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_copy_stream_success(self, stream_path, archive_path):
-            """Test successful copying of stream files to archive directory."""
+        def test_copy_stream_success_manual_prefix(self, stream_path, archive_path):
+            """Test successful copying of stream files with manual prefix."""
             archiver = StreamArchiver()
 
-            result = archiver.copy_stream("playlist.m3u8")
+            result = archiver.copy_stream("playlist.m3u8", prefix="manual")
 
             # Verify playlist filename
             assert result.playlist_filename == "playlist.m3u8"
-            # Check directory name format: timestamp_uuid
-            timestamp_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z_"
+            # Check directory name format: prefix_timestamp_uuid
+            dir_name_pattern = r"^manual_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z_"
             assert re.match(
-                timestamp_pattern, result.destination_path.name
-            ), f"Directory name doesn't match timestamp pattern: {result.destination_path.name}"
+                dir_name_pattern, result.destination_path.name
+            ), f"Directory name doesn't match expected pattern: {result.destination_path.name}"
             # Extract UUID part and validate format (8-4-4-4-12 hex digits)
-            uuid_part = result.destination_path.name.split("_", 1)[1]
+            uuid_part = result.destination_path.name.split("_", 2)[2]
             uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
             assert re.match(uuid_pattern, uuid_part), f"UUID format is invalid: {uuid_part}"
-            # Verify directory was created in archive path
-            assert result.destination_path.parent == archive_path
+            # Verify year/month/day directory structure
+            assert result.destination_path.parent == archive_path / "2024" / "12" / "21"
             assert result.destination_path.is_dir()
             # Verify playlist file was copied
             assert (result.destination_path / "playlist.m3u8").exists()
@@ -258,6 +310,19 @@ class TestStreamArchiver:
                 segment_file = f"segment-{i}.ts"
                 assert (result.destination_path / segment_file).exists()
                 assert (result.destination_path / segment_file).read_text() == (stream_path / segment_file).read_text()
+
+        @freeze_time("2024-12-21T15:30:45")
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_copy_stream_success_auto_prefix(self, stream_path, archive_path):
+            """Test successful copying of stream files with auto prefix."""
+            archiver = StreamArchiver()
+
+            result = archiver.copy_stream("playlist.m3u8", prefix="auto")
+
+            # Check directory name starts with auto prefix
+            assert result.destination_path.name.startswith("auto_2024-12-21T15:30:45Z_")
+            # Verify year/month/day directory structure
+            assert result.destination_path.parent == archive_path / "2024" / "12" / "21"
 
     class TestGetPlaylistData:
         """Test suite for GetPlaylistData method."""
@@ -325,6 +390,58 @@ class TestStreamArchiver:
                     name="segment-3.ts",
                 ),
             ]
+
+        def test_get_playlist_data_with_end_segment(self, archive_path):
+            """Test getting playlist data with end_segment parameter."""
+            archiver = StreamArchiver()
+            copy_result = CopyResult(
+                destination_path=archive_path / "test",
+                playlist_filename="playlist.m3u8",
+            )
+
+            # Get 2 segments ending with segment-2.ts
+            playlist_data = archiver.get_playlist_data(copy_result, limit=2, end_segment="segment-2.ts")
+
+            assert playlist_data.filename == "playlist.m3u8"
+            assert playlist_data.segments_data == [
+                SegmentData(
+                    metadata=["#EXTINF:1.669,"],
+                    name="segment-1.ts",
+                ),
+                SegmentData(
+                    metadata=["#EXTINF:0.667,"],
+                    name="segment-2.ts",
+                ),
+            ]
+
+        def test_get_playlist_data_with_end_segment_no_limit(self, archive_path):
+            """Test getting playlist data with end_segment but no limit."""
+            archiver = StreamArchiver()
+            copy_result = CopyResult(
+                destination_path=archive_path / "test",
+                playlist_filename="playlist.m3u8",
+            )
+
+            # Get all segments up to and including segment-2.ts
+            playlist_data = archiver.get_playlist_data(copy_result, limit=None, end_segment="segment-2.ts")
+
+            assert len(playlist_data.segments_data) == 3
+            assert playlist_data.segments_data[-1].name == "segment-2.ts"
+
+        def test_get_playlist_data_with_end_segment_limit_exceeds_available(self, archive_path):
+            """Test end_segment with limit larger than available segments before it."""
+            archiver = StreamArchiver()
+            copy_result = CopyResult(
+                destination_path=archive_path / "test",
+                playlist_filename="playlist.m3u8",
+            )
+
+            # Request 10 segments ending with segment-1.ts (only 2 available: segment-0 and segment-1)
+            playlist_data = archiver.get_playlist_data(copy_result, limit=10, end_segment="segment-1.ts")
+
+            assert len(playlist_data.segments_data) == 2
+            assert playlist_data.segments_data[0].name == "segment-0.ts"
+            assert playlist_data.segments_data[1].name == "segment-1.ts"
 
     class TestCleanArchive:
         """Test suite for CleanArchive method."""

@@ -11,7 +11,7 @@ help:
 	@echo "  make processor       - Deploy processor service"
 	@echo "  make web             - Deploy web server (nginx)"
 	@echo "  make archive_stream  - Run archive stream script"
-	@echo "    LIMIT=<number>     - Limit the number of segments to archive (default: None)"
+	@echo "    LIMIT=<number>     - Limit the number of segments to archive (default: 15)"
 	@echo "  make all             - Deploy all services (users, mount, RTMP, processor, web)"
 	@echo "  make clean           - Clean streaming data and annotations"
 

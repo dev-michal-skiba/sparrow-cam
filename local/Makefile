@@ -77,4 +77,4 @@ lab:
 lab-convert:
 	docker compose run --rm --no-deps \
 		--workdir /app \
-		processor python lab/converter.py
+		processor python -m lab.converter
