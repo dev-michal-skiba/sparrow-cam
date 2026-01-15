@@ -4,11 +4,11 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from lab.constants import IMAGES_DIR
+from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR
 from lab.converter import convert_all_playlists
 from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager
-from lab.utils import Region, get_annotated_image_bytes, validate_selected_image
+from lab.utils import Region, get_annotated_image_bytes
 from processor.bird_detector import BirdDetector
 
 MIN_SELECTION_SIZE = 480
@@ -200,6 +200,13 @@ class LabGUI:
         self.__dimension_text: int | None = None  # Canvas text ID
         self.__dimension_bg: int | None = None  # Canvas rectangle ID for text background
 
+        # Recording navigation state
+        self.__current_recording: Path | None = None  # Selected recording folder
+        self.__all_recordings: list[Path] = []  # All recordings sorted by date
+        self.__frame_files: list[Path] = []  # All PNG files in current recording, sorted
+        self.__current_frame_index: int = 0  # Index into frame_files
+        self.__frames_per_segment: int = 0  # Frames per segment (calculated from first segment)
+
         # UI components
         self.button_frame = tk.Frame(self.root)
         self.button_frame.pack(pady=(24, 12))
@@ -207,12 +214,47 @@ class LabGUI:
         self.sync_btn = tk.Button(self.button_frame, text="Sync", command=self.start_sync)
         self.sync_btn.pack(side="left", padx=(0, 8))
 
-        self.select_btn = tk.Button(self.button_frame, text="Select image", command=self.choose_file)
+        self.select_btn = tk.Button(self.button_frame, text="Select recording", command=self.choose_recording)
         self.select_btn.pack(side="left", padx=(0, 8))
 
         self.detect_btn = tk.Button(self.button_frame, text="Detect Bird", command=self.detect_bird)
 
         self.clear_btn = tk.Button(self.button_frame, text="Clear", command=self.clear_all)
+
+        # Navigation frame (hidden until recording is loaded)
+        self.nav_frame = tk.Frame(self.root)
+
+        # Recording navigation buttons
+        self.prev_rec_btn = tk.Button(self.nav_frame, text="< Prev Recording", command=self.prev_recording)
+        self.prev_rec_btn.pack(side="left", padx=(0, 8))
+
+        # Frame navigation buttons
+        self.nav_minus_5s_btn = tk.Button(self.nav_frame, text="-5s", command=lambda: self.navigate_seconds(-5))
+        self.nav_minus_5s_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_minus_1s_btn = tk.Button(self.nav_frame, text="-1s", command=lambda: self.navigate_seconds(-1))
+        self.nav_minus_1s_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_minus_5f_btn = tk.Button(self.nav_frame, text="-5f", command=lambda: self.navigate_frames(-5))
+        self.nav_minus_5f_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_minus_1f_btn = tk.Button(self.nav_frame, text="-1f", command=lambda: self.navigate_frames(-1))
+        self.nav_minus_1f_btn.pack(side="left", padx=(0, 8))
+
+        self.nav_plus_1f_btn = tk.Button(self.nav_frame, text="+1f", command=lambda: self.navigate_frames(1))
+        self.nav_plus_1f_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_plus_5f_btn = tk.Button(self.nav_frame, text="+5f", command=lambda: self.navigate_frames(5))
+        self.nav_plus_5f_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_plus_1s_btn = tk.Button(self.nav_frame, text="+1s", command=lambda: self.navigate_seconds(1))
+        self.nav_plus_1s_btn.pack(side="left", padx=(0, 2))
+
+        self.nav_plus_5s_btn = tk.Button(self.nav_frame, text="+5s", command=lambda: self.navigate_seconds(5))
+        self.nav_plus_5s_btn.pack(side="left", padx=(0, 8))
+
+        self.next_rec_btn = tk.Button(self.nav_frame, text="Next Recording >", command=self.next_recording)
+        self.next_rec_btn.pack(side="left")
 
         # Canvas for image preview with selection support
         self.image_canvas = tk.Canvas(self.root, highlightthickness=0)
@@ -227,6 +269,29 @@ class LabGUI:
         # Bind mouse events for crosshair guidance
         self.image_canvas.bind("<Motion>", self.on_mouse_move)
         self.image_canvas.bind("<Leave>", self.on_mouse_leave)
+
+        # Progress bar frame (hidden until recording is loaded)
+        self.progress_frame = tk.Frame(self.root)
+
+        # Position label (e.g., "0:02.5 / 0:15.0 (frame 75/450)")
+        self.__position_text = tk.StringVar(value="")
+        self.position_label = tk.Label(
+            self.progress_frame,
+            textvariable=self.__position_text,
+            fg="#333333",
+            font=("TkDefaultFont", 9),
+        )
+        self.position_label.pack(side="top", pady=(0, 4))
+
+        # Progress bar (ttk.Scale for interactive seeking)
+        self.progress_bar = ttk.Scale(
+            self.progress_frame,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            command=self._on_progress_seek,
+        )
+        self.progress_bar.pack(fill="x", padx=24)
 
         self.path_hint = tk.Label(
             self.root,
@@ -257,17 +322,139 @@ class LabGUI:
         available = max(event.width - 2 * self.content_pad, 200)
         self.path_hint.config(wraplength=available)
 
-    def get_selected_file_from_user(self) -> Path | None:
-        path = filedialog.askopenfilename(
+    def get_selected_folder_from_user(self) -> Path | None:
+        """Open directory dialog to select a recording folder."""
+        path = filedialog.askdirectory(
             initialdir=str(IMAGES_DIR),
-            filetypes=[("PNG images", "*.png")],
-            title="Select image",
+            title="Select recording",
         )
         return Path(path) if path else None
 
     def set_selected_image(self, path: Path) -> None:
         self.__selected_image = path.resolve()
         self.__selected_image_text.set(str(self.__selected_image))
+
+    def scan_recording_frames(self, folder: Path) -> list[Path]:
+        """
+        Scan a recording folder for PNG files and return them sorted by segment then frame.
+
+        Returns list of Path objects sorted by (segment_number, frame_index).
+        """
+        frames: list[tuple[int, int, Path]] = []
+
+        for png_file in folder.glob("*.png"):
+            match = IMAGE_FILENAME_PATTERN.match(png_file.name)
+            if match:
+                segment = int(match.group(2))
+                frame_idx = int(match.group(3))
+                frames.append((segment, frame_idx, png_file))
+
+        # Sort by segment number, then frame index
+        frames.sort(key=lambda x: (x[0], x[1]))
+        return [f[2] for f in frames]
+
+    def calculate_frames_per_segment(self) -> int:
+        """Calculate frames per segment from the first segment's frame count."""
+        if not self.__frame_files:
+            return 0
+
+        # Get the first segment number
+        first_match = IMAGE_FILENAME_PATTERN.match(self.__frame_files[0].name)
+        if not first_match:
+            return 0
+
+        first_segment = int(first_match.group(2))
+
+        # Count frames in first segment
+        count = 0
+        for frame_file in self.__frame_files:
+            match = IMAGE_FILENAME_PATTERN.match(frame_file.name)
+            if match and int(match.group(2)) == first_segment:
+                count += 1
+            elif match:
+                # We've moved to the next segment
+                break
+
+        return count
+
+    def scan_all_recordings(self) -> list[Path]:
+        """
+        Scan IMAGES_DIR for all recording folders and return them sorted by path (date order).
+
+        Returns list of recording folder Paths sorted by their full path.
+        """
+        if not IMAGES_DIR.exists():
+            return []
+
+        recordings: list[Path] = []
+
+        # Walk the nested structure: year/month/day/folder
+        for year_dir in sorted(IMAGES_DIR.iterdir()):
+            if not year_dir.is_dir() or not year_dir.name.isdigit():
+                continue
+
+            for month_dir in sorted(year_dir.iterdir()):
+                if not month_dir.is_dir() or not month_dir.name.isdigit():
+                    continue
+
+                for day_dir in sorted(month_dir.iterdir()):
+                    if not day_dir.is_dir() or not day_dir.name.isdigit():
+                        continue
+
+                    for folder in sorted(day_dir.iterdir()):
+                        if folder.is_dir():
+                            # Check if it has PNG files
+                            if any(folder.glob("*.png")):
+                                recordings.append(folder)
+
+        return recordings
+
+    def show_navigation(self) -> None:
+        """Show navigation controls."""
+        if not self.nav_frame.winfo_ismapped():
+            self.nav_frame.pack(pady=(0, 8))
+        if not self.progress_frame.winfo_ismapped():
+            self.progress_frame.pack(fill="x", padx=self.content_pad, pady=(0, 8))
+
+    def hide_navigation(self) -> None:
+        """Hide navigation controls."""
+        if self.nav_frame.winfo_ismapped():
+            self.nav_frame.pack_forget()
+        if self.progress_frame.winfo_ismapped():
+            self.progress_frame.pack_forget()
+
+    def update_progress_display(self) -> None:
+        """Update progress bar and position label based on current frame."""
+        if not self.__frame_files or self.__frames_per_segment == 0:
+            return
+
+        total_frames = len(self.__frame_files)
+        current = self.__current_frame_index
+
+        # Calculate current position as seconds and frame within second
+        current_second = current // self.__frames_per_segment
+        current_frame_in_second = current % self.__frames_per_segment
+
+        # Calculate total duration (last frame position)
+        last_frame = total_frames - 1
+        total_second = last_frame // self.__frames_per_segment
+        total_frame_in_second = last_frame % self.__frames_per_segment
+
+        # Format as XsYf / XsYf
+        position_str = f"{current_second}s{current_frame_in_second}f / " f"{total_second}s{total_frame_in_second}f"
+        self.__position_text.set(position_str)
+
+        # Update progress bar
+        self.progress_bar.config(to=total_frames - 1)
+        self.progress_bar.set(current)
+
+    def _on_progress_seek(self, value: str) -> None:
+        """Handle progress bar seek."""
+        if not self.__frame_files:
+            return
+        new_index = int(float(value))
+        if new_index != self.__current_frame_index:
+            self.load_frame(new_index)
 
     def set_image_preview(self) -> None:
         if self.__image_obj is None:
@@ -573,18 +760,146 @@ class LabGUI:
             self.show_clear_button()
 
     @handle_user_error
-    def choose_file(self) -> None:
-        """Open a file dialog and update the preview if a valid PNG is selected."""
-        path = self.get_selected_file_from_user()
-        validate_selected_image(path)
-        self.set_selected_image(path)
-        self.__image_obj = tk.PhotoImage(file=self.__selected_image)
+    def choose_recording(self) -> None:
+        """Open a folder dialog and load the first frame from the selected recording."""
+        folder = self.get_selected_folder_from_user()
+        if folder is None:
+            return
+
+        # Scan for frame files
+        frames = self.scan_recording_frames(folder)
+        if not frames:
+            messagebox.showerror("Invalid Recording", "No valid PNG frames found in the selected folder.")
+            return
+
+        # Update recording state
+        self.__current_recording = folder.resolve()
+        self.__frame_files = frames
+        self.__current_frame_index = 0
+        self.__frames_per_segment = self.calculate_frames_per_segment()
+
+        # Scan all recordings for prev/next navigation
+        self.__all_recordings = self.scan_all_recordings()
+
+        # Load first frame
+        self.load_frame(0)
+
+        # Show navigation controls
+        self.show_navigation()
+        self.show_detect_button()
+
+    def load_frame(self, index: int) -> None:
+        """
+        Load a frame at the specified index.
+
+        Clamps index to valid range, preserves selection regions.
+        """
+        if not self.__frame_files:
+            return
+
+        # Clamp index to valid range
+        index = max(0, min(index, len(self.__frame_files) - 1))
+
+        # Update current frame index
+        self.__current_frame_index = index
+
+        # Load the frame
+        frame_path = self.__frame_files[index]
+        self.set_selected_image(frame_path)
+        self.__image_obj = tk.PhotoImage(file=frame_path)
+
         # Clear canvas elements but preserve selection regions
         self.clear_canvas_elements()
         self.set_image_preview()
+
         # Redraw selections on the new image
         self.redraw_selections()
-        self.show_detect_button()
+
+        # Update progress display
+        self.update_progress_display()
+
+    def navigate_frames(self, delta: int) -> None:
+        """Navigate by a number of frames (positive or negative)."""
+        if not self.__frame_files:
+            return
+
+        new_index = self.__current_frame_index + delta
+        # Clamp to valid range
+        new_index = max(0, min(new_index, len(self.__frame_files) - 1))
+
+        if new_index != self.__current_frame_index:
+            self.load_frame(new_index)
+
+    def navigate_seconds(self, delta: int) -> None:
+        """Navigate by a number of seconds (positive or negative)."""
+        if not self.__frame_files or self.__frames_per_segment == 0:
+            return
+
+        frame_delta = delta * self.__frames_per_segment
+        new_index = self.__current_frame_index + frame_delta
+        # Clamp to valid range
+        new_index = max(0, min(new_index, len(self.__frame_files) - 1))
+
+        if new_index != self.__current_frame_index:
+            self.load_frame(new_index)
+
+    def prev_recording(self) -> None:
+        """Navigate to the previous recording (sorted by date)."""
+        if not self.__current_recording or not self.__all_recordings:
+            return
+
+        try:
+            current_idx = self.__all_recordings.index(self.__current_recording)
+        except ValueError:
+            # Current recording not in list, refresh and try again
+            self.__all_recordings = self.scan_all_recordings()
+            try:
+                current_idx = self.__all_recordings.index(self.__current_recording)
+            except ValueError:
+                return
+
+        if current_idx <= 0:
+            # Already at first recording
+            return
+
+        # Load previous recording
+        self._load_recording(self.__all_recordings[current_idx - 1])
+
+    def next_recording(self) -> None:
+        """Navigate to the next recording (sorted by date)."""
+        if not self.__current_recording or not self.__all_recordings:
+            return
+
+        try:
+            current_idx = self.__all_recordings.index(self.__current_recording)
+        except ValueError:
+            # Current recording not in list, refresh and try again
+            self.__all_recordings = self.scan_all_recordings()
+            try:
+                current_idx = self.__all_recordings.index(self.__current_recording)
+            except ValueError:
+                return
+
+        if current_idx >= len(self.__all_recordings) - 1:
+            # Already at last recording
+            return
+
+        # Load next recording
+        self._load_recording(self.__all_recordings[current_idx + 1])
+
+    def _load_recording(self, folder: Path) -> None:
+        """Load a recording folder and show its first frame."""
+        frames = self.scan_recording_frames(folder)
+        if not frames:
+            return
+
+        self.__current_recording = folder.resolve()
+        self.__frame_files = frames
+        self.__current_frame_index = 0
+        self.__frames_per_segment = self.calculate_frames_per_segment()
+
+        # Load first frame
+        self.load_frame(0)
 
     @handle_user_error
     def detect_bird(self) -> None:
