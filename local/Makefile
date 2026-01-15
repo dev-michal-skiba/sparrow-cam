@@ -13,7 +13,7 @@ help:
 	@echo "  make check                 - Run lint, type and security checks (no formatting)"
 	@echo "  make test                  - Run unit tests for processor package"
 	@echo "  make e2e                   - Run end-to-end integration tests"
-	@echo "  make lab-convert           - Convert archived .ts files to .png files"
+	@echo "  make lab                   - Launch lab GUI"
 
 build:
 	docker compose build
@@ -73,8 +73,3 @@ lab:
 		-e DISPLAY \
 		-v /tmp/.X11-unix:/tmp/.X11-unix:ro \
 		processor python -m lab
-
-lab-convert:
-	docker compose run --rm --no-deps \
-		--workdir /app \
-		processor python -m lab.converter

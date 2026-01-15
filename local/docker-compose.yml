@@ -38,6 +38,8 @@ services:
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
       - ./.archive:/var/www/html/storage/sparrow_cam/archive
+      - ../deploy/ansible/ssh_key:/secrets/ssh_key:ro
+      - ../deploy/ansible/group_vars/all.yml:/secrets/all.yml:ro
 
   web:
     build:

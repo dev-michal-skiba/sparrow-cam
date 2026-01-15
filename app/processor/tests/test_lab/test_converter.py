@@ -3,14 +3,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from lab.converter import convert_ts_frames_to_pngs, get_missing_archive_folders, main
+from lab.converter import convert_all_playlists, convert_playlist_to_pngs, get_unconverted_playlists
 
 
-class TestGetMissingArchiveFolders:
-    """Tests for get_missing_archive_folders function."""
+class TestGetUnconvertedPlaylists:
+    """Tests for get_unconverted_playlists function."""
 
-    def test_returns_folders_in_archive_but_not_in_images(self):
-        """Should return folder names that exist in archive but not in images."""
+    def test_returns_playlists_in_archive_but_not_in_images(self):
+        """Should return playlist paths that exist in archive but not in images."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             archive_path = tmpdir_path / "archive"
@@ -19,20 +19,27 @@ class TestGetMissingArchiveFolders:
             archive_path.mkdir()
             images_path.mkdir()
 
-            # Create folders in archive
-            (archive_path / "folder1").mkdir()
-            (archive_path / "folder2").mkdir()
-            (archive_path / "folder3").mkdir()
+            # Create nested structure: year/month/day/playlist
+            (archive_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist2").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist3").mkdir(parents=True)
 
-            # Create folder in images
-            (images_path / "folder1").mkdir()
+            # Create .ts files in playlists
+            (archive_path / "2024" / "01" / "15" / "playlist1" / "video.ts").write_text("")
+            (archive_path / "2024" / "01" / "15" / "playlist2" / "video.ts").write_text("")
+            (archive_path / "2024" / "01" / "15" / "playlist3" / "video.ts").write_text("")
 
-            result = get_missing_archive_folders(archive_path, images_path)
+            # Create converted folder for playlist1
+            (images_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
 
-            assert result == {"folder2", "folder3"}
+            result = get_unconverted_playlists(archive_path, images_path)
 
-    def test_returns_empty_set_when_all_folders_converted(self):
-        """Should return empty set when all archive folders exist in images."""
+            assert "2024/01/15/playlist2" in result
+            assert "2024/01/15/playlist3" in result
+            assert "2024/01/15/playlist1" not in result
+
+    def test_returns_empty_list_when_all_playlists_converted(self):
+        """Should return empty list when all archive playlists exist in images."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             archive_path = tmpdir_path / "archive"
@@ -41,12 +48,13 @@ class TestGetMissingArchiveFolders:
             archive_path.mkdir()
             images_path.mkdir()
 
-            (archive_path / "folder1").mkdir()
-            (images_path / "folder1").mkdir()
+            (archive_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist1" / "video.ts").write_text("")
+            (images_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
 
-            result = get_missing_archive_folders(archive_path, images_path)
+            result = get_unconverted_playlists(archive_path, images_path)
 
-            assert result == set()
+            assert result == []
 
     def test_creates_images_directory_if_not_exists(self):
         """Should create images directory if it doesn't exist."""
@@ -58,41 +66,24 @@ class TestGetMissingArchiveFolders:
             archive_path.mkdir()
             assert not images_path.exists()
 
-            get_missing_archive_folders(archive_path, images_path)
+            get_unconverted_playlists(archive_path, images_path)
 
             assert images_path.exists()
             assert images_path.is_dir()
 
-    def test_raises_file_not_found_error_when_archive_missing(self):
-        """Should raise FileNotFoundError if archive directory doesn't exist."""
+    def test_returns_empty_list_when_archive_missing(self):
+        """Should return empty list if archive directory doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             archive_path = tmpdir_path / "nonexistent"
             images_path = tmpdir_path / "images"
 
-            with pytest.raises(FileNotFoundError) as excinfo:
-                get_missing_archive_folders(archive_path, images_path)
+            result = get_unconverted_playlists(archive_path, images_path)
 
-            assert "Archive directory does not exist" in str(excinfo.value)
-            assert str(archive_path) in str(excinfo.value)
+            assert result == []
 
-    def test_raises_not_a_directory_error_when_archive_is_file(self):
-        """Should raise NotADirectoryError if archive path is a file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-            archive_path = tmpdir_path / "archive_file"
-            images_path = tmpdir_path / "images"
-
-            archive_path.write_text("content")
-
-            with pytest.raises(NotADirectoryError) as excinfo:
-                get_missing_archive_folders(archive_path, images_path)
-
-            assert "Archive path is not a directory" in str(excinfo.value)
-            assert str(archive_path) in str(excinfo.value)
-
-    def test_ignores_files_in_archive_directory(self):
-        """Should ignore files and only consider directories in archive."""
+    def test_ignores_non_numeric_year_folders(self):
+        """Should ignore non-numeric year folders."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             archive_path = tmpdir_path / "archive"
@@ -101,15 +92,17 @@ class TestGetMissingArchiveFolders:
             archive_path.mkdir()
             images_path.mkdir()
 
-            (archive_path / "folder1").mkdir()
-            (archive_path / "file.txt").write_text("content")
+            (archive_path / "not_a_year").mkdir()
+            (archive_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist1" / "video.ts").write_text("")
 
-            result = get_missing_archive_folders(archive_path, images_path)
+            result = get_unconverted_playlists(archive_path, images_path)
 
-            assert result == {"folder1"}
+            assert "2024/01/15/playlist1" in result
+            assert len(result) == 1
 
-    def test_ignores_files_in_images_directory(self):
-        """Should ignore files and only consider directories in images."""
+    def test_returns_only_playlists_with_ts_files(self):
+        """Should only return playlists that contain .ts files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             archive_path = tmpdir_path / "archive"
@@ -118,16 +111,91 @@ class TestGetMissingArchiveFolders:
             archive_path.mkdir()
             images_path.mkdir()
 
-            (archive_path / "folder1").mkdir()
-            (images_path / "file.txt").write_text("content")
+            # Create playlist1 with .ts file
+            (archive_path / "2024" / "01" / "15" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist1" / "video.ts").write_text("")
 
-            result = get_missing_archive_folders(archive_path, images_path)
+            # Create playlist2 without .ts file
+            (archive_path / "2024" / "01" / "15" / "playlist2").mkdir(parents=True)
 
-            assert result == {"folder1"}
+            result = get_unconverted_playlists(archive_path, images_path)
+
+            assert "2024/01/15/playlist1" in result
+            assert "2024/01/15/playlist2" not in result
+
+    def test_ignores_non_numeric_month_folders(self):
+        """Should ignore non-numeric month folders."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            archive_path = tmpdir_path / "archive"
+            images_path = tmpdir_path / "images"
+
+            archive_path.mkdir()
+            images_path.mkdir()
+
+            # Create month with non-numeric name
+            (archive_path / "2024" / "january" / "15" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "january" / "15" / "playlist1" / "video.ts").write_text("")
+
+            # Create valid month with numeric name
+            (archive_path / "2024" / "01" / "15" / "playlist2").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist2" / "video.ts").write_text("")
+
+            result = get_unconverted_playlists(archive_path, images_path)
+
+            assert "2024/01/15/playlist2" in result
+            assert len([p for p in result if "january" in p]) == 0
+
+    def test_ignores_non_numeric_day_folders(self):
+        """Should ignore non-numeric day folders."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            archive_path = tmpdir_path / "archive"
+            images_path = tmpdir_path / "images"
+
+            archive_path.mkdir()
+            images_path.mkdir()
+
+            # Create day with non-numeric name
+            (archive_path / "2024" / "01" / "monday" / "playlist1").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "monday" / "playlist1" / "video.ts").write_text("")
+
+            # Create valid day with numeric name
+            (archive_path / "2024" / "01" / "15" / "playlist2").mkdir(parents=True)
+            (archive_path / "2024" / "01" / "15" / "playlist2" / "video.ts").write_text("")
+
+            result = get_unconverted_playlists(archive_path, images_path)
+
+            assert "2024/01/15/playlist2" in result
+            assert len([p for p in result if "monday" in p]) == 0
+
+    def test_ignores_files_in_day_directories(self):
+        """Should ignore files in day directories."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            archive_path = tmpdir_path / "archive"
+            images_path = tmpdir_path / "images"
+
+            archive_path.mkdir()
+            images_path.mkdir()
+
+            # Create file in day directory
+            day_dir = archive_path / "2024" / "01" / "15"
+            day_dir.mkdir(parents=True)
+            (day_dir / "readme.txt").write_text("content")
+
+            # Create valid playlist
+            (day_dir / "playlist1").mkdir()
+            (day_dir / "playlist1" / "video.ts").write_text("")
+
+            result = get_unconverted_playlists(archive_path, images_path)
+
+            assert "2024/01/15/playlist1" in result
+            assert len(result) == 1
 
 
-class TestConvertTsFramesToPngs:
-    """Tests for convert_ts_frames_to_pngs function."""
+class TestConvertPlaylistToPngs:
+    """Tests for convert_playlist_to_pngs function."""
 
     def test_converts_single_ts_file_to_pngs(self):
         """Should convert a single .ts file to PNG frames."""
@@ -151,7 +219,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     assert mock_imwrite.call_count == 2
                     assert mock_cap.release.called
@@ -173,7 +241,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite"):
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     expected_target = images_path / "my_folder"
                     assert expected_target.exists()
@@ -199,7 +267,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     calls = mock_imwrite.call_args_list
                     assert "video-0.png" in calls[0][0][0]
@@ -222,7 +290,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     calls = mock_imwrite.call_args_list
                     assert "video-0.png" in calls[0][0][0]
@@ -245,7 +313,7 @@ class TestConvertTsFramesToPngs:
                     (folder_path / "video2.ts").write_text("dummy")
                     (folder_path / "video1.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     # Should be called twice (once for each file), in sorted order
                     assert mock_video_capture.call_count == 2
@@ -253,8 +321,8 @@ class TestConvertTsFramesToPngs:
                     assert "video1.ts" in calls[0][0][0]
                     assert "video2.ts" in calls[1][0][0]
 
-    def test_prints_warning_when_no_ts_files_found(self, capsys):
-        """Should print a warning when no .ts files are found."""
+    def test_returns_zero_frames_when_no_ts_files_found(self):
+        """Should return 0 frames when no .ts files are found."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             folder_path = tmpdir_path / "input"
@@ -262,36 +330,12 @@ class TestConvertTsFramesToPngs:
 
             folder_path.mkdir()
 
-            convert_ts_frames_to_pngs(folder_path, images_path)
+            frames = convert_playlist_to_pngs(folder_path, images_path)
 
-            captured = capsys.readouterr()
-            assert "Warning: no .ts files found" in captured.out
+            assert frames == 0
 
-    def test_prints_conversion_message(self, capsys):
-        """Should print message with number of .ts files being converted."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-            folder_path = tmpdir_path / "input"
-            images_path = tmpdir_path / "images"
-
-            folder_path.mkdir()
-
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)] * 10
-
-            with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
-                with patch("lab.converter.cv2.imwrite"):
-                    (folder_path / "video1.ts").write_text("dummy")
-                    (folder_path / "video2.ts").write_text("dummy")
-
-                    convert_ts_frames_to_pngs(folder_path, images_path)
-
-                    captured = capsys.readouterr()
-                    assert "Converting 2 .ts file(s) to .png file(s)" in captured.out
-
-    def test_prints_warning_when_video_file_cannot_be_opened(self, capsys):
-        """Should print warning and continue when a video file cannot be opened."""
+    def test_continues_when_video_file_cannot_be_opened(self):
+        """Should continue processing when a video file cannot be opened."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             folder_path = tmpdir_path / "input"
@@ -305,10 +349,10 @@ class TestConvertTsFramesToPngs:
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 (folder_path / "video.ts").write_text("dummy")
 
-                convert_ts_frames_to_pngs(folder_path, images_path)
+                # Should not raise an exception
+                frames = convert_playlist_to_pngs(folder_path, images_path)
 
-                captured = capsys.readouterr()
-                assert "Warning: unable to open video file" in captured.out
+                assert frames == 0
 
     def test_releases_video_capture(self):
         """Should release video capture after processing."""
@@ -327,7 +371,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite"):
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     assert mock_cap.release.called
 
@@ -339,7 +383,7 @@ class TestConvertTsFramesToPngs:
             images_path = tmpdir_path / "images"
 
             with pytest.raises(FileNotFoundError) as excinfo:
-                convert_ts_frames_to_pngs(folder_path, images_path)
+                convert_playlist_to_pngs(folder_path, images_path)
 
             assert "Folder does not exist" in str(excinfo.value)
             assert str(folder_path) in str(excinfo.value)
@@ -354,7 +398,7 @@ class TestConvertTsFramesToPngs:
             folder_path.write_text("content")
 
             with pytest.raises(NotADirectoryError) as excinfo:
-                convert_ts_frames_to_pngs(folder_path, images_path)
+                convert_playlist_to_pngs(folder_path, images_path)
 
             assert "Path is not a directory" in str(excinfo.value)
             assert str(folder_path) in str(excinfo.value)
@@ -378,7 +422,7 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite"):
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     assert images_path.exists()
 
@@ -399,113 +443,175 @@ class TestConvertTsFramesToPngs:
                 with patch("lab.converter.cv2.imwrite"):
                     (folder_path / "video.ts").write_text("dummy")
 
-                    convert_ts_frames_to_pngs(folder_path, images_path)
+                    convert_playlist_to_pngs(folder_path, images_path)
 
                     assert images_path.exists()
 
+    def test_calls_on_file_progress_callback(self):
+        """Should call on_file_progress callback for each file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            folder_path = tmpdir_path / "input"
+            images_path = tmpdir_path / "images"
 
-class TestMain:
-    """Tests for main function."""
+            folder_path.mkdir()
 
-    def test_main_converts_missing_folders(self):
-        """Should convert all missing folders."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
+            mock_cap = MagicMock()
+            mock_cap.isOpened.return_value = True
+            mock_cap.read.side_effect = [(False, None)] * 10
+
+            progress_callback = MagicMock()
+
+            with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
+                with patch("lab.converter.cv2.imwrite"):
+                    (folder_path / "video1.ts").write_text("dummy")
+                    (folder_path / "video2.ts").write_text("dummy")
+
+                    convert_playlist_to_pngs(folder_path, images_path, on_file_progress=progress_callback)
+
+                    # Should be called twice (once for each file)
+                    assert progress_callback.call_count == 2
+                    # Check the arguments passed
+                    calls = progress_callback.call_args_list
+                    assert calls[0][0] == (1, 2, "video1.ts")
+                    assert calls[1][0] == (2, 2, "video2.ts")
+
+    def test_returns_total_frames_count(self):
+        """Should return total number of frames converted."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            folder_path = tmpdir_path / "input"
+            images_path = tmpdir_path / "images"
+
+            folder_path.mkdir()
+
+            mock_cap = MagicMock()
+            mock_cap.isOpened.return_value = True
+            # First file: 2 frames, second file: 3 frames
+            mock_cap.read.side_effect = [
+                (True, b"frame1"),
+                (True, b"frame2"),
+                (False, None),
+                (True, b"frame1"),
+                (True, b"frame2"),
+                (True, b"frame3"),
+                (False, None),
+            ]
+
+            with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
+                with patch("lab.converter.cv2.imwrite"):
+                    (folder_path / "video1.ts").write_text("dummy")
+                    (folder_path / "video2.ts").write_text("dummy")
+
+                    total_frames = convert_playlist_to_pngs(folder_path, images_path)
+
+                    assert total_frames == 5
+
+    def test_handles_folder_path_not_under_archive_dir(self):
+        """Should handle folder paths not under ARCHIVE_DIR."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            folder_path = tmpdir_path / "input"
+            images_path = tmpdir_path / "images"
+
+            folder_path.mkdir()
+
+            mock_cap = MagicMock()
+            mock_cap.isOpened.return_value = True
+            mock_cap.read.side_effect = [(False, None)]
+
+            with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
+                with patch("lab.converter.cv2.imwrite"):
+                    (folder_path / "video.ts").write_text("dummy")
+
+                    # Folder path is not under ARCHIVE_DIR, so it should use just the folder name
+                    convert_playlist_to_pngs(folder_path, images_path)
+
+                    # Should create images folder with just the folder name
+                    assert (images_path / "input").exists()
+
+
+class TestConvertAllPlaylists:
+    """Tests for convert_all_playlists function."""
+
+    def test_returns_zero_when_no_unconverted_playlists(self):
+        """Should return (0, 0) when there are no unconverted playlists."""
+        with patch("lab.converter.get_unconverted_playlists") as mock_get_unconverted:
+            mock_get_unconverted.return_value = []
+
+            playlists_converted, total_frames = convert_all_playlists()
+
+            assert playlists_converted == 0
+            assert total_frames == 0
+
+    def test_converts_all_unconverted_playlists(self):
+        """Should convert all unconverted playlists."""
+        with patch("lab.converter.get_unconverted_playlists") as mock_get_unconverted:
+            with patch("lab.converter.convert_playlist_to_pngs") as mock_convert:
                 with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1", "folder2"}
+                    mock_get_unconverted.return_value = ["2024/01/15/playlist1", "2024/01/15/playlist2"]
+                    mock_convert.return_value = 10
 
-                    main()
+                    playlists_converted, total_frames = convert_all_playlists()
 
+                    assert playlists_converted == 2
+                    assert total_frames == 20
                     assert mock_convert.call_count == 2
 
-    def test_main_converts_folders_in_sorted_order(self):
-        """Should convert folders in sorted order."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
+    def test_calls_callbacks_with_progress(self):
+        """Should call callbacks with progress information."""
+        with patch("lab.converter.get_unconverted_playlists") as mock_get_unconverted:
+            with patch("lab.converter.convert_playlist_to_pngs") as mock_convert:
                 with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder2", "folder1", "folder3"}
+                    mock_get_unconverted.return_value = ["2024/01/15/playlist1", "2024/01/15/playlist2"]
+                    mock_convert.return_value = 10
 
-                    main()
+                    playlist_callback = MagicMock()
+                    file_callback = MagicMock()
 
-                    calls = mock_convert.call_args_list
-                    assert "folder1" in str(calls[0])
-                    assert "folder2" in str(calls[1])
-                    assert "folder3" in str(calls[2])
+                    playlists_converted, total_frames = convert_all_playlists(
+                        on_playlist_progress=playlist_callback,
+                        on_file_progress=file_callback,
+                    )
 
-    def test_main_prints_no_conversion_message_when_all_converted(self, capsys):
-        """Should print message when all folders are already converted."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            mock_get_missing.return_value = set()
+                    # Should be called twice (once for each playlist)
+                    assert playlist_callback.call_count == 2
+                    # Check the arguments
+                    calls = playlist_callback.call_args_list
+                    assert calls[0][0] == (1, 2, "2024/01/15/playlist1")
+                    assert calls[1][0] == (2, 2, "2024/01/15/playlist2")
 
-            main()
-
-            captured = capsys.readouterr()
-            assert "All archive folders are already converted" in captured.out
-
-    def test_main_prints_conversion_progress_for_each_folder(self, capsys):
-        """Should print progress message for each folder being converted."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs"):
+    def test_accumulates_frames_from_multiple_playlists(self):
+        """Should accumulate frame counts from multiple playlists."""
+        with patch("lab.converter.get_unconverted_playlists") as mock_get_unconverted:
+            with patch("lab.converter.convert_playlist_to_pngs") as mock_convert:
                 with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1", "folder2"}
+                    mock_get_unconverted.return_value = [
+                        "2024/01/15/playlist1",
+                        "2024/01/15/playlist2",
+                        "2024/01/15/playlist3",
+                    ]
+                    # Different frame counts for each playlist
+                    mock_convert.side_effect = [5, 10, 15]
 
-                    main()
+                    playlists_converted, total_frames = convert_all_playlists()
 
-                    captured = capsys.readouterr()
-                    assert "Converting 1 of 2" in captured.out or "Converting 2 of 2" in captured.out
+                    assert playlists_converted == 3
+                    assert total_frames == 30
 
-    def test_main_raises_exception_on_folder_failure(self):
-        """Should raise exception if conversion of a folder fails."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
+    def test_passes_file_callback_to_convert_playlist(self):
+        """Should pass file_callback to convert_playlist_to_pngs."""
+        with patch("lab.converter.get_unconverted_playlists") as mock_get_unconverted:
+            with patch("lab.converter.convert_playlist_to_pngs") as mock_convert:
                 with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1"}
-                    mock_convert.side_effect = ValueError("Test error")
+                    mock_get_unconverted.return_value = ["2024/01/15/playlist1"]
+                    mock_convert.return_value = 10
 
-                    with pytest.raises(ValueError):
-                        main()
+                    file_callback = MagicMock()
 
-    def test_main_stops_on_first_error(self):
-        """Should stop processing on first folder error."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
-                with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1", "folder2"}
-                    mock_convert.side_effect = ValueError("Test error")
+                    convert_all_playlists(on_file_progress=file_callback)
 
-                    with pytest.raises(ValueError):
-                        main()
-
-                    # Should only be called once (first folder)
-                    assert mock_convert.call_count == 1
-
-    def test_main_prints_error_message_on_conversion_failure(self, capsys):
-        """Should print error message when folder conversion fails."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
-                with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1"}
-                    mock_convert.side_effect = ValueError("Test error")
-
-                    with pytest.raises(ValueError):
-                        main()
-
-                    captured = capsys.readouterr()
-                    assert "Error converting" in captured.out
-
-    def test_main_continues_iteration_with_multiple_folders_before_error(self, capsys):
-        """Should process folders sequentially and print progress even before error."""
-        with patch("lab.converter.get_missing_archive_folders") as mock_get_missing:
-            with patch("lab.converter.convert_ts_frames_to_pngs") as mock_convert:
-                with patch("lab.converter.ARCHIVE_DIR", Path("/archive")):
-                    mock_get_missing.return_value = {"folder1", "folder2", "folder3"}
-                    # Fail on second folder
-                    mock_convert.side_effect = [None, ValueError("Test error")]
-
-                    with pytest.raises(ValueError):
-                        main()
-
-                    captured = capsys.readouterr()
-                    # Should have printed for first and second folder
-                    assert "Converting 1 of 3" in captured.out
-                    assert "Converting 2 of 3" in captured.out
+                    # Check that file_callback was passed to convert_playlist_to_pngs
+                    mock_convert.assert_called_once()
+                    call_kwargs = mock_convert.call_args[1]
+                    assert call_kwargs["on_file_progress"] == file_callback

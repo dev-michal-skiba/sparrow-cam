@@ -1,57 +1,110 @@
+"""Convert archived .ts video files to PNG frames for analysis."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
 
 from lab.constants import ARCHIVE_DIR, IMAGES_DIR
 
+ProgressCallback = Callable[[int, int, str], None]
 
-def get_missing_archive_folders(archive_path: Path = ARCHIVE_DIR, images_path: Path = IMAGES_DIR) -> set[str]:
+
+def get_unconverted_playlists(
+    archive_path: Path = ARCHIVE_DIR,
+    images_path: Path = IMAGES_DIR,
+) -> list[str]:
     """
-    Return folder names that exist in the archive but not in images.
+    Find archive folders that haven't been converted to images yet.
 
-    Raises FileNotFoundError if the archive directory is missing.
-    Ensures the images directory exists (creates it if needed).
+    Recursively searches archive_path for folders matching the nested structure:
+    {year}/{month}/{day}/{folder_name}
+
+    Returns:
+        List of relative paths like "2024/01/15/sparrow_cam-1234567890-uuid"
     """
     if not archive_path.exists():
-        raise FileNotFoundError(f"Archive directory does not exist: {archive_path}")
-    if not archive_path.is_dir():
-        raise NotADirectoryError(f"Archive path is not a directory: {archive_path}")
+        return []
 
     images_path.mkdir(parents=True, exist_ok=True)
 
-    archive_dirs = {entry.name for entry in archive_path.iterdir() if entry.is_dir()}
-    image_dirs = {entry.name for entry in images_path.iterdir() if entry.is_dir()}
+    unconverted: list[str] = []
 
-    return archive_dirs - image_dirs
+    # Walk the nested structure: year/month/day/folder
+    for year_dir in sorted(archive_path.iterdir()):
+        if not year_dir.is_dir() or not year_dir.name.isdigit():
+            continue
+
+        for month_dir in sorted(year_dir.iterdir()):
+            if not month_dir.is_dir() or not month_dir.name.isdigit():
+                continue
+
+            for day_dir in sorted(month_dir.iterdir()):
+                if not day_dir.is_dir() or not day_dir.name.isdigit():
+                    continue
+
+                for folder in sorted(day_dir.iterdir()):
+                    if not folder.is_dir():
+                        continue
+
+                    # Check if corresponding images folder exists
+                    relative_path = f"{year_dir.name}/{month_dir.name}/{day_dir.name}/{folder.name}"
+                    images_folder = images_path / relative_path
+
+                    if not images_folder.exists():
+                        # Check if there are any .ts files to convert
+                        ts_files = list(folder.glob("*.ts"))
+                        if ts_files:
+                            unconverted.append(relative_path)
+
+    return unconverted
 
 
-def convert_ts_frames_to_pngs(folder_path: Path, images_base_path: Path = IMAGES_DIR) -> None:
+def convert_playlist_to_pngs(
+    folder_path: Path,
+    images_base_path: Path = IMAGES_DIR,
+    on_file_progress: ProgressCallback | None = None,
+) -> int:
     """
-    Convert all .ts files in folder_path to PNG frames under images_base_path.
+    Convert all .ts files in folder_path to PNG frames.
 
-    Each output folder mirrors folder_path's name inside images_base_path.
-    PNG names follow: "<ts-file-stem>-<frame_index>.png", starting at 0.
-    Prints a warning when no .ts files are found. Uses OpenCV for decoding.
+    Args:
+        folder_path: Absolute path to folder containing .ts files
+        images_base_path: Base path for output images
+        on_file_progress: Callback(current_file, total_files, filename)
+
+    Returns:
+        Number of frames extracted.
     """
     if not folder_path.exists():
         raise FileNotFoundError(f"Folder does not exist: {folder_path}")
     if not folder_path.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {folder_path}")
 
-    images_base_path.mkdir(parents=True, exist_ok=True)
-
     ts_files = sorted(folder_path.glob("*.ts"))
     if not ts_files:
-        print(f"Warning: no .ts files found in {folder_path}")
-        return
-    print(f"Converting {len(ts_files)} .ts file(s) to .png file(s)")
-    target_folder = images_base_path / folder_path.name
+        return 0
+
+    # Determine relative path from ARCHIVE_DIR to maintain structure
+    try:
+        relative_path = folder_path.relative_to(ARCHIVE_DIR)
+    except ValueError:
+        # Fallback to just the folder name if not under ARCHIVE_DIR
+        relative_path = Path(folder_path.name)
+
+    target_folder = images_base_path / relative_path
     target_folder.mkdir(parents=True, exist_ok=True)
 
-    for ts_file in ts_files:
+    total_frames = 0
+
+    for idx, ts_file in enumerate(ts_files):
+        if on_file_progress:
+            on_file_progress(idx + 1, len(ts_files), ts_file.name)
+
         cap = cv2.VideoCapture(str(ts_file))
         if not cap.isOpened():
-            print(f"Warning: unable to open video file {ts_file}")
             continue
 
         frame_index = 0
@@ -65,23 +118,40 @@ def convert_ts_frames_to_pngs(folder_path: Path, images_base_path: Path = IMAGES
             frame_index += 1
 
         cap.release()
+        total_frames += frame_index
+
+    return total_frames
 
 
-def main():
-    missing_folders = get_missing_archive_folders()
-    if not missing_folders:
-        print("All archive folders are already converted.")
-        return
+def convert_all_playlists(
+    on_playlist_progress: ProgressCallback | None = None,
+    on_file_progress: ProgressCallback | None = None,
+) -> tuple[int, int]:
+    """
+    Convert all unconverted playlists to PNG frames.
 
-    for index, folder_name in enumerate(sorted(missing_folders), start=1):
-        print(f"Converting {index} of {len(missing_folders)}: {folder_name}")
-        folder_path = ARCHIVE_DIR / folder_name
-        try:
-            convert_ts_frames_to_pngs(folder_path)
-        except Exception:  # keep going on individual folder failures
-            print(f"Error converting {folder_path}")
-            raise
+    Args:
+        on_playlist_progress: Callback(current_playlist, total_playlists, playlist_name)
+        on_file_progress: Callback(current_file, total_files, filename)
 
+    Returns:
+        Tuple of (playlists converted, total frames extracted)
+    """
+    unconverted = get_unconverted_playlists()
+    if not unconverted:
+        return 0, 0
 
-if __name__ == "__main__":
-    main()
+    total_frames = 0
+
+    for idx, relative_path in enumerate(unconverted):
+        if on_playlist_progress:
+            on_playlist_progress(idx + 1, len(unconverted), relative_path)
+
+        folder_path = ARCHIVE_DIR / relative_path
+        frames = convert_playlist_to_pngs(
+            folder_path,
+            on_file_progress=on_file_progress,
+        )
+        total_frames += frames
+
+    return len(unconverted), total_frames

@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 dependencies = [
     "opencv-python-headless",
     "ultralytics",
+    "paramiko",
+    "pyyaml",
 ]
 
 [tool.setuptools.packages.find]
@@ -51,7 +53,7 @@ executionEnvironments = [
 [tool.coverage.run]
 source = ["processor", "lab"]
 branch = true
-omit = ["*/__main__.py"]
+omit = ["*/__main__.py", "*/lab/gui.py"]
 
 [tool.coverage.report]
 show_missing = true

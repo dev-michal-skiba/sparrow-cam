@@ -1,14 +1,147 @@
 import functools
+import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 from lab.constants import IMAGES_DIR
+from lab.converter import convert_all_playlists
 from lab.exception import UserFacingError
+from lab.sync import SyncError, SyncManager
 from lab.utils import Region, get_annotated_image_bytes, validate_selected_image
 from processor.bird_detector import BirdDetector
 
 MIN_SELECTION_SIZE = 480
+
+
+class SyncProgressDialog:
+    """Modal dialog showing sync and conversion progress with dual progress bars."""
+
+    def __init__(self, parent: tk.Tk) -> None:
+        self.parent = parent
+        self.cancelled = False
+        self._sync_error: str | None = None
+
+        # Create modal dialog
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Syncing Files")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # Make dialog non-resizable and centered
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Content frame with padding
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        # Download section
+        self.download_label = tk.Label(content, text="Downloading: Preparing...", anchor="w")
+        self.download_label.pack(fill="x", pady=(0, 5))
+
+        self.download_progress = ttk.Progressbar(content, length=400, mode="determinate")
+        self.download_progress.pack(fill="x", pady=(0, 15))
+
+        # Conversion section
+        self.convert_label = tk.Label(content, text="Converting: Waiting...", anchor="w")
+        self.convert_label.pack(fill="x", pady=(0, 5))
+
+        self.convert_progress = ttk.Progressbar(content, length=400, mode="determinate")
+        self.convert_progress.pack(fill="x", pady=(0, 15))
+
+        # Status label
+        self.status_label = tk.Label(content, text="", anchor="w", fg="#666666")
+        self.status_label.pack(fill="x", pady=(0, 10))
+
+        # Cancel button
+        self.cancel_btn = tk.Button(content, text="Cancel", command=self._on_cancel)
+        self.cancel_btn.pack()
+
+        # Center dialog on parent
+        self._center_dialog()
+
+    def _center_dialog(self) -> None:
+        """Center the dialog on the parent window."""
+        self.dialog.update_idletasks()
+        parent_x = self.parent.winfo_x()
+        parent_y = self.parent.winfo_y()
+        parent_w = self.parent.winfo_width()
+        parent_h = self.parent.winfo_height()
+        dialog_w = self.dialog.winfo_width()
+        dialog_h = self.dialog.winfo_height()
+        x = parent_x + (parent_w - dialog_w) // 2
+        y = parent_y + (parent_h - dialog_h) // 2
+        self.dialog.geometry(f"+{x}+{y}")
+
+    def _on_cancel(self) -> None:
+        """Handle cancel button click."""
+        self.cancelled = True
+        self.cancel_btn.config(state="disabled")
+        self.status_label.config(text="Cancelling...")
+
+    def _on_close(self) -> None:
+        """Handle window close button - same as cancel."""
+        self._on_cancel()
+
+    def update_download_progress(self, current: int, total: int, filename: str) -> None:
+        """Update download progress bar (thread-safe via parent.after)."""
+        self.parent.after(0, self._do_update_download, current, total, filename)
+
+    def _do_update_download(self, current: int, total: int, filename: str) -> None:
+        if self.dialog.winfo_exists():
+            self.download_label.config(text=f"Downloading: {current}/{total} files")
+            self.download_progress["maximum"] = total
+            self.download_progress["value"] = current
+            self.status_label.config(text=filename)
+
+    def update_convert_progress(self, current: int, total: int, name: str) -> None:
+        """Update conversion progress bar (thread-safe via parent.after)."""
+        self.parent.after(0, self._do_update_convert, current, total, name)
+
+    def _do_update_convert(self, current: int, total: int, name: str) -> None:
+        if self.dialog.winfo_exists():
+            self.convert_label.config(text=f"Converting: {current}/{total} playlists")
+            self.convert_progress["maximum"] = total
+            self.convert_progress["value"] = current
+            self.status_label.config(text=name)
+
+    def set_download_complete(self, file_count: int) -> None:
+        """Mark download phase as complete."""
+        self.parent.after(0, self._do_set_download_complete, file_count)
+
+    def _do_set_download_complete(self, file_count: int) -> None:
+        if self.dialog.winfo_exists():
+            self.download_label.config(text=f"Downloaded: {file_count} files")
+            self.download_progress["value"] = self.download_progress["maximum"]
+
+    def set_no_files_to_sync(self) -> None:
+        """Show message when no files need syncing."""
+        self.parent.after(0, self._do_set_no_files)
+
+    def _do_set_no_files(self) -> None:
+        if self.dialog.winfo_exists():
+            self.download_label.config(text="No new files to download")
+            self.download_progress["value"] = 0
+            self.convert_label.config(text="No playlists to convert")
+            self.convert_progress["value"] = 0
+
+    def set_error(self, error: str) -> None:
+        """Store error message to display after dialog closes."""
+        self._sync_error = error
+
+    def get_error(self) -> str | None:
+        """Get stored error message, if any."""
+        return self._sync_error
+
+    def close(self) -> None:
+        """Close the dialog (thread-safe)."""
+        self.parent.after(0, self._do_close)
+
+    def _do_close(self) -> None:
+        if self.dialog.winfo_exists():
+            self.dialog.grab_release()
+            self.dialog.destroy()
 
 
 def handle_user_error(method):
@@ -70,6 +203,9 @@ class LabGUI:
         # UI components
         self.button_frame = tk.Frame(self.root)
         self.button_frame.pack(pady=(24, 12))
+
+        self.sync_btn = tk.Button(self.button_frame, text="Sync", command=self.start_sync)
+        self.sync_btn.pack(side="left", padx=(0, 8))
 
         self.select_btn = tk.Button(self.button_frame, text="Select image", command=self.choose_file)
         self.select_btn.pack(side="left", padx=(0, 8))
@@ -463,6 +599,90 @@ class LabGUI:
         )
         self.set_image_preview()
         self.show_clear_button()
+
+    def start_sync(self) -> None:
+        """Start the sync operation in a background thread with progress dialog."""
+        # Disable all buttons (freeze UI)
+        self._set_buttons_enabled(False)
+
+        # Create and show progress dialog
+        self.__sync_dialog = SyncProgressDialog(self.root)
+
+        # Start sync thread
+        self.__sync_thread = threading.Thread(target=self._run_sync, daemon=True)
+        self.__sync_thread.start()
+
+        # Poll for completion
+        self.root.after(100, self._check_sync_complete)
+
+    def _set_buttons_enabled(self, enabled: bool) -> None:
+        """Enable or disable all action buttons."""
+        state = "normal" if enabled else "disabled"
+        self.sync_btn.config(state=state)
+        self.select_btn.config(state=state)
+        if self.detect_btn.winfo_ismapped():
+            self.detect_btn.config(state=state)
+        if self.clear_btn.winfo_ismapped():
+            self.clear_btn.config(state=state)
+
+    def _run_sync(self) -> None:
+        """Run sync and conversion in background thread."""
+        dialog = self.__sync_dialog
+
+        try:
+            with SyncManager() as sync:
+                # Check if cancelled before starting
+                if dialog.cancelled:
+                    return
+
+                # Sync files from remote
+                synced_folders, total_files = sync.sync_all(
+                    on_download_progress=lambda c, t, f: (
+                        dialog.update_download_progress(c, t, f) if not dialog.cancelled else None
+                    ),
+                )
+
+                if dialog.cancelled:
+                    return
+
+                if total_files == 0:
+                    dialog.set_no_files_to_sync()
+                else:
+                    dialog.set_download_complete(total_files)
+
+                # Convert downloaded playlists to images
+                if not dialog.cancelled:
+                    playlists_converted, frames = convert_all_playlists(
+                        on_playlist_progress=lambda c, t, n: (
+                            dialog.update_convert_progress(c, t, n) if not dialog.cancelled else None
+                        ),
+                    )
+
+        except SyncError as e:
+            dialog.set_error(str(e))
+        except Exception as e:
+            dialog.set_error(f"Unexpected error: {e}")
+
+    def _check_sync_complete(self) -> None:
+        """Poll for sync thread completion and cleanup."""
+        if self.__sync_thread.is_alive():
+            # Still running, check again later
+            self.root.after(100, self._check_sync_complete)
+            return
+
+        # Thread finished, cleanup
+        dialog = self.__sync_dialog
+        error = dialog.get_error()
+        dialog.close()
+
+        # Re-enable buttons
+        self._set_buttons_enabled(True)
+
+        # Show error or success message
+        if error:
+            messagebox.showerror("Sync Error", error)
+        elif not dialog.cancelled:
+            messagebox.showinfo("Sync Complete", "Files synced and converted successfully.")
 
     def run(self) -> None:
         self.root.mainloop()
