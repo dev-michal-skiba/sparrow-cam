@@ -34,20 +34,21 @@ After deploying with `make -C infra setup_all`, start the ffmpeg stream in a tmu
 
 ```bash
 ffmpeg \
-  -f v4l2 \
-  -input_format mjpeg \
-  -video_size 1920x1080 \
-  -i /dev/video0 \
-  -vf "scale=iw/2:ih/2" \
-  -r 8 \
-  -c:v libx264 \
-  -preset ultrafast \
-  -tune zerolatency \
-  -g 24 \
-  -f hls \
-  -hls_time 1 \
-  -hls_list_size 60 \
-  /var/www/html/hls/sparrow_cam.m3u8
+   -f v4l2
+   -input_format mjpeg
+   -video_size 1920x1080
+   -i /dev/video0
+   -vf "fps=8,crop=iw/2:ih/2:(iw-iw/2)/2:(ih-ih/2)/2"
+   -c:v libx264
+   -preset ultrafast
+   -tune zerolatency
+   -g 24
+   -pix_fmt yuv420p
+   -an
+   -f hls
+   -hls_time 1
+   -hls_list_size 60
+   -hls_segment_filename "/var/www/html/hls/sparrow_cam-%d.ts" /var/www/html/hls/sparrow_cam.m3u8
 ```
 
 ## Usage
