@@ -36,7 +36,7 @@ mount:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml mount.yml $(if $(DEVICE),-e "device_to_mount=$(DEVICE)",)
 
 all: users mount processor web
-	@echo "✅ Users, hard drive, processor service, and web server deployed successfully"
+	@echo "Users, hard drive, processor service, and web server deployed successfully"
 
 clean:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml clean.yml

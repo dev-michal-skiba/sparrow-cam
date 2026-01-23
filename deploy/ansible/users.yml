@@ -27,3 +27,11 @@
         create_home: yes
         system: no
         state: present
+
+    - name: Create temp directory for sparrow_cam_processor
+      file:
+        path: /opt/sparrow_cam_processor/tmp
+        state: directory
+        owner: sparrow_cam_processor
+        group: sparrow_cam_processor
+        mode: '0700'

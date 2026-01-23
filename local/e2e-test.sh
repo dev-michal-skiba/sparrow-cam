@@ -52,8 +52,8 @@ cleanup() {
     echo ""
     echo -e "${YELLOW}Cleaning up...${NC}"
 
-    # Kill any remaining ffmpeg processes
-    pkill -9 ffmpeg > /dev/null 2>&1 || true
+    # Kill ffmpeg process inside processor container
+    docker exec sparrow_cam_processor pkill -f "ffmpeg.*sparrow_cam" > /dev/null 2>&1 || true
 
     # Stop Docker services
     (cd "$LOCAL_DIR" && docker compose down > /dev/null 2>&1) || true
@@ -162,41 +162,43 @@ fi
 test_pass
 
 # ==============================================================================
-section_header "Phase 4: Create Sample HLS Content for Testing"
+section_header "Phase 4: Setup Real HLS Streaming with ffmpeg"
 # ==============================================================================
 
-test_start "Creating sample HLS playlist and segments"
+test_start "Copying sample.mp4 to processor container"
+if [ ! -f "$PROJECT_ROOT/sample.mp4" ]; then
+    test_fail "sample.mp4 not found at $PROJECT_ROOT/sample.mp4"
+fi
+docker cp "$PROJECT_ROOT/sample.mp4" sparrow_cam_processor:/tmp/sample.mp4
+test_pass
 
-# Create a sample HLS playlist
-cat > "$HLS_TEMP_DIR/sparrow_cam.m3u8" << 'EOF'
-#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:2
-#EXT-X-MEDIA-SEQUENCE:0
-#EXTINF:2.0,
-segment-0.ts
-#EXTINF:2.0,
-segment-1.ts
-#EXTINF:2.0,
-segment-2.ts
-#EXTINF:2.0,
-segment-3.ts
-#EXTINF:2.0,
-segment-4.ts
-EOF
+test_start "Starting ffmpeg to stream sample.mp4 as HLS"
+# Start ffmpeg in background, streaming sample.mp4 continuously with 2-second segments
+# and a 10-segment playlist (matching README.md configuration)
+docker exec -d sparrow_cam_processor ffmpeg \
+    -stream_loop -1 \
+    -i /tmp/sample.mp4 \
+    -c:v libx264 \
+    -preset ultrafast \
+    -g 60 \
+    -hls_time 2 \
+    -hls_list_size 10 \
+    -hls_flags delete_segments \
+    -hls_segment_type mpegts \
+    -f hls \
+    /var/www/html/hls/sparrow_cam.m3u8 > /tmp/sparrow_cam_ffmpeg.log 2>&1
 
-# Create dummy segment files
-for i in {0..4}; do
-    echo "dummy segment $i" > "$HLS_TEMP_DIR/segment-$i.ts"
-done
+# Give ffmpeg a moment to start
+sleep 2
 
-# Copy to the Docker volume (mount via processor container)
-docker exec sparrow_cam_processor sh -c "mkdir -p /var/www/html/hls" 2>/dev/null || true
-docker cp "$HLS_TEMP_DIR/sparrow_cam.m3u8" sparrow_cam_processor:/var/www/html/hls/
-for i in {0..4}; do
-    docker cp "$HLS_TEMP_DIR/segment-$i.ts" sparrow_cam_processor:/var/www/html/hls/
-done
-
+# Verify ffmpeg is running
+FFMPEG_RUNNING=$(docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null && echo "yes" || echo "no")
+if [ "$FFMPEG_RUNNING" != "yes" ]; then
+    echo ""
+    echo -e "${YELLOW}Debug: ffmpeg startup log:${NC}"
+    docker exec sparrow_cam_processor cat /tmp/sparrow_cam_ffmpeg.log || true
+    test_fail "ffmpeg failed to start"
+fi
 test_pass
 
 test_start "HLS playlist file created in shared volume"

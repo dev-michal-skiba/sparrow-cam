@@ -47,14 +47,6 @@
         group: www-data
         mode: '0775'
 
-    - name: Create temp directory for sparrow_cam_processor
-      file:
-        path: /opt/sparrow_cam_processor/tmp
-        state: directory
-        owner: sparrow_cam_processor
-        group: sparrow_cam_processor
-        mode: '0700'
-
     - name: Check if pyenv is already installed for sparrow_cam_processor
       stat:
         path: /opt/sparrow_cam_processor/.pyenv

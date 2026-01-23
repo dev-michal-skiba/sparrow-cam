@@ -58,14 +58,14 @@ See [deploy/README.md](deploy/README.md)
 
 ## Architecture
 
-Two services (plus external ffmpeg for HLS generation):
+Three components (two services plus external stream):
 - **Web Server** - Serves interface, HLS streams, and bird detection annotations
 - **Processor** - Detects birds in HLS segments, outputs real-time annotations
-- **ffmpeg** - Generates HLS segments from USB camera feed
+- **Stream** - Captures USB camera feed and generates HLS segments using ffmpeg
 
 **Local dev**: Two Docker containers (port 8080, plus shared volumes for HLS/annotations)
 
-**Production**: Two systemd services on Raspberry Pi (nginx, sparrow-processor) plus ffmpeg in tmux
+**Production**: Two systemd services on Raspberry Pi (nginx, sparrow-processor) plus ffmpeg stream running in tmux
 
 ## Requirements
 

@@ -44,10 +44,29 @@ make -C local e2e
 
 ## Setup
 
-HLS segments must be generated externally by ffmpeg. Run ffmpeg separately to generate HLS segments:
+HLS segments must be generated externally by ffmpeg. Run ffmpeg separately in a separate terminal to generate HLS segments:
+
 ```bash
-ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -preset ultrafast -b:v 500k -maxrate 500k -bufsize 1000k -c:a aac -b:a 128k -f hls -hls_time 2 -hls_list_size 10 /var/www/html/hls/sparrow_cam.m3u8
+ffmpeg \
+  -stream_loop -1 \
+  -re \
+  -i sample.mp4 \
+  -c:v libx264 \
+  -preset ultrafast \
+  -b:v 500k \
+  -maxrate 500k \
+  -bufsize 1000k \
+  -c:a aac \
+  -b:a 128k \
+  -f hls \
+  -hls_time 2 \
+  -hls_list_size 10 \
+  local/hls/sparrow_cam.m3u8
 ```
+
+Run this from the project root. The `-stream_loop -1` flag loops the video infinitely, and `-re` plays it in real-time, simulating a live camera stream.
+
+**For production on Raspberry Pi**: See [deploy/README.md](../deploy/README.md) for the camera capture command to run in tmux.
 
 **Access HLS streams**:
 - http://localhost:8080/hls/sparrow_cam.m3u8
