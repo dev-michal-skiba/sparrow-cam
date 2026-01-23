@@ -1,8 +1,7 @@
 # Local Development
 
-Docker-based local development environment with three services:
-- **rtmp**: nginx rtmp server on port 8081
-- **processor**: HLS segment processor (video processing pipeline)
+Docker-based local development environment with two services:
+- **processor**: HLS segment processor (bird detection pipeline)
 - **web**: nginx server on port 8080
 
 ## Quick Start
@@ -35,27 +34,23 @@ make -C local e2e
 
 ## Services
 
-**rtmp**: Runs nginx rtmp server
-- RTMP: rtmp://localhost:8081/live/sparrow_cam
-
-**processor**: Monitors HLS segments and applies frame-level processing
-- Reads from shared HLS volume
-- Processes each segment (currently: grayscale conversion)
-- Outputs to processed_hls volume
+**processor**: Monitors HLS segments and detects birds
+- Reads from shared HLS volume (created by ffmpeg running separately)
+- Processes each segment for bird detection
+- Outputs annotations to shared annotations volume
 
 **web**: Runs nginx web server
 - Web: http://localhost:8080
 
-## Usage
+## Setup
 
-**Stream video**:
+HLS segments must be generated externally by ffmpeg. Run ffmpeg separately to generate HLS segments:
 ```bash
-ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam
+ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -preset ultrafast -b:v 500k -maxrate 500k -bufsize 1000k -c:a aac -b:a 128k -f hls -hls_time 2 -hls_list_size 10 /var/www/html/hls/sparrow_cam.m3u8
 ```
 
 **Access HLS streams**:
-- Original: http://localhost:8080/hls/sparrow_cam.m3u8
-- Processed: http://localhost:8080/processed_hls/sparrow_cam.m3u8
+- http://localhost:8080/hls/sparrow_cam.m3u8
 
 ## Code Quality and Testing
 
@@ -83,17 +78,14 @@ make -C local e2e
 - `bandit` - Security analysis
 
 **E2E Tests** verify the complete system:
-- RTMP server accepts streams and generates HLS segments
 - Processor service monitors HLS directory and creates annotations
 - Web server serves HLS stream and annotations file
-- Shared volumes enable communication between all three services
+- Shared volumes enable communication between services
 
 **E2E Test Host Requirements**:
 - `docker` and `docker-compose` installed
-- `ffmpeg` installed (for streaming test video)
-- `curl` and `nc` (netcat) available on PATH
-- Ports 8080 and 8081 available on localhost
-- `sample.mp4` file in project root (used for streaming test)
+- `curl` available on PATH
+- Ports 8080 available on localhost
 
 ## Debugging
 
@@ -104,9 +96,6 @@ make -C local start OPENCV_LOGS=1
 
 **Monitor service logs**:
 ```bash
-# RTMP server logs
-docker logs -f sparrow_cam_rtmp
-
 # Processor logs (shows bird detection)
 docker logs -f sparrow_cam_processor
 
@@ -114,7 +103,7 @@ docker logs -f sparrow_cam_processor
 docker logs -f sparrow_cam_web
 
 # All services
-docker logs -f sparrow_cam_rtmp & docker logs -f sparrow_cam_processor & docker logs -f sparrow_cam_web
+docker logs -f sparrow_cam_processor & docker logs -f sparrow_cam_web
 ```
 
 **Check service health**:

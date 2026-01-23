@@ -3,31 +3,11 @@ volumes:
   annotations_data:
 
 services:
-  rtmp:
-    build:
-      context: ..
-      dockerfile: local/Dockerfile.rtmp
-      args:
-        RTMP_PORT: 8081
-    container_name: sparrow_cam_rtmp
-    ports:
-      - "8081:8081"
-    volumes:
-      - hls_data:/var/www/html/hls
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost $$RTMP_PORT"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   processor:
     build:
       context: ..
       dockerfile: local/Dockerfile.processor
     container_name: sparrow_cam_processor
-    depends_on:
-      rtmp:
-        condition: service_healthy
     environment:
       - OPENCV_LOG_LEVEL=${OPENCV_LOG_LEVEL:-ERROR}
       - OPENCV_VIDEOIO_DEBUG=${OPENCV_VIDEOIO_DEBUG:-0}

@@ -5,7 +5,7 @@ help:
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build                 - Build the Docker image"
-	@echo "  make start                 - Start the application (web on :8080, RTMP on :8081)"
+	@echo "  make start                 - Start the application (web on :8080)"
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make clean                 - Stop and remove containers, volumes, and generated files"
 	@echo "  make stop                  - Stop the application"
@@ -28,10 +28,6 @@ start:
 	@echo ""
 	@echo "SparrowCam is running!"
 	@echo "  Web interface: http://localhost:8080"
-	@echo "  RTMP endpoint: rtmp://localhost:8081/live/sparrow_cam"
-	@echo ""
-	@echo "To stream a video:"
-	@echo "  ffmpeg -re -stream_loop -1 -i sample.mp4 -c copy -f flv rtmp://localhost:8081/live/sparrow_cam"
 
 stop:
 	docker compose down

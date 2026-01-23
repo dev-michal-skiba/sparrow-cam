@@ -28,7 +28,6 @@ make -C local start
 make -C local stop
 
 # Access: http://localhost:8080
-# Stream: rtmp://localhost:8081/live/sparrow_cam
 
 # Format code (black and ruff)
 make -C local format
@@ -53,24 +52,23 @@ make -C deploy ping
 make -C deploy all
 
 # Access: http://<pi-ip>/
-# Stream: rtmp://<pi-ip>/live/sparrow_cam
 ```
 
 See [deploy/README.md](deploy/README.md)
 
 ## Architecture
 
-Three services:
+Two services (plus external ffmpeg for HLS generation):
 - **Web Server** - Serves interface, HLS streams, and bird detection annotations
-- **RTMP Server** - Receives RTMP video, generates HLS segments for streaming
 - **Processor** - Detects birds in HLS segments, outputs real-time annotations
+- **ffmpeg** - Generates HLS segments from USB camera feed
 
-**Local dev**: Three Docker containers (ports 8080, 8081, plus shared volumes for HLS/annotations)
+**Local dev**: Two Docker containers (port 8080, plus shared volumes for HLS/annotations)
 
-**Production**: Three systemd services on Raspberry Pi (nginx, nginx-rtmp, sparrow-processor)
+**Production**: Two systemd services on Raspberry Pi (nginx, sparrow-processor) plus ffmpeg in tmux
 
 ## Requirements
 
 **Development**: Docker, Docker Compose, ffmpeg
 
-**Target Device**: Raspberry Pi with Ubuntu Server 25.04, SSH access
+**Target Device**: Raspberry Pi with Ubuntu Server 25.04, SSH access, USB webcam

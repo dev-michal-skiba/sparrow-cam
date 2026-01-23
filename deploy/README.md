@@ -38,7 +38,6 @@ make -C deploy ping
 make -C deploy all
 
 # Or deploy separately
-make -C deploy rtmp      # RTMP server (port 1935)
 make -C deploy processor # Processor service
 make -C deploy web       # Web server (port 80)
 ```
@@ -47,7 +46,6 @@ make -C deploy web       # Web server (port 80)
 
 **Access** (replace with your Pi's IP):
 - Web: http://192.168.1.100/
-- RTMP: rtmp://192.168.1.100/live/sparrow_cam
 
 **Stream video**:
 ```bash
@@ -63,12 +61,7 @@ The deployment creates three systemd services on the target device:
    - Hosts annotation file from processor (`/var/www/html/annotations/bird.json`)
    - Configuration: `/etc/nginx/nginx.conf`
 
-2. **nginx-rtmp** (port 1935) - RTMP server
-   - Receives RTMP streams and generates HLS segments
-   - Configuration: `/etc/nginx-rtmp/nginx.conf`
-   - Runs as separate systemd service
-
-3. **sparrow-processor** - HLS segment processor
+2. **sparrow-processor** - HLS segment processor
    - Monitors `/var/www/html/hls` for new segments
    - Processes each frame and detects birds
    - Outputs annotations to `/var/www/html/annotations/bird.json`
@@ -84,16 +77,14 @@ make -C deploy ping
 make -C deploy clean
 
 # View service status
-ssh <user>@<ip> "sudo systemctl status nginx nginx-rtmp sparrow-processor"
+ssh <user>@<ip> "sudo systemctl status nginx sparrow-processor"
 
 # View logs
-ssh <user>@<ip> "sudo journalctl -u nginx-rtmp -f"
 ssh <user>@<ip> "sudo journalctl -u sparrow-processor -f"
 ssh <user>@<ip> "sudo journalctl -u nginx -f"
 
 # Restart individual services
 ssh <user>@<ip> "sudo systemctl restart nginx"
-ssh <user>@<ip> "sudo systemctl restart nginx-rtmp"
 ssh <user>@<ip> "sudo systemctl restart sparrow-processor"
 
 # Check service files
@@ -117,8 +108,6 @@ All Ansible playbooks are idempotent - run them anytime to update:
 # After modifying app/nginx-web.conf or app/index.html
 make -C deploy web
 
-# After modifying app/nginx-rtmp.conf
-make -C deploy rtmp
 
 # After modifying processor app
 make -C deploy processor
@@ -136,8 +125,6 @@ On the target device:
 /var/www/html/annotations/bird.json           # Bird detection annotations
 /var/www/html/index.html                      # Web interface
 /etc/nginx/nginx.conf                         # Web server config
-/etc/nginx-rtmp/nginx.conf                    # RTMP server config
-/etc/systemd/system/nginx-rtmp.service        # RTMP service file
 /etc/systemd/system/sparrow-processor.service # Processor service file
 /opt/sparrow_cam_processor/                   # Processor home directory
 ```

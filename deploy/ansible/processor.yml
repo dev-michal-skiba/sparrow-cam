@@ -224,8 +224,8 @@
         content: |
           [Unit]
           Description=SparrowCam HLS Segment Processor
-          After=network.target nginx.service nginx-rtmp.service
-          Wants=nginx.service nginx-rtmp.service
+          After=network.target nginx.service
+          Wants=nginx.service
 
           [Service]
           Type=simple

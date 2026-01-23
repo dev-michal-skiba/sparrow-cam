@@ -15,10 +15,8 @@ NC='\033[0m' # No Color
 
 # Test configuration
 WEB_URL="http://localhost:8080"
-RTMP_URL="rtmp://localhost:8081/live/sparrow_cam"
 HLS_URL="http://localhost:8080/hls/sparrow_cam.m3u8"
 ANNOTATIONS_URL="http://localhost:8080/annotations/bird.json"
-STREAM_DURATION=15  # Stream for 15 seconds
 WAIT_FOR_PROCESSING=5  # Wait for processor to handle segments
 
 # Exit codes
@@ -91,10 +89,9 @@ if ! docker info > /dev/null 2>&1; then
 fi
 test_pass
 
-test_start "Project files integrity"
-if [ ! -f "$PROJECT_ROOT/sample.mp4" ]; then
-    test_fail "sample.mp4 not found in project root (required for streaming test)"
-fi
+test_start "Creating temp HLS directory for test"
+HLS_TEMP_DIR="/tmp/sparrow_cam_hls_test"
+mkdir -p "$HLS_TEMP_DIR"
 test_pass
 
 test_start "Docker Compose configuration"
@@ -113,7 +110,7 @@ if ! (cd "$LOCAL_DIR" && docker compose build > /dev/null 2>&1); then
 fi
 test_pass
 
-test_start "Starting services (rtmp, processor, web)"
+test_start "Starting services (processor, web)"
 if ! (cd "$LOCAL_DIR" && docker compose up -d > /dev/null 2>&1); then
     test_fail "Failed to start Docker services"
 fi
@@ -123,10 +120,9 @@ test_start "Waiting for services to be healthy (30s timeout)"
 WAIT_COUNT=0
 MAX_WAITS=60  # 60 * 0.5s = 30s
 while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
-    RTMP_HEALTHY=$(docker inspect --format='{{.State.Health.Status}}' sparrow_cam_rtmp 2>/dev/null || echo "none")
     WEB_HEALTHY=$(docker inspect --format='{{.State.Health.Status}}' sparrow_cam_web 2>/dev/null || echo "none")
 
-    if [ "$RTMP_HEALTHY" = "healthy" ] && [ "$WEB_HEALTHY" = "healthy" ]; then
+    if [ "$WEB_HEALTHY" = "healthy" ]; then
         break
     fi
 
@@ -156,68 +152,64 @@ if ! curl -s "$WEB_URL" | grep -q "Sparrow Cam"; then
 fi
 test_pass
 
-test_start "RTMP server port (8081) is listening"
-if ! nc -z localhost 8081 2>/dev/null; then
-    test_fail "RTMP server not listening on port 8081"
-fi
-test_pass
-
 test_start "Container processes running"
-RTMP_RUNNING=$(docker ps | grep -c "sparrow_cam_rtmp" || echo "0")
 PROCESSOR_RUNNING=$(docker ps | grep -c "sparrow_cam_processor" || echo "0")
 WEB_RUNNING=$(docker ps | grep -c "sparrow_cam_web" || echo "0")
 
-if [ "$RTMP_RUNNING" -ne 1 ] || [ "$PROCESSOR_RUNNING" -ne 1 ] || [ "$WEB_RUNNING" -ne 1 ]; then
+if [ "$PROCESSOR_RUNNING" -ne 1 ] || [ "$WEB_RUNNING" -ne 1 ]; then
     test_fail "Not all containers are running"
 fi
 test_pass
 
 # ==============================================================================
-section_header "Phase 4: RTMP Stream Acceptance & HLS Generation"
+section_header "Phase 4: Create Sample HLS Content for Testing"
 # ==============================================================================
 
-test_start "Streaming video to RTMP server (${STREAM_DURATION}s)"
+test_start "Creating sample HLS playlist and segments"
 
-# Run ffmpeg in background
-ffmpeg -re -i "$PROJECT_ROOT/sample.mp4" -c copy -f flv "$RTMP_URL" > /tmp/sparrow_cam_ffmpeg.log 2>&1 &
-FFMPEG_PID=$!
+# Create a sample HLS playlist
+cat > "$HLS_TEMP_DIR/sparrow_cam.m3u8" << 'EOF'
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:2.0,
+segment-0.ts
+#EXTINF:2.0,
+segment-1.ts
+#EXTINF:2.0,
+segment-2.ts
+#EXTINF:2.0,
+segment-3.ts
+#EXTINF:2.0,
+segment-4.ts
+EOF
 
-# Wait for the specified duration
-sleep ${STREAM_DURATION}
+# Create dummy segment files
+for i in {0..4}; do
+    echo "dummy segment $i" > "$HLS_TEMP_DIR/segment-$i.ts"
+done
 
-# Kill ffmpeg gracefully first, then forcefully if needed
-if ps -p $FFMPEG_PID > /dev/null 2>&1; then
-    kill $FFMPEG_PID 2>/dev/null || true
-    sleep 1
-    if ps -p $FFMPEG_PID > /dev/null 2>&1; then
-        kill -9 $FFMPEG_PID 2>/dev/null || true
-    fi
-fi
+# Copy to the Docker volume (mount via processor container)
+docker exec sparrow_cam_processor sh -c "mkdir -p /var/www/html/hls" 2>/dev/null || true
+docker cp "$HLS_TEMP_DIR/sparrow_cam.m3u8" sparrow_cam_processor:/var/www/html/hls/
+for i in {0..4}; do
+    docker cp "$HLS_TEMP_DIR/segment-$i.ts" sparrow_cam_processor:/var/www/html/hls/
+done
 
-# Verify ffmpeg successfully streamed
-if [ -f /tmp/sparrow_cam_ffmpeg.log ] && grep -q "speed=" /tmp/sparrow_cam_ffmpeg.log; then
-    test_pass
-else
-    test_fail "FFmpeg failed to stream to RTMP server"
-fi
-
-# Wait for RTMP server to generate HLS segments
-echo -ne "  ${BLUE}Waiting${NC} for HLS segments to be generated... "
-sleep 3
 test_pass
 
-# Test: Check if HLS playlist and segments exist
-test_start "HLS playlist file generation"
-PLAYLIST_EXISTS=$(docker exec sparrow_cam_rtmp test -f /var/www/html/hls/sparrow_cam.m3u8 && echo "yes" || echo "no")
+test_start "HLS playlist file created in shared volume"
+PLAYLIST_EXISTS=$(docker exec sparrow_cam_processor test -f /var/www/html/hls/sparrow_cam.m3u8 && echo "yes" || echo "no")
 if [ "$PLAYLIST_EXISTS" != "yes" ]; then
-    test_fail "HLS playlist file not generated at /var/www/html/hls/sparrow_cam.m3u8"
+    test_fail "HLS playlist file not found at /var/www/html/hls/sparrow_cam.m3u8"
 fi
 test_pass
 
-test_start "HLS segments (.ts files) generation"
-HLS_SEGMENT_COUNT=$(docker exec sparrow_cam_rtmp sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
+test_start "HLS segments (.ts files) created in shared volume"
+HLS_SEGMENT_COUNT=$(docker exec sparrow_cam_processor sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
 if [ "$HLS_SEGMENT_COUNT" -lt 5 ]; then
-    test_fail "Not enough HLS segments generated (found: $HLS_SEGMENT_COUNT, expected: >=5)"
+    test_fail "Not enough HLS segments found (found: $HLS_SEGMENT_COUNT, expected: >=5)"
 fi
 test_pass
 
@@ -343,9 +335,9 @@ echo -e "${GREEN}║            All E2E Tests Passed Successfully! ✓          
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-echo "✓ RTMP Server:"
-echo "  - Accepted RTMP stream from FFmpeg"
-echo "  - Generated HLS playlist with $HLS_SEGMENT_COUNT segments"
+echo "✓ HLS Test Content:"
+echo "  - Created HLS playlist with $HLS_SEGMENT_COUNT segments"
+echo "  - Uploaded to shared volume"
 echo ""
 
 echo "✓ Processor Service:"

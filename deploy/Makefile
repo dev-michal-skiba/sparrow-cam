@@ -1,4 +1,4 @@
-.PHONY: help build ping users web rtmp processor mount archive_stream all clean
+.PHONY: help build ping users web processor mount archive_stream all clean
 
 help:
 	@echo "Available deploy targets:"
@@ -7,7 +7,6 @@ help:
 	@echo "  make users           - Setup users and groups"
 	@echo "  make mount           - Mount external hard drive"
 	@echo "    DEVICE=<path>      - Override device path (default: /dev/sda1)"
-	@echo "  make rtmp            - Deploy RTMP server (nginx-rtmp)"
 	@echo "  make processor       - Deploy processor service"
 	@echo "  make web             - Deploy web server (nginx)"
 	@echo "  make archive_stream  - Run archive stream script"
@@ -24,9 +23,6 @@ ping:
 users:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml users.yml
 
-rtmp:
-	docker-compose run --rm deploy ansible-playbook -i inventory.yml rtmp.yml
-
 processor:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml processor.yml
 
@@ -39,8 +35,8 @@ web:
 mount:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml mount.yml $(if $(DEVICE),-e "device_to_mount=$(DEVICE)",)
 
-all: users mount rtmp processor web
-	@echo "✅ Users, hard drive, RTMP server, processor service, and web server deployed successfully"
+all: users mount processor web
+	@echo "✅ Users, hard drive, processor service, and web server deployed successfully"
 
 clean:
 	docker-compose run --rm deploy ansible-playbook -i inventory.yml clean.yml
