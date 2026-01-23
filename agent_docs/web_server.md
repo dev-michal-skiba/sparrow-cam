@@ -10,4 +10,4 @@
 - Local web Dockerfile: `local/Dockerfile.web`
 - Local Docker Compose: `local/docker-compose.yml`
     - service name is `web`
-- Deployment playbook: `deploy/ansible/web.yml`
+- Infrastructure playbook: `infra/ansible/setup_web.yml`

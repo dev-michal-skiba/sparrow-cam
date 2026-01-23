@@ -1,6 +1,6 @@
-# Deployment
+# Infrastructure
 
-Ansible-based deployment to Raspberry Pi or similar devices.
+Ansible-based infrastructure deployment to Raspberry Pi or similar devices.
 
 ## Prerequisites
 
@@ -12,25 +12,25 @@ Ansible-based deployment to Raspberry Pi or similar devices.
 ## Deploy
 
 ```bash
-# Build deployment docker container
-make -C deploy build
+# Build infrastructure docker container
+make -C infra build
 
 # Test connection
-make -C deploy ping
+make -C infra ping
 
 # Deploy web, processor, and other core services
-make -C deploy all
+make -C infra setup_all
 
 # Or deploy separately
-make -C deploy users     # Setup users and groups
-make -C deploy mount     # Mount external hard drive
-make -C deploy processor # Processor service
-make -C deploy web       # Web server (port 80)
+make -C infra setup_users     # Setup users and groups
+make -C infra setup_storage   # Mount external hard drive
+make -C infra setup_processor # Processor service
+make -C infra setup_web       # Web server (port 80)
 ```
 
 ## Starting the Stream
 
-After deploying with `make -C deploy all`, start the ffmpeg stream in a tmux session on the target device:
+After deploying with `make -C infra setup_all`, start the ffmpeg stream in a tmux session on the target device:
 
 ```bash
 ffmpeg \

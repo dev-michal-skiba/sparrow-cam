@@ -11,4 +11,4 @@
 - Local web Dockerfile: `local/Dockerfile.processor`
 - Local Docker Compose: `local/docker-compose.yml`
     - service name is `processor`
-- Deployment playbook: `deploy/ansible/processor.yml`
+- Infrastructure playbook: `infra/ansible/setup_processor.yml`

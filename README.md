@@ -13,7 +13,7 @@ Local bird feeder observation system. Monitors camera feed, automatically detect
 ## Project Structure
 
 - **`local/`** - Local development environment
-- **`deploy/`** - Production deployment to Raspberry Pi
+- **`infra/`** - Infrastructure deployment to Raspberry Pi
 - **`app/`** - nginx configurations and web interface
 
 See individual README files for details.
@@ -45,16 +45,16 @@ See [local/README.md](local/README.md)
 
 ```bash
 # Setup (one-time)
-make -C deploy build
-make -C deploy ping
+make -C infra build
+make -C infra ping
 
 # Deploy
-make -C deploy all
+make -C infra setup_all
 
 # Access: http://<pi-ip>/
 ```
 
-See [deploy/README.md](deploy/README.md)
+See [infra/README.md](infra/README.md)
 
 ## Architecture
 

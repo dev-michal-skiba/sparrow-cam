@@ -64,10 +64,6 @@ ffmpeg \
   local/hls/sparrow_cam.m3u8
 ```
 
-Run this from the project root. The `-stream_loop -1` flag loops the video infinitely, and `-re` plays it in real-time, simulating a live camera stream.
-
-**For production on Raspberry Pi**: See [deploy/README.md](../deploy/README.md) for the camera capture command to run in tmux.
-
 **Access HLS streams**:
 - http://localhost:8080/hls/sparrow_cam.m3u8
 

@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  deploy:
-    image: sparrow_cam_deploy
-    container_name: sparrow_cam_deploy
+  infra:
+    image: sparrow_cam_infra
+    container_name: sparrow_cam_infra
     volumes:
       - ./ansible:/ansible
       - ../app:/app
