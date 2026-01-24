@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+from processor.bird_detector import BirdDetector
+from processor.types import DetectionBox
 
 from lab.constants import IMAGES_DIR
 from lab.exception import UserFacingError
-from processor.bird_detector import BirdDetector
-from processor.types import DetectionBox
 
 
 @dataclass

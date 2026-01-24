@@ -1,7 +1,7 @@
 FROM ultralytics/ultralytics:latest@sha256:6bff428cd62fd6efab8a4d6a9c7cdfa4f79a10778574840e036fc2e858ea52d9
 
 ENV PYTHONUNBUFFERED=1
-WORKDIR /app
+WORKDIR /app/processor
 
 # Install ffmpeg for HLS streaming
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*

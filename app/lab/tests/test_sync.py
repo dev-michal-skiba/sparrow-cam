@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import paramiko
 import pytest
+
 from lab.constants import ARCHIVE_DIR, REMOTE_ARCHIVE_PATH
 from lab.sync import ARCHIVE_FOLDER_PATTERN, DATE_FOLDER_PATTERN, FileToSync, SyncError, SyncManager
 

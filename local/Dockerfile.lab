@@ -1,0 +1,8 @@
+FROM sparrow_cam_processor:latest
+
+WORKDIR /app/lab
+
+COPY app/lab/ .
+RUN pip install --no-cache-dir -e .
+
+CMD ["python3", "-u", "lab"]

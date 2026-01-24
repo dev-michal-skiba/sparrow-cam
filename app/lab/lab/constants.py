@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-STORAGE_DIR = Path(__file__).resolve().parent / ".storage"
+STORAGE_DIR = Path("/.storage")
 ARCHIVE_DIR = STORAGE_DIR / "archive"
 IMAGES_DIR = STORAGE_DIR / "images"
 

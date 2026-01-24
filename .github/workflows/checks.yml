@@ -9,7 +9,7 @@ on:
       - master
 
 jobs:
-  checks:
+  processor:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,9 +22,6 @@ jobs:
 
       - name: Build
         run: make -C local build
-
-      - name: Format
-        run: make -C local format
 
       - name: Check
         run: make -C local check
@@ -43,3 +40,26 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans
+  lab:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make -C local build lab-build
+
+      - name: Check
+        run: make -C local lab-check
+
+      - name: Test
+        run: make -C local lab-test
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f local/docker-compose.lab.yml down --volumes --remove-orphans

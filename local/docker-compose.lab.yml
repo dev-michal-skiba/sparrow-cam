@@ -1,0 +1,16 @@
+services:
+  lab:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.lab
+    container_name: sparrow_cam_lab
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - ../app/lab:/app/lab
+      - ../app/processor:/app/processor
+      - ../.storage/lab:/.storage
+      - ../infra/ansible/ssh_key:/secrets/ssh_key
+      - ../infra/ansible/group_vars/all.yml:/secrets/all.yml
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    network_mode: host

@@ -4,6 +4,7 @@ volumes:
 
 services:
   processor:
+    image: sparrow_cam_processor:latest
     build:
       context: ..
       dockerfile: local/Dockerfile.processor
@@ -14,12 +15,11 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ../app/processor/:/app/
+      - ../app/processor:/app/processor
+      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
+      - ../sample.mp4:/app/sample.mp4:ro
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
-      - ./.archive:/var/www/html/storage/sparrow_cam/archive
-      - ../deploy/ansible/ssh_key:/secrets/ssh_key:ro
-      - ../deploy/ansible/group_vars/all.yml:/secrets/all.yml:ro
 
   web:
     build:

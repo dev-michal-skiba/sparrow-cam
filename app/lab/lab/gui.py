@@ -4,12 +4,13 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from processor.bird_detector import BirdDetector
+
 from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR
 from lab.converter import convert_all_playlists
 from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager
 from lab.utils import Region, get_annotated_image_bytes
-from processor.bird_detector import BirdDetector
 
 MIN_SELECTION_SIZE = 480
 

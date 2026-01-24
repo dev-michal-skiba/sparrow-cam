@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
+
 from lab.exception import UserFacingError
 from lab.utils import (
     Region,

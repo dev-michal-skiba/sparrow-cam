@@ -3,17 +3,17 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "processor"
+name = "lab"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "opencv-python-headless",
-    "ultralytics",
+    "paramiko",
+    "pyyaml",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["processor*"]
+include = ["lab*"]
 exclude = ["tests", "tests.*"]
 
 [tool.pytest.ini_options]
@@ -23,7 +23,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-src = ["processor", "tests"]
+src = ["lab", "tests"]
 target-version = "py311"
 fix = true
 
@@ -31,7 +31,7 @@ fix = true
 select = ["E", "F", "W", "I", "UP", "TID"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["processor"]
+known-first-party = ["lab"]
 
 [tool.black]
 line-length = 120
@@ -42,16 +42,16 @@ include = "\\.pyi?$"
 pythonVersion = "3.11"
 pythonPlatform = "Linux"
 typeCheckingMode = "basic"
-include = ["processor", "tests"]
+include = ["lab", "tests"]
 extraPaths = ["."]
 executionEnvironments = [
     { root = "." },
 ]
 
 [tool.coverage.run]
-source = ["processor"]
+source = ["lab"]
 branch = true
-omit = ["*/__main__.py"]
+omit = ["*/__main__.py", "*/gui.py"]
 
 [tool.coverage.report]
 show_missing = true

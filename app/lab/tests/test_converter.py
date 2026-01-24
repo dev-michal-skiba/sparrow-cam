@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from lab.converter import convert_all_playlists, convert_playlist_to_pngs, get_unconverted_playlists
 
 
