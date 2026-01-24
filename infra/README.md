@@ -48,6 +48,7 @@ ffmpeg \
    -f hls
    -hls_time 1
    -hls_list_size 60
+   -hls_flags delete_segments+append_list
    -hls_segment_filename "/var/www/html/hls/sparrow_cam-%d.ts" /var/www/html/hls/sparrow_cam.m3u8
 ```
 
