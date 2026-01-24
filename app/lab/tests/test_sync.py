@@ -271,31 +271,39 @@ class TestSyncManager:
         with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
             mock_key_path.exists.return_value = True
             with patch("lab.sync.paramiko.RSAKey.from_private_key_file") as mock_rsa:
-                with patch("lab.sync.paramiko.Transport") as mock_transport_class:
-                    with patch("lab.sync.paramiko.SFTPClient.from_transport") as mock_sftp_from_transport:
-                        with patch("lab.sync.CONFIG_PATH") as mock_config_path:
-                            mock_config_path.exists.return_value = True
+                with patch("lab.sync.socket.create_connection") as mock_socket:
+                    with patch("lab.sync.paramiko.Transport") as mock_transport_class:
+                        with patch("lab.sync.paramiko.SFTPClient.from_transport") as mock_sftp_from_transport:
+                            with patch("lab.sync.CONFIG_PATH") as mock_config_path:
+                                mock_config_path.exists.return_value = True
 
-                            # Setup mocks
-                            mock_pkey = MagicMock()
-                            mock_rsa.return_value = mock_pkey
-                            mock_transport = MagicMock()
-                            mock_transport_class.return_value = mock_transport
-                            mock_sftp = MagicMock()
-                            mock_sftp_from_transport.return_value = mock_sftp
+                                # Setup mocks
+                                mock_pkey = MagicMock()
+                                mock_rsa.return_value = mock_pkey
+                                mock_sock = MagicMock()
+                                mock_socket.return_value = mock_sock
+                                mock_transport = MagicMock()
+                                mock_transport_class.return_value = mock_transport
+                                mock_sftp = MagicMock()
+                                mock_sftp_from_transport.return_value = mock_sftp
+                                mock_channel = MagicMock()
+                                mock_sftp.get_channel.return_value = mock_channel
 
-                            with patch(
-                                "builtins.open",
-                                mock_open(read_data="ansible_target_host: testhost\nansible_target_user: testuser\n"),
-                            ):
-                                manager = SyncManager()
-                                manager.connect()
+                                with patch(
+                                    "builtins.open",
+                                    mock_open(
+                                        read_data="ansible_target_host: testhost\nansible_target_user: testuser\n"
+                                    ),
+                                ):
+                                    manager = SyncManager()
+                                    manager.connect()
 
-                                # Verify connection was established
-                                assert manager._sftp == mock_sftp
-                                assert manager._transport == mock_transport
-                                assert manager._host == "testhost"
-                                assert manager._user == "testuser"
+                                    # Verify connection was established
+                                    assert manager._sftp == mock_sftp
+                                    assert manager._transport == mock_transport
+                                    assert manager._socket == mock_sock
+                                    assert manager._host == "testhost"
+                                    assert manager._user == "testuser"
 
     def test_list_remote_archive_folders_not_connected(self):
         """Should raise SyncError when not connected."""

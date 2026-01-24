@@ -12,7 +12,7 @@ from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager
 from lab.utils import Region, get_annotated_image_bytes
 
-MIN_SELECTION_SIZE = 480
+MIN_SELECTION_SIZE = 100
 
 
 class SyncProgressDialog:
