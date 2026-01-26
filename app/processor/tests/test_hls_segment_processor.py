@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, call
+from unittest.mock import ANY, MagicMock, call
 
 import pytest
 
@@ -96,16 +96,17 @@ class TestHLSSegmentProcessor:
             mock_bird_detector,
             mock_bird_annotator,
             setup_video_capture,
+            no_bird_frame,
             detect_return_value,
             annotate_call_value,
         ):
             """Test that process_segment detects birds and annotates correctly."""
             mock_bird_detector.detect.return_value = detect_return_value
-            capture = setup_video_capture(opened=True, read_return=(True, "frame"))
+            capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame))
 
             result = hls_processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
-            mock_bird_detector.detect.assert_called_once_with("frame")
+            mock_bird_detector.detect.assert_called_once_with(ANY, conf=0.01, imgsz=320, iou=0.5)
             mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", annotate_call_value)
             assert result == detect_return_value
             assert capture.release_called is True
@@ -138,7 +139,13 @@ class TestHLSSegmentProcessor:
         """Tests for delayed archive behavior (archive triggers 7 segments after detection)."""
 
         def test_archive_triggered_after_delay(
-            self, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, monkeypatch, setup_video_capture
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
         ):
             """Test that archive is triggered 7 segments after bird detection."""
             # Create 15 segments (enough to trigger archive after delay)
@@ -148,7 +155,7 @@ class TestHLSSegmentProcessor:
 
             # Bird detected on segment 1 (index 0)
             mock_bird_detector.detect.side_effect = [True] + [False] * 14
-            setup_video_capture(opened=True, read_return=(True, "frame"))
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame))
             processor = HLSSegmentProcessor()
 
             processor.run()
@@ -179,7 +186,13 @@ class TestHLSSegmentProcessor:
             mock_stream_archiver.archive.assert_not_called()
 
         def test_multiple_detections_only_one_archive(
-            self, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, monkeypatch, setup_video_capture
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
         ):
             """Test that multiple detections during countdown don't trigger multiple archives."""
             segment_names = [f"segment_{i:03d}.ts" for i in range(15)]
@@ -188,7 +201,7 @@ class TestHLSSegmentProcessor:
 
             # Birds detected on segments 1, 2, 3 (within the same countdown period)
             mock_bird_detector.detect.side_effect = [True, True, True] + [False] * 12
-            setup_video_capture(opened=True, read_return=(True, "frame"))
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame))
             processor = HLSSegmentProcessor()
 
             processor.run()
@@ -200,7 +213,13 @@ class TestHLSSegmentProcessor:
         """Tests for overlap prevention when bird detected near last archive."""
 
         def test_overlap_zone_detection_adjusts_countdown(
-            self, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, monkeypatch, setup_video_capture
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
         ):
             """Test that detection in overlap zone starts archive from after last archived segment."""
             # Need enough segments for two archives with overlap scenario
@@ -214,7 +233,7 @@ class TestHLSSegmentProcessor:
             detect_results[0] = True  # First detection at segment_000
             detect_results[9] = True  # Second detection at segment_009 (within 7 of last archive at segment_007)
             mock_bird_detector.detect.side_effect = detect_results
-            setup_video_capture(opened=True, read_return=(True, "frame"))
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame))
             processor = HLSSegmentProcessor()
 
             processor.run()
@@ -232,7 +251,13 @@ class TestHLSSegmentProcessor:
             assert calls[1] == call(limit=ARCHIVE_SEGMENT_COUNT, prefix="auto", end_segment="segment_022.ts")
 
         def test_no_overlap_when_detection_outside_zone(
-            self, mock_bird_detector, mock_bird_annotator, mock_stream_archiver, monkeypatch, setup_video_capture
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
         ):
             """Test that detection outside overlap zone triggers normal centered archive."""
             segment_names = [f"segment_{i:03d}.ts" for i in range(30)]
@@ -244,7 +269,7 @@ class TestHLSSegmentProcessor:
             detect_results[0] = True  # First detection at segment_000
             detect_results[19] = True  # Second detection at segment_019 (outside overlap zone)
             mock_bird_detector.detect.side_effect = detect_results
-            setup_video_capture(opened=True, read_return=(True, "frame"))
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame))
             processor = HLSSegmentProcessor()
 
             processor.run()

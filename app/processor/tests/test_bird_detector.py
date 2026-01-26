@@ -21,10 +21,10 @@ def mock_detector():
 class TestBirdDetector:
     """Test suite for BirdDetector class."""
 
-    def test_detect_frame_with_bird(self, bird_frame):
-        """Test that detector returns True when bird is present in frame."""
+    def test_detect_cropped_bird_frame_with_preset_params(self, cropped_bird_frame, preset_detection_parameters):
+        """Test that detector returns True when bird is present in cropped frame with preset params."""
         detector = BirdDetector()
-        result = detector.detect(bird_frame)
+        result = detector.detect(cropped_bird_frame, **preset_detection_parameters)
         assert result is True
 
     def test_detect_frame_without_bird(self, no_bird_frame):
@@ -33,16 +33,14 @@ class TestBirdDetector:
         result = detector.detect(no_bird_frame)
         assert result is False
 
-    def test_detect_boxes_frame_with_bird(self, bird_frame):
-        """Test that detector returns boxes when bird is present in frame."""
+    def test_detect_boxes_cropped_bird_frame_with_preset_params(self, cropped_bird_frame, preset_detection_parameters):
+        """Test that detector returns boxes when bird is present in cropped frame with preset params."""
         detector = BirdDetector()
-        result = detector.detect_boxes(bird_frame)
+        result = detector.detect_boxes(cropped_bird_frame, **preset_detection_parameters)
         assert result == [
-            (601, 342, 776, 539),
-            (281, 386, 483, 534),
-            (552, 367, 647, 484),
-            (583, 369, 652, 485),
-            (811, 415, 892, 520),
+            (149, 203, 240, 257),
+            (116, 207, 173, 252),
+            (19, 263, 79, 312),
         ]
 
     def test_detect_boxes_frame_without_bird(self, no_bird_frame):

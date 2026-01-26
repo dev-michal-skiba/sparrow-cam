@@ -8,6 +8,7 @@ from processor.bird_annotator import BirdAnnotator
 from processor.bird_detector import BirdDetector
 from processor.hls_watchtower import HLSWatchtower
 from processor.stream_archiver import StreamArchiver
+from processor.utils import load_detection_preset
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,12 @@ class HLSSegmentProcessor:
         self.bird_annotator = BirdAnnotator()
         self.stream_archiver = StreamArchiver()
 
+        # Load detection preset
+        preset = load_detection_preset()
+        self.detection_params = preset["params"]
+        self.detection_regions = preset["regions"]
+        logger.info(f"Loaded preset: {len(self.detection_regions)} regions, params={self.detection_params}")
+
         # Archive state tracking
         self.segment_counter = 0  # Increments with each segment processed
         self.last_archived_counter = None  # Counter value of last segment in previous archive
@@ -32,8 +39,10 @@ class HLSSegmentProcessor:
     def process_segment(self, input_segment_path, segment_name):
         """Process a single segment: detect bird in first frame and log result.
 
+        Runs detection on all configured regions. Returns True if bird detected in any region.
+
         Returns:
-            bool: True if bird was detected, False otherwise.
+            bool: True if bird was detected in any region, False otherwise.
         """
         bird_detected = False
         cap = None
@@ -49,7 +58,11 @@ class HLSSegmentProcessor:
                 logger.error(f"{segment_name}: Failed to read first frame")
                 return bird_detected
 
-            bird_detected = self.bird_detector.detect(frame)
+            for x1, y1, x2, y2 in self.detection_regions:
+                cropped = frame[y1:y2, x1:x2]
+                if self.bird_detector.detect(cropped, **self.detection_params):
+                    bird_detected = True
+
             self.bird_annotator.annotate(segment_name, bird_detected)
             logger.info(f"{segment_name}: {'Bird detected' if bird_detected else 'No bird detected'}")
         except Exception as e:
