@@ -12,12 +12,14 @@ help:
 	@echo "  make format                - Format code with black and ruff"
 	@echo "  make check                 - Run lint, type and security checks (no formatting)"
 	@echo "  make test                  - Run unit tests for processor package"
+	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
 	@echo "  make e2e                   - Run end-to-end integration tests"
 	@echo "  make lab-build             - Build the lab Docker image"
 	@echo "  make lab-run               - Launch lab GUI (files auto-update)"
 	@echo "  make lab-format            - Format lab code with black and ruff"
 	@echo "  make lab-check             - Run lint, type and security checks for lab"
 	@echo "  make lab-test              - Run unit tests for lab package"
+	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
 
 build:
 	docker compose build
@@ -71,7 +73,7 @@ check:
 		printf '\033[32mBandit check passed\033[0m\n'"
 
 test:
-	docker compose run --rm --no-deps processor pytest --cov --cov-report=term --cov-report=term-missing
+	docker compose run --rm --no-deps processor pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
 
 e2e:
 	@bash e2e-test.sh
@@ -100,4 +102,4 @@ lab-check:
 		printf '\033[32mBandit check passed\033[0m\n'"
 
 lab-test:
-	docker compose -f docker-compose.lab.yml run --rm --no-deps lab pytest --cov --cov-report=term --cov-report=term-missing
+	docker compose -f docker-compose.lab.yml run --rm --no-deps lab pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)

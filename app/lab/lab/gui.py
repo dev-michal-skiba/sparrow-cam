@@ -4,7 +4,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from processor.bird_detector import BirdDetector
+from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
 from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR
 from lab.converter import convert_all_playlists
@@ -221,6 +221,54 @@ class LabGUI:
         self.detect_btn = tk.Button(self.button_frame, text="Detect Bird", command=self.detect_bird)
 
         self.clear_btn = tk.Button(self.button_frame, text="Clear", command=self.clear_all)
+
+        # Detection parameters frame (always visible)
+        self.params_frame = tk.Frame(self.root)
+        self.params_frame.pack(pady=(0, 12))
+
+        self.conf_label = tk.Label(self.params_frame, text="Confidence:")
+        self.conf_label.pack(side="left", padx=(0, 4))
+
+        self.conf_var = tk.DoubleVar(value=DEFAULT_DETECTION_PARAMS["conf"])
+        self.conf_spinbox = ttk.Spinbox(
+            self.params_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.01,
+            textvariable=self.conf_var,
+            width=6,
+            format="%.2f",
+        )
+        self.conf_spinbox.pack(side="left", padx=(0, 16))
+
+        self.imgsz_label = tk.Label(self.params_frame, text="Image Size:")
+        self.imgsz_label.pack(side="left", padx=(0, 4))
+
+        self.imgsz_var = tk.IntVar(value=DEFAULT_DETECTION_PARAMS["imgsz"])
+        self.imgsz_spinbox = ttk.Spinbox(
+            self.params_frame,
+            from_=1,
+            to=9999,
+            increment=1,
+            textvariable=self.imgsz_var,
+            width=6,
+        )
+        self.imgsz_spinbox.pack(side="left", padx=(0, 16))
+
+        self.iou_label = tk.Label(self.params_frame, text="IOU:")
+        self.iou_label.pack(side="left", padx=(0, 4))
+
+        self.iou_var = tk.DoubleVar(value=DEFAULT_DETECTION_PARAMS["iou"])
+        self.iou_spinbox = ttk.Spinbox(
+            self.params_frame,
+            from_=0.0,
+            to=1.0,
+            increment=0.01,
+            textvariable=self.iou_var,
+            width=6,
+            format="%.2f",
+        )
+        self.iou_spinbox.pack(side="left")
 
         # Navigation frame (hidden until recording is loaded)
         self.nav_frame = tk.Frame(self.root)
@@ -910,7 +958,14 @@ class LabGUI:
 
         regions = [Region(*coords) for coords in self.__selection_regions] if self.__selection_regions else None
         self.__image_obj = tk.PhotoImage(
-            data=get_annotated_image_bytes(self.detector, self.__selected_image, regions=regions),
+            data=get_annotated_image_bytes(
+                self.detector,
+                self.__selected_image,
+                regions=regions,
+                conf=self.conf_var.get(),
+                imgsz=self.imgsz_var.get(),
+                iou=self.iou_var.get(),
+            ),
             format="png",
         )
         self.set_image_preview()

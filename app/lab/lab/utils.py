@@ -55,7 +55,7 @@ def annotate_frame(frame, boxes: list[DetectionBox]):
 
 
 def get_annotated_image_bytes(
-    detector: BirdDetector, image_path: Path | None, *, regions: list[Region] | None = None
+    detector: BirdDetector, image_path: Path | None, *, regions: list[Region] | None = None, **kwargs
 ) -> bytes:
     if image_path is None:
         raise UserFacingError("No image selected", "Please select an image first.")
@@ -66,14 +66,14 @@ def get_annotated_image_bytes(
         # Run detection on each selected region
         for region in regions:
             cropped = frame[region.y1 : region.y2, region.x1 : region.x2]
-            region_boxes = detector.detect_boxes(cropped)
+            region_boxes = detector.detect_boxes(cropped, **kwargs)
             # Offset box coordinates back to full image coordinates
             boxes.extend(
                 DetectionBox((box[0] + region.x1, box[1] + region.y1, box[2] + region.x1, box[3] + region.y1))
                 for box in region_boxes
             )
     else:
-        boxes = detector.detect_boxes(frame)
+        boxes = detector.detect_boxes(frame, **kwargs)
 
     if not boxes:
         raise UserFacingError("No bird detected", "No birds were found in the selected image.", severity="info")
