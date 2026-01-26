@@ -4,6 +4,7 @@ from pathlib import Path
 STORAGE_DIR = Path("/.storage")
 ARCHIVE_DIR = STORAGE_DIR / "archive"
 IMAGES_DIR = STORAGE_DIR / "images"
+PRESETS_DIR = STORAGE_DIR / "presets"
 
 # Secrets paths (mounted into container)
 SECRETS_DIR = Path("/secrets")

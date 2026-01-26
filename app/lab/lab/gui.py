@@ -1,4 +1,5 @@
 import functools
+import json
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -6,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
-from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR
+from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_all_playlists
 from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager
@@ -268,7 +269,13 @@ class LabGUI:
             width=6,
             format="%.2f",
         )
-        self.iou_spinbox.pack(side="left")
+        self.iou_spinbox.pack(side="left", padx=(0, 16))
+
+        self.export_btn = tk.Button(self.params_frame, text="Export", command=self.export_settings)
+        self.export_btn.pack(side="left", padx=(0, 4))
+
+        self.import_btn = tk.Button(self.params_frame, text="Import", command=self.import_settings)
+        self.import_btn.pack(side="left")
 
         # Navigation frame (hidden until recording is loaded)
         self.nav_frame = tk.Frame(self.root)
@@ -970,6 +977,79 @@ class LabGUI:
         )
         self.set_image_preview()
         self.show_clear_button()
+
+    def export_settings(self) -> None:
+        """Export detection parameters and regions to a JSON file."""
+        PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+
+        file_path = filedialog.asksaveasfilename(
+            initialdir=str(PRESETS_DIR),
+            title="Export Settings",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+
+        settings = {
+            "params": {
+                "conf": self.conf_var.get(),
+                "imgsz": self.imgsz_var.get(),
+                "iou": self.iou_var.get(),
+            },
+            "regions": [list(region) for region in self.__selection_regions],
+        }
+
+        with open(file_path, "w") as f:
+            json.dump(settings, f, indent=2)
+
+        messagebox.showinfo("Export Complete", f"Settings exported to:\n{file_path}")
+
+    def import_settings(self) -> None:
+        """Import detection parameters and regions from a JSON file."""
+        initial_dir = str(PRESETS_DIR) if PRESETS_DIR.exists() else str(PRESETS_DIR.parent)
+
+        file_path = filedialog.askopenfilename(
+            initialdir=initial_dir,
+            title="Import Settings",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path) as f:
+                settings = json.load(f)
+
+            # Update detection parameters
+            if "params" in settings:
+                params = settings["params"]
+                if "conf" in params:
+                    self.conf_var.set(params["conf"])
+                if "imgsz" in params:
+                    self.imgsz_var.set(params["imgsz"])
+                if "iou" in params:
+                    self.iou_var.set(params["iou"])
+
+            # Update regions
+            if "regions" in settings:
+                # Clear existing regions and canvas elements
+                self.clear_canvas_elements()
+                self.__selection_regions.clear()
+
+                # Load new regions
+                for region in settings["regions"]:
+                    if len(region) == 4:
+                        self.__selection_regions.append(tuple(region))
+
+                # Redraw selections if image is loaded
+                if self.__image_obj is not None:
+                    self.redraw_selections()
+
+            messagebox.showinfo("Import Complete", f"Settings imported from:\n{file_path}")
+
+        except (json.JSONDecodeError, OSError) as e:
+            messagebox.showerror("Import Error", f"Failed to import settings:\n{e}")
 
     def start_sync(self) -> None:
         """Start the sync operation in a background thread with progress dialog."""
