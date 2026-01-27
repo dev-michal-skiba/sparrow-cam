@@ -1,12 +1,13 @@
 """Tests for lab.sync module."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import paramiko
 import pytest
 
 from lab.constants import ARCHIVE_DIR, REMOTE_ARCHIVE_PATH
-from lab.sync import ARCHIVE_FOLDER_PATTERN, DATE_FOLDER_PATTERN, FileToSync, SyncError, SyncManager
+from lab.sync import ARCHIVE_FOLDER_PATTERN, DATE_FOLDER_PATTERN, FileToSync, SyncError, SyncManager, remove_recording
 
 
 class TestArchiveFolderPattern:
@@ -750,3 +751,220 @@ class TestSyncManager:
                 calls = progress_callback.call_args_list
                 assert calls[0][0] == (1, 2, "video1.ts")
                 assert calls[1][0] == (2, 2, "video2.ts")
+
+
+class TestRemoteRemovalMethods:
+    """Tests for remote folder removal functionality."""
+
+    def test_remove_remote_folder_recursive_not_connected(self):
+        """Should raise SyncError when not connected."""
+        manager = SyncManager()
+
+        with pytest.raises(SyncError) as excinfo:
+            manager._remove_remote_folder_recursive("/remote/path")
+
+        assert "Not connected" in str(excinfo.value)
+
+    def test_remove_remote_folder_recursive_single_file(self):
+        """Should remove a single file in a folder."""
+        manager = SyncManager()
+        mock_sftp = MagicMock()
+        manager._sftp = mock_sftp
+
+        # Mock listdir_attr to return one file
+        mock_attr = MagicMock()
+        mock_attr.filename = "file.txt"
+        mock_attr.st_mode = 0o100644  # Regular file
+        mock_sftp.listdir_attr.return_value = [mock_attr]
+
+        manager._remove_remote_folder_recursive("/remote/path")
+
+        mock_sftp.remove.assert_called_once_with("/remote/path/file.txt")
+        mock_sftp.rmdir.assert_called_once_with("/remote/path")
+
+    def test_remove_remote_folder_recursive_with_subdirectory(self):
+        """Should recursively remove folders and files."""
+        manager = SyncManager()
+        mock_sftp = MagicMock()
+        manager._sftp = mock_sftp
+
+        # First call returns a subdirectory
+        subdir_attr = MagicMock()
+        subdir_attr.filename = "subdir"
+        subdir_attr.st_mode = 0o40755  # Directory
+
+        # Second call returns a file in the subdirectory
+        file_attr = MagicMock()
+        file_attr.filename = "file.txt"
+        file_attr.st_mode = 0o100644  # Regular file
+
+        mock_sftp.listdir_attr.side_effect = [
+            [subdir_attr],  # Root has subdirectory
+            [file_attr],  # Subdirectory has file
+        ]
+
+        manager._remove_remote_folder_recursive("/remote/path")
+
+        # Should remove file, rmdir subdir, then rmdir root
+        assert mock_sftp.remove.call_count == 1
+        assert mock_sftp.rmdir.call_count == 2
+
+    def test_remove_remote_folder_recursive_handles_os_error(self):
+        """Should raise SyncError on OS error."""
+        manager = SyncManager()
+        mock_sftp = MagicMock()
+        manager._sftp = mock_sftp
+        mock_sftp.listdir_attr.side_effect = OSError("Permission denied")
+
+        with pytest.raises(SyncError) as excinfo:
+            manager._remove_remote_folder_recursive("/remote/path")
+
+        assert "Failed to remove remote folder" in str(excinfo.value)
+
+    def test_remove_remote_folder_not_connected(self):
+        """Should raise SyncError when not connected."""
+        manager = SyncManager()
+
+        with pytest.raises(SyncError) as excinfo:
+            manager.remove_remote_folder("2024/01/15/playlist1")
+
+        assert "Not connected" in str(excinfo.value)
+
+    def test_remove_remote_folder_folder_not_found(self):
+        """Should raise SyncError when folder doesn't exist."""
+        manager = SyncManager()
+        mock_sftp = MagicMock()
+        manager._sftp = mock_sftp
+
+        with patch.object(manager, "_is_dir", return_value=False):
+            with pytest.raises(SyncError) as excinfo:
+                manager.remove_remote_folder("2024/01/15/playlist1")
+
+            assert "Remote folder does not exist" in str(excinfo.value)
+
+    def test_remove_remote_folder_success(self):
+        """Should remove remote folder successfully."""
+        manager = SyncManager()
+        mock_sftp = MagicMock()
+        manager._sftp = mock_sftp
+
+        with patch.object(manager, "_is_dir", return_value=True):
+            with patch.object(manager, "_remove_remote_folder_recursive") as mock_recursive:
+                manager.remove_remote_folder("2024/01/15/playlist1")
+
+                mock_recursive.assert_called_once()
+                # Should be called with full path
+                call_args = mock_recursive.call_args[0][0]
+                assert "2024/01/15/playlist1" in call_args
+                assert call_args.startswith(REMOTE_ARCHIVE_PATH)
+
+
+class TestRemoveRecording:
+    """Tests for remove_recording function."""
+
+    def test_remove_recording_remote_fails(self):
+        """Should raise SyncError if remote removal fails without local deletion."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
+            mock_sync_instance.remove_remote_folder.side_effect = SyncError("Remote deletion failed")
+
+            with pytest.raises(SyncError) as excinfo:
+                remove_recording(relative_path)
+
+            assert "Remote deletion failed" in str(excinfo.value)
+
+    def test_remove_recording_removes_archive_locally(self):
+        """Should remove local archive folder after remote removal."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
+
+            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+                with patch.object(Path, "exists", return_value=True):
+                    remove_recording(relative_path)
+
+                    # Should call rmtree for both archive and images
+                    assert mock_rmtree.call_count == 2
+
+    def test_remove_recording_removes_images_locally(self):
+        """Should remove local images folder after remote removal."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
+
+            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+                with patch.object(Path, "exists", return_value=True):
+                    remove_recording(relative_path)
+
+                    # Should attempt to remove both paths
+                    called_paths = [call[0][0] for call in mock_rmtree.call_args_list]
+                    assert len(called_paths) == 2
+
+    def test_remove_recording_skips_nonexistent_local_paths(self):
+        """Should gracefully skip removal if local paths don't exist."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
+
+            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+                with patch.object(Path, "exists", return_value=False):
+                    # Should not raise, even if local paths don't exist
+                    remove_recording(relative_path)
+
+                    # rmtree should never be called since paths don't exist
+                    mock_rmtree.assert_not_called()
+
+    def test_remove_recording_calls_sync_manager_as_context(self):
+        """Should use SyncManager as context manager."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__ = MagicMock(return_value=mock_sync_instance)
+            mock_sync_class.return_value.__exit__ = MagicMock(return_value=None)
+
+            with patch.object(Path, "exists", return_value=False):
+                remove_recording(relative_path)
+
+                # Should enter and exit context
+                mock_sync_class.return_value.__enter__.assert_called_once()
+                mock_sync_class.return_value.__exit__.assert_called_once()
+
+    def test_remove_recording_sequence(self):
+        """Should remove remote first, then local archive, then images."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        call_sequence = []
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            mock_sync_instance = MagicMock()
+            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
+
+            def track_remove_remote(path):
+                call_sequence.append(("remove_remote", path))
+
+            mock_sync_instance.remove_remote_folder.side_effect = track_remove_remote
+
+            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+
+                def track_rmtree(path):
+                    call_sequence.append(("rmtree", str(path)))
+
+                mock_rmtree.side_effect = track_rmtree
+
+                with patch.object(Path, "exists", return_value=True):
+                    remove_recording(relative_path)
+
+                    # First call should be remove_remote
+                    assert call_sequence[0][0] == "remove_remote"
+                    # Then local operations
+                    assert call_sequence[1][0] == "rmtree"
+                    assert call_sequence[2][0] == "rmtree"

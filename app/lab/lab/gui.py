@@ -10,7 +10,7 @@ from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_all_playlists
 from lab.exception import UserFacingError
-from lab.sync import SyncError, SyncManager
+from lab.sync import SyncError, SyncManager, remove_recording
 from lab.utils import Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
@@ -218,6 +218,8 @@ class LabGUI:
 
         self.select_btn = tk.Button(self.button_frame, text="Select recording", command=self.choose_recording)
         self.select_btn.pack(side="left", padx=(0, 8))
+
+        self.remove_btn = tk.Button(self.button_frame, text="Remove", command=self.start_remove_recording)
 
         self.detect_btn = tk.Button(self.button_frame, text="Detect Bird", command=self.detect_bird)
 
@@ -545,6 +547,14 @@ class LabGUI:
         if not self.detect_btn.winfo_ismapped():
             self.detect_btn.pack(side="left")
 
+    def show_remove_button(self) -> None:
+        if not self.remove_btn.winfo_ismapped():
+            self.remove_btn.pack(side="left", padx=(8, 0))
+
+    def hide_remove_button(self) -> None:
+        if self.remove_btn.winfo_ismapped():
+            self.remove_btn.pack_forget()
+
     def show_clear_button(self) -> None:
         if not self.clear_btn.winfo_ismapped():
             self.clear_btn.pack(side="left", padx=(8, 0))
@@ -843,6 +853,7 @@ class LabGUI:
         # Show navigation controls
         self.show_navigation()
         self.show_detect_button()
+        self.show_remove_button()
 
     def load_frame(self, index: int) -> None:
         """
@@ -956,6 +967,9 @@ class LabGUI:
 
         # Load first frame
         self.load_frame(0)
+
+        # Ensure remove button is shown
+        self.show_remove_button()
 
     @handle_user_error
     def detect_bird(self) -> None:
@@ -1075,6 +1089,8 @@ class LabGUI:
             self.detect_btn.config(state=state)
         if self.clear_btn.winfo_ismapped():
             self.clear_btn.config(state=state)
+        if self.remove_btn.winfo_ismapped():
+            self.remove_btn.config(state=state)
 
     def _run_sync(self) -> None:
         """Run sync and conversion in background thread."""
@@ -1134,6 +1150,142 @@ class LabGUI:
             messagebox.showerror("Sync Error", error)
         elif not dialog.cancelled:
             messagebox.showinfo("Sync Complete", "Files synced and converted successfully.")
+
+    def _get_recording_relative_path(self) -> str | None:
+        """
+        Get the relative path of the current recording from IMAGES_DIR.
+
+        Returns the path in format: {year}/{month}/{day}/{folder_name}
+        or None if no recording is selected.
+        """
+        if self.__current_recording is None:
+            return None
+
+        try:
+            return str(self.__current_recording.relative_to(IMAGES_DIR))
+        except ValueError:
+            return None
+
+    def start_remove_recording(self) -> None:
+        """Start the remove recording operation after user confirmation."""
+        if self.__current_recording is None:
+            messagebox.showerror("No Recording", "No recording is currently selected.")
+            return
+
+        relative_path = self._get_recording_relative_path()
+        if relative_path is None:
+            messagebox.showerror("Error", "Cannot determine recording path.")
+            return
+
+        # Show confirmation dialog
+        recording_name = self.__current_recording.name
+        confirmed = messagebox.askyesno(
+            "Confirm Removal",
+            f"Are you sure you want to remove this recording?\n\n"
+            f"Recording: {recording_name}\n\n"
+            f"WARNING: This will permanently delete data from:\n"
+            f"  - Target device\n"
+            f"  - Local storage\n\n"
+            f"This action cannot be undone.",
+        )
+
+        if not confirmed:
+            return
+
+        # Store the relative path for the background thread
+        self.__remove_relative_path = relative_path
+
+        # Disable all buttons (freeze UI)
+        self._set_buttons_enabled(False)
+
+        # Start removal thread
+        self.__remove_thread = threading.Thread(target=self._run_remove, daemon=True)
+        self.__remove_error: str | None = None
+        self.__remove_thread.start()
+
+        # Poll for completion
+        self.root.after(100, self._check_remove_complete)
+
+    def _run_remove(self) -> None:
+        """Run removal operation in background thread."""
+        try:
+            remove_recording(self.__remove_relative_path)
+        except SyncError as e:
+            self.__remove_error = str(e)
+        except Exception as e:
+            self.__remove_error = f"Unexpected error: {e}"
+
+    def _check_remove_complete(self) -> None:
+        """Poll for removal thread completion and cleanup."""
+        if self.__remove_thread.is_alive():
+            # Still running, check again later
+            self.root.after(100, self._check_remove_complete)
+            return
+
+        # Thread finished
+        error = self.__remove_error
+
+        # Re-enable buttons
+        self._set_buttons_enabled(True)
+
+        if error:
+            messagebox.showerror("Removal Error", error)
+        else:
+            # Removal succeeded - try to load previous recording
+            self._load_previous_after_removal()
+            messagebox.showinfo("Removal Complete", "Recording removed successfully.")
+
+    def _load_previous_after_removal(self) -> None:
+        """Load the previous recording after current one is removed."""
+        # Find the index of the removed recording in the old list
+        removed_recording = self.__current_recording
+        prev_recording_to_load: Path | None = None
+
+        if removed_recording and self.__all_recordings:
+            try:
+                removed_idx = self.__all_recordings.index(removed_recording)
+                if removed_idx > 0:
+                    # There's a previous recording - remember it
+                    prev_recording_to_load = self.__all_recordings[removed_idx - 1]
+            except ValueError:
+                pass
+
+        # Refresh recordings list (the removed one should no longer be there)
+        self.__all_recordings = self.scan_all_recordings()
+
+        # Try to load the previous recording
+        if prev_recording_to_load and prev_recording_to_load in self.__all_recordings:
+            self._load_recording(prev_recording_to_load)
+        else:
+            # No previous recording available - reset to empty state
+            self._reset_recording_state()
+
+    def _reset_recording_state(self) -> None:
+        """Reset UI state when no recording is available to display."""
+        # Clear recording state
+        self.__current_recording = None
+        self.__frame_files = []
+        self.__current_frame_index = 0
+        self.__frames_per_segment = 0
+
+        # Clear image and canvas
+        self.__selected_image = None
+        self.__selected_image_text.set("No file selected")
+        if self.__canvas_image_id is not None:
+            self.image_canvas.delete(self.__canvas_image_id)
+            self.__canvas_image_id = None
+        self.__image_obj = None
+
+        # Clear selections
+        self.clear_all()
+
+        # Hide navigation and remove button
+        self.hide_navigation()
+        self.hide_remove_button()
+
+        # Hide detect button (it's shown when recording is loaded)
+        if self.detect_btn.winfo_ismapped():
+            self.detect_btn.pack_forget()
 
     def run(self) -> None:
         self.root.mainloop()

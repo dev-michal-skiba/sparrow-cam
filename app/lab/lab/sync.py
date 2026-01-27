@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import socket
+import stat
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +17,7 @@ from lab.constants import (
     ARCHIVE_DIR,
     ARCHIVE_FOLDER_PATTERN,
     CONFIG_PATH,
+    IMAGES_DIR,
     REMOTE_ARCHIVE_PATH,
     SSH_KEY_PATH,
 )
@@ -146,6 +149,52 @@ class SyncManager:
             return stat_result.st_mode is not None and (stat_result.st_mode & 0o40000 != 0)
         except OSError:
             return False
+
+    def _remove_remote_folder_recursive(self, path: str) -> None:
+        """
+        Recursively remove a remote folder and all its contents.
+
+        Args:
+            path: Full remote path to the folder to remove.
+
+        Raises:
+            SyncError: If not connected or removal fails.
+        """
+        if self._sftp is None:
+            raise SyncError("Not connected")
+
+        try:
+            for entry in self._sftp.listdir_attr(path):
+                entry_path = f"{path}/{entry.filename}"
+                if entry.st_mode is not None and stat.S_ISDIR(entry.st_mode):
+                    self._remove_remote_folder_recursive(entry_path)
+                else:
+                    self._sftp.remove(entry_path)
+            self._sftp.rmdir(path)
+        except OSError as e:
+            raise SyncError(f"Failed to remove remote folder {path}: {e}") from e
+
+    def remove_remote_folder(self, relative_path: str) -> None:
+        """
+        Remove a folder and its contents from the remote server.
+
+        Args:
+            relative_path: Path relative to REMOTE_ARCHIVE_PATH
+                          (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+
+        Raises:
+            SyncError: If not connected or removal fails.
+        """
+        if self._sftp is None:
+            raise SyncError("Not connected")
+
+        full_path = f"{REMOTE_ARCHIVE_PATH}/{relative_path}"
+
+        # Verify the folder exists before attempting removal
+        if not self._is_dir(full_path):
+            raise SyncError(f"Remote folder does not exist: {relative_path}")
+
+        self._remove_remote_folder_recursive(full_path)
 
     def _list_remote_archive_folders(self) -> list[str]:
         """
@@ -435,3 +484,32 @@ class SyncManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.disconnect()
+
+
+def remove_recording(relative_path: str) -> None:
+    """
+    Remove a recording from remote server and local storage.
+
+    Remote removal happens first. Local removal only proceeds if remote succeeds.
+    Removes both the archive folder (HLS files) and images folder (PNG frames).
+
+    Args:
+        relative_path: Path relative to archive/images root
+                      (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+
+    Raises:
+        SyncError: If remote removal fails (local data is preserved).
+    """
+    # Step 1: Remove from remote server first
+    with SyncManager() as sync:
+        sync.remove_remote_folder(relative_path)
+
+    # Step 2: Remote removal succeeded, now remove local archive folder
+    local_archive_path = ARCHIVE_DIR / relative_path
+    if local_archive_path.exists():
+        shutil.rmtree(local_archive_path)
+
+    # Step 3: Remove local images folder
+    local_images_path = IMAGES_DIR / relative_path
+    if local_images_path.exists():
+        shutil.rmtree(local_images_path)
