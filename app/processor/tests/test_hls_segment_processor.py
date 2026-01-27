@@ -106,7 +106,7 @@ class TestHLSSegmentProcessor:
 
             result = hls_processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
-            mock_bird_detector.detect.assert_called_once_with(ANY, conf=0.01, imgsz=320, iou=0.5)
+            mock_bird_detector.detect.assert_called_once_with(ANY, conf=0.05, imgsz=320, iou=0.5)
             mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", annotate_call_value)
             assert result == detect_return_value
             assert capture.release_called is True

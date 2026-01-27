@@ -9,6 +9,6 @@ class TestLoadDetectionPreset:
         preset = load_detection_preset()
 
         assert preset == {
-            "params": {"conf": 0.01, "imgsz": 320, "iou": 0.5},
+            "params": {"conf": 0.05, "imgsz": 320, "iou": 0.5},
             "regions": [[302, 98, 622, 418]],
         }
