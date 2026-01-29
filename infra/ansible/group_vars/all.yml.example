@@ -3,4 +3,4 @@
 
 # Target server configuration
 ansible_target_host: "192.168.0.144"  # Replace with your server IP address
-ansible_target_user: "sparrowcam"     # Replace with your SSH username
+ansible_target_user: "sparrow_cam_infra"  # Replace with your SSH username

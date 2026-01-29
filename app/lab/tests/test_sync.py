@@ -233,25 +233,28 @@ class TestSyncManager:
         """Should raise SyncError when SSH key is invalid."""
         with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
             mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.RSAKey.from_private_key_file") as mock_rsa:
-                mock_rsa.side_effect = paramiko.SSHException("Invalid key")
-                with patch("lab.sync.CONFIG_PATH") as mock_config_path:
-                    mock_config_path.exists.return_value = True
-                    with patch(
-                        "builtins.open", mock_open(read_data="ansible_target_host: host\nansible_target_user: user\n")
-                    ):
-                        manager = SyncManager()
+            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file") as mock_ed25519:
+                mock_ed25519.side_effect = paramiko.SSHException("Invalid key")
+                with patch("lab.sync.paramiko.RSAKey.from_private_key_file") as mock_rsa:
+                    mock_rsa.side_effect = paramiko.SSHException("Invalid key")
+                    with patch("lab.sync.CONFIG_PATH") as mock_config_path:
+                        mock_config_path.exists.return_value = True
+                        with patch(
+                            "builtins.open",
+                            mock_open(read_data="ansible_target_host: host\nansible_target_user: user\n"),
+                        ):
+                            manager = SyncManager()
 
-                        with pytest.raises(SyncError) as excinfo:
-                            manager.connect()
+                            with pytest.raises(SyncError) as excinfo:
+                                manager.connect()
 
-                        assert "Failed to load SSH key" in str(excinfo.value)
+                            assert "Failed to load SSH key" in str(excinfo.value)
 
     def test_connect_connection_failed(self):
         """Should raise SyncError when connection fails."""
         with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
             mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.RSAKey.from_private_key_file"):
+            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file"):
                 with patch("lab.sync.paramiko.Transport") as mock_transport:
                     mock_transport.return_value.connect.side_effect = Exception("Connection refused")
                     with patch("lab.sync.CONFIG_PATH") as mock_config_path:
@@ -271,7 +274,7 @@ class TestSyncManager:
         """Should establish connection successfully."""
         with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
             mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.RSAKey.from_private_key_file") as mock_rsa:
+            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file") as mock_ed25519:
                 with patch("lab.sync.socket.create_connection") as mock_socket:
                     with patch("lab.sync.paramiko.Transport") as mock_transport_class:
                         with patch("lab.sync.paramiko.SFTPClient.from_transport") as mock_sftp_from_transport:
@@ -280,7 +283,7 @@ class TestSyncManager:
 
                                 # Setup mocks
                                 mock_pkey = MagicMock()
-                                mock_rsa.return_value = mock_pkey
+                                mock_ed25519.return_value = mock_pkey
                                 mock_sock = MagicMock()
                                 mock_socket.return_value = mock_sock
                                 mock_transport = MagicMock()

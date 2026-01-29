@@ -129,6 +129,13 @@ class StreamArchiver:
         destination_path = ARCHIVE_PATH / year_month_day / directory_name
         destination_path.mkdir(parents=True, exist_ok=True)
 
+        # Ensure group write permission on created directories (archive dir and date-based parents)
+        # Walk up from destination to ARCHIVE_PATH, setting permissions to rwxrwxr-x
+        current = destination_path
+        while current != ARCHIVE_PATH and current.is_relative_to(ARCHIVE_PATH):
+            current.chmod(0o775)
+            current = current.parent
+
         # Copy playlist file to archive directory
         shutil.copy2(STREAM_PATH / playlist_filename, destination_path / playlist_filename)
 

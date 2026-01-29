@@ -313,6 +313,37 @@ class TestStreamArchiver:
 
         @freeze_time("2024-12-21T15:30:45")
         @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_copy_stream_sets_group_write_permissions(self, stream_path, archive_path):
+            """Test that copy_stream sets group write permissions on created directories."""
+            archiver = StreamArchiver()
+
+            result = archiver.copy_stream("playlist.m3u8", prefix="manual")
+
+            # Verify destination directory has group write permissions (0o775 = rwxrwxr-x)
+            destination_perms = result.destination_path.stat().st_mode & 0o777
+            assert destination_perms == 0o775, f"Expected 0o775, got {oct(destination_perms)}"
+
+            # Verify parent date directory (day) has group write permissions
+            day_dir = result.destination_path.parent
+            day_perms = day_dir.stat().st_mode & 0o777
+            assert day_perms == 0o775, f"Day directory expected 0o775, got {oct(day_perms)}"
+
+            # Verify parent month directory has group write permissions
+            month_dir = day_dir.parent
+            month_perms = month_dir.stat().st_mode & 0o777
+            assert month_perms == 0o775, f"Month directory expected 0o775, got {oct(month_perms)}"
+
+            # Verify parent year directory has group write permissions
+            year_dir = month_dir.parent
+            year_perms = year_dir.stat().st_mode & 0o777
+            assert year_perms == 0o775, f"Year directory expected 0o775, got {oct(year_perms)}"
+
+            # Verify that ARCHIVE_PATH itself is not modified (should remain at original perms)
+            # This ensures we only modify directories between destination and ARCHIVE_PATH
+            assert year_dir.parent == archive_path
+
+        @freeze_time("2024-12-21T15:30:45")
+        @pytest.mark.usefixtures("stream_path", "archive_path")
         def test_copy_stream_success_auto_prefix(self, stream_path, archive_path):
             """Test successful copying of stream files with auto prefix."""
             archiver = StreamArchiver()

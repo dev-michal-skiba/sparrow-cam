@@ -43,6 +43,8 @@
       file:
         path: /var/www/html/storage
         state: directory
+        owner: sparrow_cam_processor
+        group: www-data
         mode: '0755'
 
     - name: Mount the partition
@@ -60,12 +62,3 @@
         fstype: ext4
         state: present
         opts: defaults
-
-    - name: Set storage directory ownership and permissions
-      file:
-        path: /var/www/html/storage
-        state: directory
-        owner: sparrow_cam_processor
-        group: www-data
-        mode: '0775'
-        recurse: yes

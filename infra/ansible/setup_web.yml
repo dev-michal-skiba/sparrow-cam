@@ -38,15 +38,7 @@
       file:
         path: /var/www/html/hls
         state: directory
-        owner: www-data
-        group: www-data
-        mode: '0755'
-
-    - name: Create annotations directory
-      file:
-        path: /var/www/html/annotations
-        state: directory
-        owner: sparrow_cam_processor
+        owner: sparrow_cam_stream
         group: www-data
         mode: '0775'
 

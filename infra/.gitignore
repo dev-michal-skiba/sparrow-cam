@@ -1,2 +1,3 @@
 ansible/ssh_key
+ansible/ssh_key.pub
 ansible/group_vars/all.yml

@@ -95,9 +95,13 @@ class SyncManager:
         self._host, self._user = self._load_config()
 
         try:
-            pkey = paramiko.RSAKey.from_private_key_file(str(SSH_KEY_PATH))
-        except paramiko.SSHException as e:
-            raise SyncError(f"Failed to load SSH key: {e}") from e
+            pkey = paramiko.Ed25519Key.from_private_key_file(str(SSH_KEY_PATH))
+        except paramiko.SSHException:
+            # Fall back to RSA if Ed25519 fails
+            try:
+                pkey = paramiko.RSAKey.from_private_key_file(str(SSH_KEY_PATH))
+            except paramiko.SSHException as e:
+                raise SyncError(f"Failed to load SSH key: {e}") from e
 
         try:
             # Create socket with timeout to avoid hanging on unresponsive servers

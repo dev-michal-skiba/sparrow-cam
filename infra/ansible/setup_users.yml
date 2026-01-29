@@ -35,3 +35,14 @@
         owner: sparrow_cam_processor
         group: sparrow_cam_processor
         mode: '0700'
+
+    - name: Create sparrow_cam_stream user
+      user:
+        name: sparrow_cam_stream
+        shell: /bin/bash
+        home: /home/sparrow_cam_stream
+        create_home: yes
+        groups: www-data,video
+        append: yes
+        system: no
+        state: present
