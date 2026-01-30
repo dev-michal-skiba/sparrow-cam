@@ -29,8 +29,8 @@ ssh-keygen -t ed25519 -f infra/ansible/ssh_key -C "sparrow_cam_infra"
 sudo adduser sparrow_cam_infra
 sudo usermod -aG sudo sparrow_cam_infra
 
-# Add to www-data group for access to archive storage and HLS directories
-sudo usermod -aG www-data sparrow_cam_infra
+# Add to sparrow_cam_processor group for access to archive storage
+sudo usermod -aG sparrow_cam_processor sparrow_cam_infra
 
 # Enable passwordless sudo
 echo "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/sparrow_cam_infra
