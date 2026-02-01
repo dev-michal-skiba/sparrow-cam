@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 WEB_URL="http://localhost:8080"
 HLS_URL="http://localhost:8080/hls/sparrow_cam.m3u8"
 ANNOTATIONS_URL="http://localhost:8080/annotations/bird.json"
-WAIT_FOR_PROCESSING=5  # Wait for processor to handle segments
+WAIT_FOR_PROCESSING=15  # Wait for processor to handle segments
 
 # Exit codes
 SUCCESS=0
@@ -177,15 +177,20 @@ test_start "Starting ffmpeg to stream sample.mp4 as HLS"
 # and a 10-segment playlist (matching README.md configuration)
 docker exec -d sparrow_cam_processor ffmpeg \
     -stream_loop -1 \
+    -re \
     -i /tmp/sample.mp4 \
     -c:v libx264 \
     -preset ultrafast \
-    -g 60 \
+    -b:v 500k \
+    -maxrate 500k \
+    -bufsize 1000k \
+    -c:a aac \
+    -b:a 128k \
+    -f hls \
     -hls_time 2 \
     -hls_list_size 10 \
     -hls_flags delete_segments \
     -hls_segment_type mpegts \
-    -f hls \
     /var/www/html/hls/sparrow_cam.m3u8 > /tmp/sparrow_cam_ffmpeg.log 2>&1
 
 # Give ffmpeg a moment to start
