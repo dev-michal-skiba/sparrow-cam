@@ -13,11 +13,12 @@ from processor.utils import load_detection_preset
 logger = logging.getLogger(__name__)
 
 # Archive configuration
-ARCHIVE_SEGMENT_COUNT = 15  # Total segments to archive
-ARCHIVE_DELAY_SEGMENTS = 7  # Segments to wait after detection (bird in middle = 8th position)
+ARCHIVE_SEGMENT_COUNT = 30  # Total segments to archive
+SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
+SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
 
 # Detection configuration
-DETECTION_FRAME_COUNT = 2  # Number of frames to check for bird detection per segment
+DETECTION_FRAME_COUNT = 4  # Number of frames to check for bird detection per segment
 
 
 def _get_detection_frame_indices(total_frames: int, frame_count: int) -> list[int]:
@@ -118,10 +119,10 @@ class HLSSegmentProcessor:
         return bird_detected
 
     def schedule_archive(self, segment_name):
-        """Schedule an archive to trigger after ARCHIVE_DELAY_SEGMENTS more segments.
+        """Schedule an archive to trigger after SEGMENTS_AFTER_DETECTION more segments.
 
-        Handles overlap prevention: if detection is within 7 segments of last archive,
-        the archive will start from the segment after the last archived segment.
+        Handles overlap prevention: if detection is within SEGMENTS_BEFORE_DETECTION segments
+        of last archive, the archive will start from the segment after the last archived segment.
 
         Args:
             segment_name: Name of the segment where bird was detected.
@@ -132,8 +133,8 @@ class HLSSegmentProcessor:
             return
 
         # Add 1 to account for decrement happening on this same segment in check_and_execute_archive
-        self.pending_archive_countdown = ARCHIVE_DELAY_SEGMENTS + 1
-        logger.info(f"{segment_name}: Bird detected, archive scheduled in {ARCHIVE_DELAY_SEGMENTS} segments")
+        self.pending_archive_countdown = SEGMENTS_AFTER_DETECTION + 1
+        logger.info(f"{segment_name}: Bird detected, archive scheduled in {SEGMENTS_AFTER_DETECTION} segments")
 
     def check_and_execute_archive(self, segment_name):
         """Check if archive should be triggered and execute if so.
@@ -170,17 +171,17 @@ class HLSSegmentProcessor:
             bird_detected = self.process_segment(input_segment_path, segment_name)
 
             if bird_detected:
-                # Check overlap: if within 7 segments of last archive, don't schedule new archive
-                # (the countdown will continue from previous detection)
+                # Check overlap: if within SEGMENTS_BEFORE_DETECTION segments of last archive,
+                # don't schedule new archive (the countdown will continue from previous detection)
                 if self.pending_archive_countdown is None:
-                    # Check if we're in the overlap zone (within 7 segments of last archive)
+                    # Check if we're in the overlap zone
                     in_overlap_zone = (
                         self.last_archived_counter is not None
-                        and self.segment_counter <= self.last_archived_counter + ARCHIVE_DELAY_SEGMENTS
+                        and self.segment_counter <= self.last_archived_counter + SEGMENTS_BEFORE_DETECTION
                     )
                     if in_overlap_zone:
                         # Start archive from segment after last archived (no centering)
-                        # Calculate how many segments until we have 15 from last_archived_counter + 1
+                        # Calculate how many segments until we have ARCHIVE_SEGMENT_COUNT from last_archived_counter + 1
                         segments_since_last_archive = self.segment_counter - self.last_archived_counter
                         # Add 1 to account for decrement happening on this same segment
                         remaining = ARCHIVE_SEGMENT_COUNT - segments_since_last_archive + 1
