@@ -28,6 +28,7 @@ def archive_config(request, monkeypatch):
     segments_before = _calc_segments_before(segment_count)
     segments_after = _calc_segments_after(segment_count)
 
+    monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", True)
     monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_SEGMENT_COUNT", segment_count)
     monkeypatch.setattr("processor.hls_segment_processor.SEGMENTS_BEFORE_DETECTION", segments_before)
     monkeypatch.setattr("processor.hls_segment_processor.SEGMENTS_AFTER_DETECTION", segments_after)
@@ -530,6 +531,80 @@ class TestHLSSegmentProcessor:
             assert calls[1] == call(
                 limit=segment_count, prefix="auto", end_segment=f"segment_{second_archive_end:03d}.ts"
             )
+
+    class TestArchiveEnabledSwitch:
+        """Tests for the ARCHIVE_ENABLED configuration switch."""
+
+        def test_archive_disabled_skips_archiving(
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
+            detection_frame_config,
+        ):
+            """Test that when ARCHIVE_ENABLED=False, archiving is skipped even when birds are detected."""
+            monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", False)
+            segments_after = 15  # Use default value
+
+            # Create enough segments that archive would trigger if enabled
+            num_segments = segments_after + 1
+            segment_names = [f"segment_{i:03d}.ts" for i in range(num_segments)]
+            watchtower = make_watchtower(segment_names)
+            monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
+
+            frame_count = detection_frame_config["frame_count"]
+            # Bird detected on first segment
+            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
+            processor = HLSSegmentProcessor()
+
+            processor.run()
+
+            # Detection and annotation still happen
+            assert mock_bird_detector.detect.call_count > 0
+            assert mock_bird_annotator.annotate.call_count == num_segments
+            mock_bird_annotator.annotate.assert_any_call("segment_000.ts", True)
+
+            # But archiving is never triggered
+            mock_stream_archiver.archive.assert_not_called()
+
+        def test_archive_enabled_triggers_archiving(
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
+            detection_frame_config,
+        ):
+            """Test that when ARCHIVE_ENABLED=True, archiving is triggered on bird detection."""
+            monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", True)
+            segments_after = 15  # Use default value
+
+            # Create enough segments that archive will trigger
+            num_segments = segments_after + 1
+            segment_names = [f"segment_{i:03d}.ts" for i in range(num_segments)]
+            watchtower = make_watchtower(segment_names)
+            monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
+
+            frame_count = detection_frame_config["frame_count"]
+            # Bird detected on first segment
+            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
+            processor = HLSSegmentProcessor()
+
+            processor.run()
+
+            # Detection and annotation still happen
+            assert mock_bird_detector.detect.call_count > 0
+            assert mock_bird_annotator.annotate.call_count == num_segments
+
+            # Archive is triggered
+            mock_stream_archiver.archive.assert_called_once()
 
     class TestRun:
         """Tests for the main run loop."""

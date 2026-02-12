@@ -13,6 +13,7 @@ from processor.utils import load_detection_preset
 logger = logging.getLogger(__name__)
 
 # Archive configuration
+ARCHIVE_ENABLED = False  # Set to True to enable archiving bird detections
 ARCHIVE_SEGMENT_COUNT = 30  # Total segments to archive
 SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
 SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
@@ -170,30 +171,32 @@ class HLSSegmentProcessor:
 
             bird_detected = self.process_segment(input_segment_path, segment_name)
 
-            if bird_detected:
-                # Check overlap: if within SEGMENTS_BEFORE_DETECTION segments of last archive,
-                # don't schedule new archive (the countdown will continue from previous detection)
-                if self.pending_archive_countdown is None:
-                    # Check if we're in the overlap zone
-                    in_overlap_zone = (
-                        self.last_archived_counter is not None
-                        and self.segment_counter <= self.last_archived_counter + SEGMENTS_BEFORE_DETECTION
-                    )
-                    if in_overlap_zone:
-                        # Start archive from segment after last archived (no centering)
-                        # Calculate how many segments until we have ARCHIVE_SEGMENT_COUNT from last_archived_counter + 1
-                        segments_since_last_archive = self.segment_counter - self.last_archived_counter
-                        # Add 1 to account for decrement happening on this same segment
-                        remaining = ARCHIVE_SEGMENT_COUNT - segments_since_last_archive + 1
-                        self.pending_archive_countdown = remaining
-                        logger.info(
-                            f"{segment_name}: Bird in overlap zone, archive in {remaining - 1} segments "
-                            f"(starting from segment after last archive)"
+            if ARCHIVE_ENABLED:
+                if bird_detected:
+                    # Check overlap: if within SEGMENTS_BEFORE_DETECTION segments of last archive,
+                    # don't schedule new archive (the countdown will continue from previous detection)
+                    if self.pending_archive_countdown is None:
+                        # Check if we're in the overlap zone
+                        in_overlap_zone = (
+                            self.last_archived_counter is not None
+                            and self.segment_counter <= self.last_archived_counter + SEGMENTS_BEFORE_DETECTION
                         )
-                    else:
-                        self.schedule_archive(segment_name)
+                        if in_overlap_zone:
+                            # Start archive from segment after last archived (no centering)
+                            # Calculate how many segments until we have ARCHIVE_SEGMENT_COUNT
+                            # from last_archived_counter + 1
+                            segments_since_last_archive = self.segment_counter - self.last_archived_counter
+                            # Add 1 to account for decrement happening on this same segment
+                            remaining = ARCHIVE_SEGMENT_COUNT - segments_since_last_archive + 1
+                            self.pending_archive_countdown = remaining
+                            logger.info(
+                                f"{segment_name}: Bird in overlap zone, archive in {remaining - 1} segments "
+                                f"(starting from segment after last archive)"
+                            )
+                        else:
+                            self.schedule_archive(segment_name)
+                self.check_and_execute_archive(segment_name)
 
-            self.check_and_execute_archive(segment_name)
             self.bird_annotator.prune(hls_watchtower.seen_segments)
             processing_time = time.time() - start_time
             logger.info(f"{segment_name}: Performance: Processing time: {processing_time:.2f}s")
