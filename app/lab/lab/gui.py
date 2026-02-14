@@ -7,17 +7,17 @@ from tkinter import filedialog, messagebox, ttk
 
 from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
-from lab.constants import IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
-from lab.converter import convert_all_playlists
+from lab.constants import ARCHIVE_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
+from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
-from lab.sync import SyncError, SyncManager, remove_recording
+from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording
 from lab.utils import Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
 
 
 class SyncProgressDialog:
-    """Modal dialog showing sync and conversion progress with dual progress bars."""
+    """Modal dialog showing sync progress for per-stream pipeline (download, convert, cleanup)."""
 
     def __init__(self, parent: tk.Tk) -> None:
         self.parent = parent
@@ -26,7 +26,7 @@ class SyncProgressDialog:
 
         # Create modal dialog
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Syncing Files")
+        self.dialog.title("Syncing Streams")
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
@@ -38,21 +38,21 @@ class SyncProgressDialog:
         content = tk.Frame(self.dialog, padx=20, pady=20)
         content.pack(fill="both", expand=True)
 
-        # Download section
-        self.download_label = tk.Label(content, text="Downloading: Preparing...", anchor="w")
-        self.download_label.pack(fill="x", pady=(0, 5))
+        # Stream progress section (overall)
+        self.stream_label = tk.Label(content, text="Preparing...", anchor="w")
+        self.stream_label.pack(fill="x", pady=(0, 5))
 
-        self.download_progress = ttk.Progressbar(content, length=400, mode="determinate")
-        self.download_progress.pack(fill="x", pady=(0, 15))
+        self.stream_progress = ttk.Progressbar(content, length=400, mode="determinate")
+        self.stream_progress.pack(fill="x", pady=(0, 15))
 
-        # Conversion section
-        self.convert_label = tk.Label(content, text="Converting: Waiting...", anchor="w")
-        self.convert_label.pack(fill="x", pady=(0, 5))
+        # Operation progress section (current operation within stream)
+        self.operation_label = tk.Label(content, text="", anchor="w")
+        self.operation_label.pack(fill="x", pady=(0, 5))
 
-        self.convert_progress = ttk.Progressbar(content, length=400, mode="determinate")
-        self.convert_progress.pack(fill="x", pady=(0, 15))
+        self.operation_progress = ttk.Progressbar(content, length=400, mode="determinate")
+        self.operation_progress.pack(fill="x", pady=(0, 15))
 
-        # Status label
+        # Status label (shows current filename or detail)
         self.status_label = tk.Label(content, text="", anchor="w", fg="#666666")
         self.status_label.pack(fill="x", pady=(0, 10))
 
@@ -80,53 +80,53 @@ class SyncProgressDialog:
         """Handle cancel button click."""
         self.cancelled = True
         self.cancel_btn.config(state="disabled")
-        self.status_label.config(text="Cancelling...")
+        self.status_label.config(text="Cancelling after current stream completes...")
 
     def _on_close(self) -> None:
         """Handle window close button - same as cancel."""
         self._on_cancel()
 
-    def update_download_progress(self, current: int, total: int, filename: str) -> None:
-        """Update download progress bar (thread-safe via parent.after)."""
-        self.parent.after(0, self._do_update_download, current, total, filename)
+    def update_stream_progress(self, current: int, total: int, stream_name: str) -> None:
+        """Update overall stream progress (thread-safe via parent.after)."""
+        self.parent.after(0, self._do_update_stream, current, total, stream_name)
 
-    def _do_update_download(self, current: int, total: int, filename: str) -> None:
+    def _do_update_stream(self, current: int, total: int, stream_name: str) -> None:
         if self.dialog.winfo_exists():
-            self.download_label.config(text=f"Downloading: {current}/{total} files")
-            self.download_progress["maximum"] = total
-            self.download_progress["value"] = current
-            self.status_label.config(text=filename)
+            self.stream_label.config(text=f"Stream {current}/{total}: {stream_name}")
+            self.stream_progress["maximum"] = total
+            self.stream_progress["value"] = current
 
-    def update_convert_progress(self, current: int, total: int, name: str) -> None:
-        """Update conversion progress bar (thread-safe via parent.after)."""
-        self.parent.after(0, self._do_update_convert, current, total, name)
+    def update_operation_progress(self, current: int, total: int, operation: str, detail: str = "") -> None:
+        """Update current operation progress (thread-safe via parent.after)."""
+        self.parent.after(0, self._do_update_operation, current, total, operation, detail)
 
-    def _do_update_convert(self, current: int, total: int, name: str) -> None:
+    def _do_update_operation(self, current: int, total: int, operation: str, detail: str) -> None:
         if self.dialog.winfo_exists():
-            self.convert_label.config(text=f"Converting: {current}/{total} playlists")
-            self.convert_progress["maximum"] = total
-            self.convert_progress["value"] = current
-            self.status_label.config(text=name)
+            self.operation_label.config(text=f"{operation}: {current}/{total}")
+            self.operation_progress["maximum"] = total
+            self.operation_progress["value"] = current
+            if detail:
+                self.status_label.config(text=detail)
 
-    def set_download_complete(self, file_count: int) -> None:
-        """Mark download phase as complete."""
-        self.parent.after(0, self._do_set_download_complete, file_count)
+    def set_operation_status(self, status: str) -> None:
+        """Set operation status message (thread-safe via parent.after)."""
+        self.parent.after(0, self._do_set_operation_status, status)
 
-    def _do_set_download_complete(self, file_count: int) -> None:
+    def _do_set_operation_status(self, status: str) -> None:
         if self.dialog.winfo_exists():
-            self.download_label.config(text=f"Downloaded: {file_count} files")
-            self.download_progress["value"] = self.download_progress["maximum"]
+            self.status_label.config(text=status)
 
-    def set_no_files_to_sync(self) -> None:
-        """Show message when no files need syncing."""
-        self.parent.after(0, self._do_set_no_files)
+    def set_no_streams_to_sync(self) -> None:
+        """Show message when no streams need syncing."""
+        self.parent.after(0, self._do_set_no_streams)
 
-    def _do_set_no_files(self) -> None:
+    def _do_set_no_streams(self) -> None:
         if self.dialog.winfo_exists():
-            self.download_label.config(text="No new files to download")
-            self.download_progress["value"] = 0
-            self.convert_label.config(text="No playlists to convert")
-            self.convert_progress["value"] = 0
+            self.stream_label.config(text="No new streams to sync")
+            self.stream_progress["value"] = 0
+            self.operation_label.config(text="")
+            self.operation_progress["value"] = 0
+            self.status_label.config(text="All streams are up to date")
 
     def set_error(self, error: str) -> None:
         """Store error message to display after dialog closes."""
@@ -1093,7 +1093,7 @@ class LabGUI:
             self.remove_btn.config(state=state)
 
     def _run_sync(self) -> None:
-        """Run sync and conversion in background thread."""
+        """Run sync, conversion, and cleanup in background thread (per-stream pipeline)."""
         dialog = self.__sync_dialog
 
         try:
@@ -1102,28 +1102,54 @@ class LabGUI:
                 if dialog.cancelled:
                     return
 
-                # Sync files from remote
-                synced_folders, total_files = sync.sync_all(
-                    on_download_progress=lambda c, t, f: (
-                        dialog.update_download_progress(c, t, f) if not dialog.cancelled else None
-                    ),
-                )
+                # Get list of streams to process
+                missing_folders = sync.get_missing_folders()
 
-                if dialog.cancelled:
+                if not missing_folders:
+                    dialog.set_no_streams_to_sync()
                     return
 
-                if total_files == 0:
-                    dialog.set_no_files_to_sync()
-                else:
-                    dialog.set_download_complete(total_files)
+                total_streams = len(missing_folders)
 
-                # Convert downloaded playlists to images
-                if not dialog.cancelled:
-                    playlists_converted, frames = convert_all_playlists(
-                        on_playlist_progress=lambda c, t, n: (
-                            dialog.update_convert_progress(c, t, n) if not dialog.cancelled else None
+                # Process each stream: download -> convert -> cleanup
+                # Note: Each stream is processed atomically - once started, it will complete
+                # all three steps before checking for cancellation
+                for idx, folder in enumerate(missing_folders):
+                    # Check for cancellation only at the start of each stream
+                    # This ensures each stream is fully processed (downloaded, converted, cleaned)
+                    if dialog.cancelled:
+                        return
+
+                    stream_num = idx + 1
+                    stream_name = folder.split("/")[-1]  # Get folder name from path
+
+                    # Update stream progress
+                    dialog.update_stream_progress(stream_num, total_streams, stream_name)
+
+                    # Step 1: Download stream
+                    dialog.set_operation_status(f"Downloading stream {stream_num}/{total_streams}...")
+                    sync.sync_single_folder(
+                        folder,
+                        on_file_progress=lambda c, t, f: (
+                            dialog.update_operation_progress(c, t, "Downloading", f) if not dialog.cancelled else None
                         ),
                     )
+
+                    # Step 2: Convert stream
+                    dialog.set_operation_status(f"Converting stream {stream_num}/{total_streams}...")
+                    folder_path = ARCHIVE_DIR / folder
+
+                    # Convert with progress tracking
+                    convert_playlist_to_pngs(
+                        folder_path,
+                        on_file_progress=lambda c, t, f: (
+                            dialog.update_operation_progress(c, t, "Converting", f) if not dialog.cancelled else None
+                        ),
+                    )
+
+                    # Step 3: Cleanup HLS files
+                    dialog.set_operation_status(f"Cleaning up stream {stream_num}/{total_streams}...")
+                    remove_hls_files(folder)
 
         except SyncError as e:
             dialog.set_error(str(e))

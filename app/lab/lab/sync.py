@@ -436,6 +436,38 @@ class SyncManager:
             pass
         raise SyncError(f"Failed to download {file.filename} after {MAX_RETRIES} attempts") from last_error
 
+    def sync_single_folder(
+        self,
+        folder: str,
+        on_file_progress: ProgressCallback | None = None,
+    ) -> int:
+        """
+        Download all .ts and .m3u8 files from a single remote folder with retry logic.
+
+        Args:
+            folder: Relative path like {year}/{month}/{day}/{folder_name}
+            on_file_progress: Callback(current_file, total_files, filename)
+
+        Returns:
+            Number of files downloaded.
+
+        Raises:
+            SyncError: If download fails after all retries.
+        """
+        files = self._get_files_to_sync(folder)
+        if not files:
+            return 0
+
+        # Download files one by one with retry
+        for idx, filename in enumerate(files):
+            if on_file_progress:
+                on_file_progress(idx + 1, len(files), filename)
+
+            file = FileToSync(folder, filename)
+            self._download_file_with_retry(file)
+
+        return len(files)
+
     def sync_all(
         self,
         on_download_progress: ProgressCallback | None = None,
@@ -517,3 +549,30 @@ def remove_recording(relative_path: str) -> None:
     local_images_path = IMAGES_DIR / relative_path
     if local_images_path.exists():
         shutil.rmtree(local_images_path)
+
+
+def remove_hls_files(relative_path: str) -> int:
+    """
+    Remove .ts and .m3u8 files from a local archive folder.
+
+    The folder itself is preserved as a marker that the stream was already synced.
+    This prevents re-downloading on the next sync operation.
+
+    Args:
+        relative_path: Path relative to ARCHIVE_DIR
+                      (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+
+    Returns:
+        Number of files removed.
+    """
+    folder = ARCHIVE_DIR / relative_path
+    if not folder.exists():
+        return 0
+
+    count = 0
+    for file in folder.iterdir():
+        if file.suffix in (".ts", ".m3u8"):
+            file.unlink()
+            count += 1
+
+    return count

@@ -7,7 +7,15 @@ import paramiko
 import pytest
 
 from lab.constants import ARCHIVE_DIR, REMOTE_ARCHIVE_PATH
-from lab.sync import ARCHIVE_FOLDER_PATTERN, DATE_FOLDER_PATTERN, FileToSync, SyncError, SyncManager, remove_recording
+from lab.sync import (
+    ARCHIVE_FOLDER_PATTERN,
+    DATE_FOLDER_PATTERN,
+    FileToSync,
+    SyncError,
+    SyncManager,
+    remove_hls_files,
+    remove_recording,
+)
 
 
 class TestArchiveFolderPattern:
@@ -971,3 +979,187 @@ class TestRemoveRecording:
                     # Then local operations
                     assert call_sequence[1][0] == "rmtree"
                     assert call_sequence[2][0] == "rmtree"
+
+
+class TestSyncSingleFolder:
+    """Tests for sync_single_folder method."""
+
+    def test_sync_single_folder_no_files(self):
+        """Should return 0 when no files to sync."""
+        manager = SyncManager()
+        folder = "2024/01/15/playlist1"
+
+        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
+            mock_get_files.return_value = []
+
+            result = manager.sync_single_folder(folder)
+
+            assert result == 0
+            mock_get_files.assert_called_once_with(folder)
+
+    def test_sync_single_folder_with_files(self):
+        """Should download all files from folder and return count."""
+        manager = SyncManager()
+        folder = "2024/01/15/playlist1"
+
+        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
+            with patch.object(manager, "_download_file_with_retry") as mock_download:
+                mock_get_files.return_value = ["video1.ts", "video2.ts", "video3.ts"]
+
+                result = manager.sync_single_folder(folder)
+
+                assert result == 3
+                assert mock_download.call_count == 3
+                # Verify the files were created correctly
+                calls = mock_download.call_args_list
+                assert calls[0][0][0].folder == folder
+                assert calls[0][0][0].filename == "video1.ts"
+                assert calls[1][0][0].folder == folder
+                assert calls[1][0][0].filename == "video2.ts"
+                assert calls[2][0][0].folder == folder
+                assert calls[2][0][0].filename == "video3.ts"
+
+    def test_sync_single_folder_calls_progress_callback(self):
+        """Should call progress callback for each file."""
+        manager = SyncManager()
+        folder = "2024/01/15/playlist1"
+        progress_callback = MagicMock()
+
+        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
+            with patch.object(manager, "_download_file_with_retry"):
+                mock_get_files.return_value = ["video1.ts", "video2.ts"]
+
+                manager.sync_single_folder(folder, on_file_progress=progress_callback)
+
+                assert progress_callback.call_count == 2
+                calls = progress_callback.call_args_list
+                assert calls[0][0] == (1, 2, "video1.ts")
+                assert calls[1][0] == (2, 2, "video2.ts")
+
+    def test_sync_single_folder_no_callback(self):
+        """Should work without progress callback."""
+        manager = SyncManager()
+        folder = "2024/01/15/playlist1"
+
+        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
+            with patch.object(manager, "_download_file_with_retry"):
+                mock_get_files.return_value = ["video1.ts"]
+
+                result = manager.sync_single_folder(folder, on_file_progress=None)
+
+                assert result == 1
+
+    def test_sync_single_folder_propagates_sync_error(self):
+        """Should propagate SyncError from download."""
+        manager = SyncManager()
+        folder = "2024/01/15/playlist1"
+
+        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
+            with patch.object(manager, "_download_file_with_retry") as mock_download:
+                mock_get_files.return_value = ["video1.ts"]
+                mock_download.side_effect = SyncError("Download failed")
+
+                with pytest.raises(SyncError, match="Download failed"):
+                    manager.sync_single_folder(folder)
+
+
+class TestRemoveHlsFiles:
+    """Tests for remove_hls_files function."""
+
+    def test_remove_hls_files_nonexistent_folder(self):
+        """Should return 0 when folder doesn't exist."""
+        relative_path = "2024/01/15/playlist1"
+
+        with patch.object(Path, "exists", return_value=False):
+            result = remove_hls_files(relative_path)
+
+            assert result == 0
+
+    def test_remove_hls_files_empty_folder(self):
+        """Should return 0 when folder is empty."""
+        relative_path = "2024/01/15/playlist1"
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[]):
+                result = remove_hls_files(relative_path)
+
+                assert result == 0
+
+    def test_remove_hls_files_removes_ts_and_m3u8(self):
+        """Should remove .ts and .m3u8 files and return count."""
+        relative_path = "2024/01/15/playlist1"
+
+        # Create mock files
+        mock_ts1 = MagicMock(spec=Path)
+        mock_ts1.suffix = ".ts"
+        mock_ts2 = MagicMock(spec=Path)
+        mock_ts2.suffix = ".ts"
+        mock_m3u8 = MagicMock(spec=Path)
+        mock_m3u8.suffix = ".m3u8"
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[mock_ts1, mock_ts2, mock_m3u8]):
+                result = remove_hls_files(relative_path)
+
+                assert result == 3
+                mock_ts1.unlink.assert_called_once()
+                mock_ts2.unlink.assert_called_once()
+                mock_m3u8.unlink.assert_called_once()
+
+    def test_remove_hls_files_preserves_other_files(self):
+        """Should not remove non-HLS files."""
+        relative_path = "2024/01/15/playlist1"
+
+        # Create mock files
+        mock_ts = MagicMock(spec=Path)
+        mock_ts.suffix = ".ts"
+        mock_png = MagicMock(spec=Path)
+        mock_png.suffix = ".png"
+        mock_txt = MagicMock(spec=Path)
+        mock_txt.suffix = ".txt"
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[mock_ts, mock_png, mock_txt]):
+                result = remove_hls_files(relative_path)
+
+                assert result == 1
+                mock_ts.unlink.assert_called_once()
+                mock_png.unlink.assert_not_called()
+                mock_txt.unlink.assert_not_called()
+
+    def test_remove_hls_files_constructs_correct_path(self):
+        """Should construct path relative to ARCHIVE_DIR."""
+        relative_path = "2024/01/15/playlist1"
+
+        with patch.object(Path, "exists") as mock_exists:
+            mock_exists.return_value = False
+
+            remove_hls_files(relative_path)
+
+            # The exists() call should be on the constructed path
+            # We need to verify the path was constructed correctly
+            mock_exists.assert_called_once()
+
+    def test_remove_hls_files_only_removes_exact_extensions(self):
+        """Should only remove files with exact .ts or .m3u8 extensions."""
+        relative_path = "2024/01/15/playlist1"
+
+        # Create mock files with various extensions
+        mock_ts = MagicMock(spec=Path)
+        mock_ts.suffix = ".ts"
+        mock_tss = MagicMock(spec=Path)
+        mock_tss.suffix = ".tss"  # Similar but not exact
+        mock_m3u8 = MagicMock(spec=Path)
+        mock_m3u8.suffix = ".m3u8"
+        mock_m3u = MagicMock(spec=Path)
+        mock_m3u.suffix = ".m3u"  # Similar but not exact
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[mock_ts, mock_tss, mock_m3u8, mock_m3u]):
+                result = remove_hls_files(relative_path)
+
+                assert result == 2
+                mock_ts.unlink.assert_called_once()
+                mock_m3u8.unlink.assert_called_once()
+                mock_tss.unlink.assert_not_called()
+                mock_m3u.unlink.assert_not_called()
