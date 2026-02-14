@@ -1,7 +1,9 @@
 import functools
 import json
+import re
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -14,6 +16,69 @@ from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording
 from lab.utils import Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
+
+
+def get_ordinal_suffix(day: int) -> str:
+    """Get the ordinal suffix for a day number (e.g., 1st, 2nd, 3rd, 4th)."""
+    if 10 <= day % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
+def parse_recording_folder_name(folder_name: str) -> tuple[str | None, str | None]:
+    """
+    Parse recording folder name to extract datetime and key.
+
+    Recording folder format: [{prefix}_]{ISO-timestamp}_{uuid}
+    Examples:
+        auto_2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+        2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+
+    Returns:
+        Tuple of (datetime_str, key) where datetime_str is a human-readable format
+        in local timezone and key is the prefix (e.g., "manual", "auto") or None if no prefix.
+
+    Note: If timezone is not properly configured (e.g., WSL defaults to UTC),
+    the datetime will still be in UTC. Configure WSL timezone with:
+        sudo dpkg-reconfigure tzdata
+    """
+
+    # Pattern: optional prefix, underscore, ISO-timestamp, underscore, uuid
+    pattern = (
+        r"^(?:(\w+)_)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)_"
+        r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+    )
+    match = re.match(pattern, folder_name, re.IGNORECASE)
+
+    if not match:
+        return None, None
+
+    key = match.group(1)
+    iso_timestamp = match.group(2)
+
+    # Parse ISO timestamp (UTC) and convert to local timezone
+    try:
+        # Parse as UTC
+        dt_utc = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+
+        # Try to convert to local timezone
+        # Note: In WSL with UTC timezone, astimezone() will return UTC
+        # Set TZ environment variable or configure WSL timezone to fix this
+        dt_local = dt_utc.astimezone()
+
+        # Format as "1st January 2026 06:51:01 CET" (human-readable with ordinal day)
+        day_ordinal = get_ordinal_suffix(dt_local.day)
+        month_name = dt_local.strftime("%B")  # Full month name
+        year = dt_local.year
+        time_str = dt_local.strftime("%H:%M:%S")
+        tz_name = dt_local.strftime("%Z")  # Timezone abbreviation (e.g., CET, GMT)
+
+        datetime_str = f"{day_ordinal} {month_name} {year} {time_str} {tz_name}"
+        return datetime_str, key
+    except ValueError:
+        return None, None
 
 
 class SyncProgressDialog:
@@ -279,6 +344,15 @@ class LabGUI:
         self.import_btn = tk.Button(self.params_frame, text="Import", command=self.import_settings)
         self.import_btn.pack(side="left")
 
+        # Recording info header (hidden until recording is loaded)
+        self.__recording_info_text = tk.StringVar(value="")
+        self.recording_info_label = tk.Label(
+            self.root,
+            textvariable=self.__recording_info_text,
+            font=("Helvetica", 14, "bold"),
+            fg="#000000",
+        )
+
         # Navigation frame (hidden until recording is loaded)
         self.nav_frame = tk.Frame(self.root)
 
@@ -466,6 +540,34 @@ class LabGUI:
                                 recordings.append(folder)
 
         return recordings
+
+    def show_recording_info(self) -> None:
+        """Show recording info header above the image preview."""
+        if not self.recording_info_label.winfo_ismapped():
+            # Pack before image_canvas to position it above the image preview
+            self.recording_info_label.pack(before=self.image_canvas, pady=(12, 8))
+
+    def hide_recording_info(self) -> None:
+        """Hide recording info header."""
+        if self.recording_info_label.winfo_ismapped():
+            self.recording_info_label.pack_forget()
+
+    def update_recording_info(self, folder: Path) -> None:
+        """Update recording info header with extracted datetime and key."""
+        folder_name = folder.name
+        datetime_str, key = parse_recording_folder_name(folder_name)
+
+        if datetime_str is not None:
+            # Format the info display
+            if key:
+                info_text = f"{datetime_str} ({key})"
+            else:
+                info_text = f"{datetime_str}"
+            self.__recording_info_text.set(info_text)
+            self.show_recording_info()
+        else:
+            # Failed to parse, hide the label
+            self.hide_recording_info()
 
     def show_navigation(self) -> None:
         """Show navigation controls."""
@@ -847,6 +949,9 @@ class LabGUI:
         # Scan all recordings for prev/next navigation
         self.__all_recordings = self.scan_all_recordings()
 
+        # Update recording info header
+        self.update_recording_info(folder)
+
         # Load first frame
         self.load_frame(0)
 
@@ -964,6 +1069,9 @@ class LabGUI:
         self.__frame_files = frames
         self.__current_frame_index = 0
         self.__frames_per_segment = self.calculate_frames_per_segment()
+
+        # Update recording info header
+        self.update_recording_info(folder)
 
         # Load first frame
         self.load_frame(0)
@@ -1305,8 +1413,9 @@ class LabGUI:
         # Clear selections
         self.clear_all()
 
-        # Hide navigation and remove button
+        # Hide navigation, recording info and remove button
         self.hide_navigation()
+        self.hide_recording_info()
         self.hide_remove_button()
 
         # Hide detect button (it's shown when recording is loaded)
