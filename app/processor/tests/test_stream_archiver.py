@@ -104,7 +104,7 @@ class TestStreamArchiver:
             archiver.archive(prefix="manual")
 
             # Verify year/month/day directory structure with manual prefix
-            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content
             assert (destination_path / "segment-0.ts").exists() is True
@@ -122,7 +122,7 @@ class TestStreamArchiver:
             archiver.archive(prefix="auto")
 
             # Verify year/month/day directory structure with auto prefix
-            destination_path = next(archive_path.glob("2024/12/21/auto_2024-12-21T15:30:45Z_*"))
+            destination_path = next(archive_path.glob("2024/12/21/auto_2024-12-21T153045Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text() == playlist_file_content
             assert f"Archived to {destination_path} with 4 segment(s)" in caplog.text
@@ -135,7 +135,7 @@ class TestStreamArchiver:
 
             archiver.archive(limit=1, prefix="manual")
 
-            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text().splitlines() == [
                 "#EXTM3U",
@@ -161,7 +161,7 @@ class TestStreamArchiver:
             # Archive 2 segments ending with segment-2.ts
             archiver.archive(limit=2, prefix="manual", end_segment="segment-2.ts")
 
-            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T15:30:45Z_*"))
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
             assert (destination_path / "playlist.m3u8").exists() is True
             assert (destination_path / "playlist.m3u8").read_text().splitlines() == [
                 "#EXTM3U",
@@ -289,7 +289,7 @@ class TestStreamArchiver:
             # Verify playlist filename
             assert result.playlist_filename == "playlist.m3u8"
             # Check directory name format: prefix_timestamp_uuid
-            dir_name_pattern = r"^manual_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z_"
+            dir_name_pattern = r"^manual_\d{4}-\d{2}-\d{2}T\d{6}Z_"
             assert re.match(
                 dir_name_pattern, result.destination_path.name
             ), f"Directory name doesn't match expected pattern: {result.destination_path.name}"
@@ -351,7 +351,7 @@ class TestStreamArchiver:
             result = archiver.copy_stream("playlist.m3u8", prefix="auto")
 
             # Check directory name starts with auto prefix
-            assert result.destination_path.name.startswith("auto_2024-12-21T15:30:45Z_")
+            assert result.destination_path.name.startswith("auto_2024-12-21T153045Z_")
             # Verify year/month/day directory structure
             assert result.destination_path.parent == archive_path / "2024" / "12" / "21"
 

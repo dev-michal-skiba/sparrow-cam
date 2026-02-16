@@ -33,8 +33,8 @@ def parse_recording_folder_name(folder_name: str) -> tuple[str | None, str | Non
 
     Recording folder format: [{prefix}_]{ISO-timestamp}_{uuid}
     Examples:
-        auto_2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
-        2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+        auto_2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+        2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
 
     Returns:
         Tuple of (datetime_str, key) where datetime_str is a human-readable format
@@ -47,8 +47,7 @@ def parse_recording_folder_name(folder_name: str) -> tuple[str | None, str | Non
 
     # Pattern: optional prefix, underscore, ISO-timestamp, underscore, uuid
     pattern = (
-        r"^(?:(\w+)_)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)_"
-        r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+        r"^(?:(\w+)_)?(\d{4}-\d{2}-\d{2}T\d{6}Z)_" r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
     )
     match = re.match(pattern, folder_name, re.IGNORECASE)
 
@@ -60,8 +59,10 @@ def parse_recording_folder_name(folder_name: str) -> tuple[str | None, str | Non
 
     # Parse ISO timestamp (UTC) and convert to local timezone
     try:
+        # Re-insert colons for fromisoformat: "2026-01-15T064557Z" -> "2026-01-15T06:45:57Z"
+        iso_for_parse = f"{iso_timestamp[:13]}:{iso_timestamp[13:15]}:{iso_timestamp[15:]}"
         # Parse as UTC
-        dt_utc = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        dt_utc = datetime.fromisoformat(iso_for_parse.replace("Z", "+00:00"))
 
         # Try to convert to local timezone
         # Note: In WSL with UTC timezone, astimezone() will return UTC

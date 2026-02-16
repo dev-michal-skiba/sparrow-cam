@@ -123,7 +123,7 @@ class StreamArchiver:
 
         now = datetime.now(UTC)
         year_month_day = now.strftime("%Y/%m/%d")
-        timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        timestamp = now.strftime("%Y-%m-%dT%H%M%SZ")
         uuid = str(uuid4())
         directory_name = f"{prefix}_{timestamp}_{uuid}"
         destination_path = ARCHIVE_PATH / year_month_day / directory_name

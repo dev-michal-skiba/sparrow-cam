@@ -23,12 +23,12 @@ class TestArchiveFolderPattern:
 
     def test_matches_folder_with_prefix(self):
         """Should match archive folder with prefix."""
-        name = "auto_2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
+        name = "auto_2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
         assert ARCHIVE_FOLDER_PATTERN.match(name)
 
     def test_matches_folder_without_prefix(self):
         """Should match archive folder without prefix."""
-        name = "2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
+        name = "2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
         assert ARCHIVE_FOLDER_PATTERN.match(name)
 
     def test_does_not_match_invalid_format(self):
@@ -38,7 +38,7 @@ class TestArchiveFolderPattern:
 
     def test_case_insensitive_match(self):
         """Should match folder names with uppercase UUID."""
-        name = "AUTO_2026-01-15T06:45:57Z_5D83D036-3F12-4D9B-82F5-4D7EB1AB0D92"
+        name = "AUTO_2026-01-15T064557Z_5D83D036-3F12-4D9B-82F5-4D7EB1AB0D92"
         assert ARCHIVE_FOLDER_PATTERN.match(name)
 
 
@@ -350,8 +350,8 @@ class TestSyncManager:
             ["01"],  # months in 2024
             ["15"],  # days in 01/2024
             [  # folders in 15/01/2024
-                "auto_2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92",
-                "sync_2024-01-15T12:30:00Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f",
+                "auto_2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92",
+                "sync_2024-01-15T123000Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f",
             ],
         ]
 
@@ -361,8 +361,8 @@ class TestSyncManager:
         folders = manager._list_remote_archive_folders()
 
         assert len(folders) == 2
-        assert "2024/01/15/auto_2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
-        assert "2024/01/15/sync_2024-01-15T12:30:00Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f" in folders
+        assert "2024/01/15/auto_2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+        assert "2024/01/15/sync_2024-01-15T123000Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f" in folders
 
     def test_list_remote_archive_folders_filters_non_numeric(self):
         """Should filter out non-numeric year/month/day folders."""
@@ -375,7 +375,7 @@ class TestSyncManager:
             ["2024", "backup"],  # "backup" should be filtered
             ["01", "february"],  # "february" should be filtered
             ["15"],  # valid day
-            ["2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
+            ["2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
         ]
 
         manager._is_dir = MagicMock(return_value=True)
@@ -384,7 +384,7 @@ class TestSyncManager:
 
         # Should only include valid path
         assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
 
     def test_list_remote_archive_folders_filters_non_archives(self):
         """Should filter out folders that don't match archive pattern."""
@@ -397,7 +397,7 @@ class TestSyncManager:
             ["2024"],
             ["01"],
             ["15"],
-            ["not_an_archive", "2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
+            ["not_an_archive", "2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
         ]
 
         manager._is_dir = MagicMock(return_value=True)
@@ -406,7 +406,7 @@ class TestSyncManager:
 
         # Should only include valid archive folder
         assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
 
     def test_list_remote_archive_folders_skips_files(self):
         """Should skip files and only process directories."""
@@ -418,7 +418,7 @@ class TestSyncManager:
             ["2024"],
             ["01"],
             ["15"],
-            ["2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92", "readme.txt"],
+            ["2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92", "readme.txt"],
         ]
 
         # Mock _is_dir to return True for archive, False for readme.txt
@@ -431,7 +431,7 @@ class TestSyncManager:
 
         # Should only include directory, not file
         assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
 
     def test_get_files_to_sync_not_connected(self):
         """Should raise SyncError when not connected."""

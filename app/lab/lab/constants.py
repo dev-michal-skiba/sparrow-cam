@@ -15,10 +15,10 @@ CONFIG_PATH = SECRETS_DIR / "all.yml"
 REMOTE_ARCHIVE_PATH = "/var/www/html/storage/sparrow_cam/archive"
 
 # Pattern for archive folder names: [{prefix}_]{ISO-timestamp}_{uuid}
-# Example: auto_2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
-# Example without prefix: 2026-01-15T06:45:57Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+# Example: auto_2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
+# Example without prefix: 2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92
 ARCHIVE_FOLDER_PATTERN = re.compile(
-    r"^(?:\w+_)?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+    r"^(?:\w+_)?\d{4}-\d{2}-\d{2}T\d{6}Z_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
     re.IGNORECASE,
 )
 

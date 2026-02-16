@@ -184,7 +184,7 @@ class SyncManager:
 
         Args:
             relative_path: Path relative to REMOTE_ARCHIVE_PATH
-                          (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+                          (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
 
         Raises:
             SyncError: If not connected or removal fails.
@@ -531,7 +531,7 @@ def remove_recording(relative_path: str) -> None:
 
     Args:
         relative_path: Path relative to archive/images root
-                      (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
 
     Raises:
         SyncError: If remote removal fails (local data is preserved).
@@ -560,7 +560,7 @@ def remove_hls_files(relative_path: str) -> int:
 
     Args:
         relative_path: Path relative to ARCHIVE_DIR
-                      (e.g., "2026/01/15/auto_2026-01-15T06:45:57Z_uuid")
+                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
 
     Returns:
         Number of files removed.
