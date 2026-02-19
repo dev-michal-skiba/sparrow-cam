@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
+from lab import annotations
 from lab.constants import ARCHIVE_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
@@ -16,6 +17,7 @@ from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording
 from lab.utils import Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
+MIN_ANNOTATION_SIZE = 10
 
 
 def get_ordinal_suffix(day: int) -> str:
@@ -268,6 +270,11 @@ class LabGUI:
         self.__dimension_text: int | None = None  # Canvas text ID
         self.__dimension_bg: int | None = None  # Canvas rectangle ID for text background
 
+        # Annotation mode state
+        self.__annotation_mode: bool = False
+        self.__annotation_items: list[dict] = []  # [{class_id, x1, y1, x2, y2}]
+        self.__annotation_row_widgets: list[tk.Frame] = []  # row frames in annotation list
+
         # Recording navigation state
         self.__current_recording: Path | None = None  # Selected recording folder
         self.__all_recordings: list[Path] = []  # All recordings sorted by date
@@ -290,6 +297,10 @@ class LabGUI:
         self.detect_btn = tk.Button(self.button_frame, text="Detect Bird", command=self.detect_bird)
 
         self.clear_btn = tk.Button(self.button_frame, text="Clear", command=self.clear_all)
+
+        self.annotate_btn = tk.Button(self.button_frame, text="Annotate", command=self.enter_annotation_mode)
+
+        self.submit_btn = tk.Button(self.button_frame, text="Submit Annotations", command=self.submit_annotations)
 
         # Detection parameters frame (always visible)
         self.params_frame = tk.Frame(self.root)
@@ -353,6 +364,21 @@ class LabGUI:
             font=("Helvetica", 14, "bold"),
             fg="#000000",
         )
+
+        # Annotation status label (hidden until recording is loaded)
+        # Use Text widget to support colored status text
+        self.annotation_status_label = tk.Text(
+            self.root,
+            height=1,
+            font=("Helvetica", 14, "bold"),
+            wrap="word",
+            state="disabled",
+            borderwidth=0,
+            highlightthickness=0,
+            bg=self.root.cget("bg"),
+        )
+        # Configure center tag for centering text
+        self.annotation_status_label.tag_configure("center", justify="center")
 
         # Navigation frame (hidden until recording is loaded)
         self.nav_frame = tk.Frame(self.root)
@@ -426,6 +452,9 @@ class LabGUI:
         )
         self.progress_bar.pack(fill="x", padx=24)
 
+        # Annotation list (shown only in annotation mode, below the canvas)
+        self.annotation_list_frame = tk.Frame(self.root)
+
         self.path_hint = tk.Label(
             self.root,
             textvariable=self.__selected_image_text,
@@ -435,6 +464,34 @@ class LabGUI:
             anchor="w",
         )
         self.path_hint.pack(side="bottom", fill="x", padx=self.content_pad, pady=(0, 12))
+
+        # Global annotation stats frame (top-left corner, always visible)
+        self.stats_frame = tk.Frame(self.root, bg="white")
+        self.stats_frame.place(relx=0.0, rely=0.0, anchor="nw", x=self.content_pad, y=self.content_pad)
+
+        # Header
+        self.stats_header = tk.Label(
+            self.stats_frame,
+            text="Global annotation stats",
+            fg="#000000",
+            bg="white",
+            font=("Helvetica", 14),
+        )
+        self.stats_header.pack(anchor="w")
+
+        # Stats text (2pt smaller = Helvetica 12)
+        self.stats_text = tk.Label(
+            self.stats_frame,
+            text="",
+            fg="#000000",
+            bg="white",
+            font=("Helvetica", 12),
+            justify="left",
+        )
+        self.stats_text.pack(anchor="w")
+
+        # Update stats on initialization
+        self.root.after(100, self._update_stats_display)
 
     def set_window_size(self) -> None:
         """Set an initial window size to about half the screen and center it."""
@@ -542,6 +599,58 @@ class LabGUI:
 
         return recordings
 
+    def show_annotation_status(self) -> None:
+        """Show annotation status label below recording info (above image canvas)."""
+        if not self.annotation_status_label.winfo_ismapped():
+            if self.recording_info_label.winfo_ismapped():
+                self.annotation_status_label.pack(after=self.recording_info_label, pady=(0, 4))
+            else:
+                self.annotation_status_label.pack(before=self.image_canvas, pady=(0, 4))
+
+    def hide_annotation_status(self) -> None:
+        """Hide annotation status label."""
+        if self.annotation_status_label.winfo_ismapped():
+            self.annotation_status_label.pack_forget()
+
+    def update_annotation_status(self) -> None:
+        """Refresh the annotation status label for the current frame."""
+        if self.__selected_image is None or self.__current_recording is None:
+            self.hide_annotation_status()
+            return
+        status = annotations.get_annotation_status(self.__selected_image, self.__current_recording)
+
+        # Map status to display text and color
+        if status == "False":
+            display_text = "None"
+            color = "#FF8C00"  # Orange
+        elif status == "True [positive]":
+            display_text = "Annotated as Positive"
+            color = "#22C55E"  # Green
+        else:  # "True [negative]"
+            display_text = "Annotated as Negative"
+            color = "#22C55E"  # Green
+
+        # Update Text widget with colored status
+        self.annotation_status_label.config(state="normal")
+        self.annotation_status_label.delete("1.0", "end")
+        self.annotation_status_label.insert("1.0", f"Annotation status: {display_text}")
+
+        # Apply center alignment to entire line
+        self.annotation_status_label.tag_add("center", "1.0", "end")
+
+        # Configure tag color
+        tag_name = "orange" if color == "#FF8C00" else "green"
+        self.annotation_status_label.tag_configure(tag_name, foreground=color)
+
+        # Color only the status part (skip first letter)
+        # "Annotation status: " is 19 chars, so start at char 20 (19 counting from 0) to skip first letter of status
+        start_idx = "1.0 + 19c"
+        end_idx = "end"
+        self.annotation_status_label.tag_add(tag_name, start_idx, end_idx)
+
+        self.annotation_status_label.config(state="disabled")
+        self.show_annotation_status()
+
     def show_recording_info(self) -> None:
         """Show recording info header above the image preview."""
         if not self.recording_info_label.winfo_ismapped():
@@ -611,7 +720,7 @@ class LabGUI:
 
     def _on_progress_seek(self, value: str) -> None:
         """Handle progress bar seek."""
-        if not self.__frame_files:
+        if not self.__frame_files or self.__annotation_mode:
             return
         new_index = int(float(value))
         if new_index != self.__current_frame_index:
@@ -646,6 +755,22 @@ class LabGUI:
         if self.__dimension_text is not None:
             self.image_canvas.tag_raise(self.__dimension_text)
 
+    def show_annotate_button(self) -> None:
+        if not self.annotate_btn.winfo_ismapped():
+            self.annotate_btn.pack(side="left", padx=(8, 0))
+
+    def hide_annotate_button(self) -> None:
+        if self.annotate_btn.winfo_ismapped():
+            self.annotate_btn.pack_forget()
+
+    def show_submit_button(self) -> None:
+        if not self.submit_btn.winfo_ismapped():
+            self.submit_btn.pack(side="left", padx=(8, 0))
+
+    def hide_submit_button(self) -> None:
+        if self.submit_btn.winfo_ismapped():
+            self.submit_btn.pack_forget()
+
     def show_detect_button(self) -> None:
         if not self.detect_btn.winfo_ismapped():
             self.detect_btn.pack(side="left")
@@ -671,26 +796,31 @@ class LabGUI:
         if self.__image_obj is None:
             return
         self.__selection_start = (event.x, event.y)
-        # Create a new rectangle for the current selection
+        color = "green" if self.__annotation_mode else "blue"
         self.__current_rect = self.image_canvas.create_rectangle(
-            event.x, event.y, event.x, event.y, outline="blue", width=2
+            event.x, event.y, event.x, event.y, outline=color, width=2
         )
 
     def on_selection_drag(self, event) -> None:
-        """Update selection rectangle while dragging (constrained to square)."""
+        """Update selection rectangle while dragging."""
         if self.__selection_start is None or self.__current_rect is None:
             return
         x1, y1 = self.__selection_start
         x2, y2 = event.x, event.y
 
-        # Constrain to square: use the larger dimension for both
-        dx = x2 - x1
-        dy = y2 - y1
-        side = max(abs(dx), abs(dy))
-        x2 = x1 + side * (1 if dx >= 0 else -1)
-        y2 = y1 + side * (1 if dy >= 0 else -1)
+        if not self.__annotation_mode:
+            # Constrain to square: use the larger dimension for both
+            dx = x2 - x1
+            dy = y2 - y1
+            side = max(abs(dx), abs(dy))
+            x2 = x1 + side * (1 if dx >= 0 else -1)
+            y2 = y1 + side * (1 if dy >= 0 else -1)
 
         self.image_canvas.coords(self.__current_rect, x1, y1, x2, y2)
+
+        # Only show ROI dimension text for detection regions, not for annotation mode
+        if self.__annotation_mode:
+            return
 
         # Calculate normalized ROI coordinates
         roi_x1, roi_x2 = min(x1, x2), max(x1, x2)
@@ -698,7 +828,7 @@ class LabGUI:
         # Position text at the top-left corner of the rectangle
         text_x = roi_x1 + 4
         text_y = roi_y1 + 4
-        # Show ROI coordinates and size (with min requirement indicator)
+        side = max(abs(x2 - x1), abs(y2 - y1))
         roi_str = f"ROI: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2})\nSize: {side}px (min: {MIN_SELECTION_SIZE}px)"
 
         if self.__dimension_text is None:
@@ -732,66 +862,89 @@ class LabGUI:
                 self.image_canvas.coords(self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2)
 
     def on_selection_end(self, event) -> None:
-        """Finalize selection rectangle (constrained to square) and add to the list of regions."""
+        """Finalize selection rectangle and add to the list of regions."""
         if self.__selection_start is None or self.__image_obj is None:
             return
 
         x1, y1 = self.__selection_start
         x2, y2 = event.x, event.y
 
-        # Constrain to square: use the larger dimension for both
-        dx = x2 - x1
-        dy = y2 - y1
-        side = max(abs(dx), abs(dy))
-        x2 = x1 + side * (1 if dx >= 0 else -1)
-        y2 = y1 + side * (1 if dy >= 0 else -1)
+        if not self.__annotation_mode:
+            # Constrain to square: use the larger dimension for both
+            dx = x2 - x1
+            dy = y2 - y1
+            side = max(abs(dx), abs(dy))
+            x2 = x1 + side * (1 if dx >= 0 else -1)
+            y2 = y1 + side * (1 if dy >= 0 else -1)
 
         # Normalize coordinates (ensure x1 < x2, y1 < y2)
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
 
         # Clamp to image bounds
-        width = self.__image_obj.width()
-        height = self.__image_obj.height()
-        x1 = max(0, min(x1, width))
-        x2 = max(0, min(x2, width))
-        y1 = max(0, min(y1, height))
-        y2 = max(0, min(y2, height))
+        img_width = self.__image_obj.width()
+        img_height = self.__image_obj.height()
+        x1 = max(0, min(x1, img_width))
+        x2 = max(0, min(x2, img_width))
+        y1 = max(0, min(y1, img_height))
+        y2 = max(0, min(y2, img_height))
 
-        # Calculate actual side length after clamping
-        actual_side = x2 - x1  # Since it's a square, width == height
+        actual_w = x2 - x1
+        actual_h = y2 - y1
 
-        # Only add region if selection meets minimum size requirement
-        if actual_side >= MIN_SELECTION_SIZE:
-            self.__selection_regions.append((x1, y1, x2, y2))
-            self.__selection_rects.append(self.__current_rect)
-            self.__current_rect = None
-            # Keep the ROI text/background and add to finalized lists
-            if self.__dimension_text is not None:
-                # Update text with clamped coordinates and size
-                roi_str = f"ROI: ({x1}, {y1}, {x2}, {y2})\nSize: {actual_side}px"
-                self.image_canvas.itemconfig(self.__dimension_text, text=roi_str)
-                self.image_canvas.coords(self.__dimension_text, x1 + 4, y1 + 4)
-                # Update background position and size
-                bbox = self.image_canvas.bbox(self.__dimension_text)
-                if bbox and self.__dimension_bg is not None:
-                    self.image_canvas.coords(self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2)
-                    self.__selection_bgs.append(self.__dimension_bg)
-                    self.__dimension_bg = None
-                self.__selection_texts.append(self.__dimension_text)
-                self.__dimension_text = None
-            self.show_clear_button()
+        if self.__annotation_mode:
+            min_size = MIN_ANNOTATION_SIZE
+            too_small = actual_w < min_size or actual_h < min_size
+            size_label = f"{actual_w}x{actual_h}px"
+            error_msg = (
+                f"Annotation must be at least {min_size}x{min_size} pixels.\n"
+                f"Your selection: {actual_w}x{actual_h} pixels."
+            )
+        else:
+            actual_side = x2 - x1
+            min_size = MIN_SELECTION_SIZE
+            too_small = actual_side < min_size
+            size_label = f"{actual_side}px"
+            error_msg = (
+                f"Selection must be at least {min_size}x{min_size} pixels.\n"
+                f"Your selection: {actual_side}x{actual_side} pixels."
+            )
+
+        if not too_small:
+            if self.__annotation_mode:
+                # Add annotation item and UI row (no ROI labels shown for annotations)
+                class_id = annotations.AVAILABLE_CLASSES[0][1]
+                self.__annotation_items.append({"class_id": class_id, "x1": x1, "y1": y1, "x2": x2, "y2": y2})
+                self.__selection_rects.append(self.__current_rect)
+                self.__current_rect = None
+                self.hide_dimension_text()
+                idx = len(self.__annotation_items) - 1
+                self._add_annotation_row(idx)
+            else:
+                self.__selection_regions.append((x1, y1, x2, y2))
+                self.__selection_rects.append(self.__current_rect)
+                self.__current_rect = None
+                if self.__dimension_text is not None:
+                    roi_str = f"ROI: ({x1}, {y1}, {x2}, {y2})\nSize: {size_label}"
+                    self.image_canvas.itemconfig(self.__dimension_text, text=roi_str)
+                    self.image_canvas.coords(self.__dimension_text, x1 + 4, y1 + 4)
+                    bbox = self.image_canvas.bbox(self.__dimension_text)
+                    if bbox and self.__dimension_bg is not None:
+                        self.image_canvas.coords(
+                            self.__dimension_bg, bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2
+                        )
+                        self.__selection_bgs.append(self.__dimension_bg)
+                        self.__dimension_bg = None
+                    self.__selection_texts.append(self.__dimension_text)
+                    self.__dimension_text = None
+                self.show_clear_button()
         else:
             # Too small, delete the rectangle and text, show error
             if self.__current_rect is not None:
                 self.image_canvas.delete(self.__current_rect)
                 self.__current_rect = None
             self.hide_dimension_text()
-            messagebox.showerror(
-                "Selection too small",
-                f"Selection must be at least {MIN_SELECTION_SIZE}x{MIN_SELECTION_SIZE} pixels.\n"
-                f"Your selection: {actual_side}x{actual_side} pixels.",
-            )
+            messagebox.showerror("Selection too small", error_msg)
 
         self.__selection_start = None
 
@@ -960,6 +1113,7 @@ class LabGUI:
         self.show_navigation()
         self.show_detect_button()
         self.show_remove_button()
+        self.show_annotate_button()
 
     def load_frame(self, index: int) -> None:
         """
@@ -990,6 +1144,9 @@ class LabGUI:
 
         # Update progress display
         self.update_progress_display()
+
+        # Update annotation status label
+        self.update_annotation_status()
 
     def navigate_frames(self, delta: int) -> None:
         """Navigate by a number of frames (positive or negative)."""
@@ -1077,8 +1234,9 @@ class LabGUI:
         # Load first frame
         self.load_frame(0)
 
-        # Ensure remove button is shown
+        # Ensure remove and annotate buttons are shown
         self.show_remove_button()
+        self.show_annotate_button()
 
     @handle_user_error
     def detect_bird(self) -> None:
@@ -1200,6 +1358,27 @@ class LabGUI:
             self.clear_btn.config(state=state)
         if self.remove_btn.winfo_ismapped():
             self.remove_btn.config(state=state)
+        if self.annotate_btn.winfo_ismapped():
+            self.annotate_btn.config(state=state)
+        self.conf_spinbox.config(state=state)
+        self.imgsz_spinbox.config(state=state)
+        self.iou_spinbox.config(state=state)
+        self.export_btn.config(state=state)
+        self.import_btn.config(state=state)
+        for btn in (
+            self.prev_rec_btn,
+            self.next_rec_btn,
+            self.nav_minus_5s_btn,
+            self.nav_minus_1s_btn,
+            self.nav_minus_5f_btn,
+            self.nav_minus_1f_btn,
+            self.nav_plus_1f_btn,
+            self.nav_plus_5f_btn,
+            self.nav_plus_1s_btn,
+            self.nav_plus_5s_btn,
+        ):
+            btn.config(state=state)
+        self.progress_bar.config(state=state)
 
     def _run_sync(self) -> None:
         """Run sync, conversion, and cleanup in background thread (per-stream pipeline)."""
@@ -1414,14 +1593,195 @@ class LabGUI:
         # Clear selections
         self.clear_all()
 
-        # Hide navigation, recording info and remove button
+        # Hide navigation, recording info, annotation status and buttons
         self.hide_navigation()
         self.hide_recording_info()
+        self.hide_annotation_status()
         self.hide_remove_button()
+        self.hide_annotate_button()
+        self.hide_submit_button()
 
         # Hide detect button (it's shown when recording is loaded)
         if self.detect_btn.winfo_ismapped():
             self.detect_btn.pack_forget()
+
+    # ------------------------------------------------------------------
+    # Annotation list UI helpers
+    # ------------------------------------------------------------------
+
+    def _add_annotation_row(self, idx: int) -> None:
+        """Add a row for annotation item at index idx to the annotation list frame."""
+        item = self.__annotation_items[idx]
+        row = tk.Frame(self.annotation_list_frame)
+        row.pack(fill="x", padx=4, pady=2)
+
+        tk.Label(row, text=str(idx), width=3, anchor="e").pack(side="left", padx=(0, 6))
+
+        x1, y1, x2, y2 = item["x1"], item["y1"], item["x2"], item["y2"]
+        tk.Label(row, text=f"({x1}, {y1}, {x2}, {y2})", anchor="w", width=24).pack(side="left", padx=(0, 6))
+
+        class_names = [name for name, _ in annotations.AVAILABLE_CLASSES]
+        class_var = tk.StringVar(value=class_names[0])
+        item["class_var"] = class_var
+        combo = ttk.Combobox(row, textvariable=class_var, values=class_names, state="readonly", width=14)
+        combo.pack(side="left", padx=(0, 6))
+
+        remove_btn = tk.Button(row, text="x", fg="red", command=lambda i=idx: self._remove_annotation(i))
+        remove_btn.pack(side="left")
+
+        self.__annotation_row_widgets.append(row)
+
+    def _rebuild_annotation_list(self) -> None:
+        """Clear and rebuild annotation list UI from __annotation_items."""
+        for row in self.__annotation_row_widgets:
+            row.destroy()
+        self.__annotation_row_widgets.clear()
+        for idx in range(len(self.__annotation_items)):
+            self._add_annotation_row(idx)
+
+    def _remove_annotation(self, idx: int) -> None:
+        """Remove annotation item at idx, redraw canvas, rebuild list."""
+        if idx >= len(self.__annotation_items):
+            return
+        self.__annotation_items.pop(idx)
+        # Redraw canvas rectangles for remaining annotations
+        self._redraw_annotation_rects()
+        self._rebuild_annotation_list()
+
+    def _redraw_annotation_rects(self) -> None:
+        """Clear canvas rect/text/bg lists and redraw all annotation rects (without ROI labels)."""
+        for rect_id in self.__selection_rects:
+            self.image_canvas.delete(rect_id)
+        self.__selection_rects.clear()
+        for bg_id in self.__selection_bgs:
+            self.image_canvas.delete(bg_id)
+        self.__selection_bgs.clear()
+        for text_id in self.__selection_texts:
+            self.image_canvas.delete(text_id)
+        self.__selection_texts.clear()
+
+        for item in self.__annotation_items:
+            x1, y1, x2, y2 = item["x1"], item["y1"], item["x2"], item["y2"]
+            rect_id = self.image_canvas.create_rectangle(x1, y1, x2, y2, outline="green", width=2)
+            self.__selection_rects.append(rect_id)
+
+    def _clear_annotation_list_ui(self) -> None:
+        """Remove all rows from annotation list and hide the frame."""
+        for row in self.__annotation_row_widgets:
+            row.destroy()
+        self.__annotation_row_widgets.clear()
+        if self.annotation_list_frame.winfo_ismapped():
+            self.annotation_list_frame.pack_forget()
+
+    # ------------------------------------------------------------------
+    # Annotation mode entry / exit / submit
+    # ------------------------------------------------------------------
+
+    def enter_annotation_mode(self) -> None:
+        """Enter annotation mode: freeze controls, clear canvas, load existing annotations."""
+        self.__annotation_mode = True
+        self.hide_annotate_button()
+        self.show_submit_button()
+        self._set_buttons_enabled(False)
+        # submit_btn must stay enabled while in annotation mode
+        self.submit_btn.config(state="normal")
+
+        # Clear canvas (does not clear annotation_items)
+        self.__annotation_items.clear()
+        self.clear_all()
+
+        # Load existing annotations if any
+        if self.__selected_image is not None and self.__current_recording is not None:
+            existing_boxes = annotations.load_annotations(self.__selected_image, self.__current_recording)
+            if existing_boxes and self.__image_obj is not None:
+                img_w = self.__image_obj.width()
+                img_h = self.__image_obj.height()
+                for box in existing_boxes:
+                    px1, py1, px2, py2 = annotations.yolo_to_pixels(box, img_w, img_h)
+                    self.__annotation_items.append(
+                        {
+                            "class_id": box.class_id,
+                            "x1": px1,
+                            "y1": py1,
+                            "x2": px2,
+                            "y2": py2,
+                        }
+                    )
+                self._redraw_annotation_rects()
+                self._rebuild_annotation_list()
+
+        # Show annotation list frame
+        if not self.annotation_list_frame.winfo_ismapped():
+            self.annotation_list_frame.pack(before=self.path_hint, fill="x", padx=self.content_pad, pady=(4, 4))
+
+    def submit_annotations(self) -> None:
+        """Submit annotations: save to dataset, exit annotation mode."""
+        if self.__selected_image is None or self.__current_recording is None:
+            return
+
+        if self.__image_obj is None:
+            return
+
+        img_w = self.__image_obj.width()
+        img_h = self.__image_obj.height()
+
+        boxes: list[annotations.AnnotationBox] = []
+        for item in self.__annotation_items:
+            # Resolve class_id from combobox if available
+            class_id = item["class_id"]
+            if "class_var" in item:
+                class_name = item["class_var"].get()
+                for name, cid in annotations.AVAILABLE_CLASSES:
+                    if name == class_name:
+                        class_id = cid
+                        break
+            box = annotations.pixels_to_yolo(item["x1"], item["y1"], item["x2"], item["y2"], img_w, img_h, class_id)
+            boxes.append(box)
+
+        annotations.save_annotations(self.__selected_image, self.__current_recording, boxes)
+
+        # Exit annotation mode
+        self.__annotation_mode = False
+        self.__annotation_items.clear()
+        self._clear_annotation_list_ui()
+
+        # Restore canvas to clean image
+        self.clear_all()
+
+        self.hide_submit_button()
+        self.show_annotate_button()
+        self._set_buttons_enabled(True)
+
+        self.update_annotation_status()
+        self._update_stats_display()
+
+    # ------------------------------------------------------------------
+    # Stats tooltip
+    # ------------------------------------------------------------------
+
+    def _update_stats_display(self) -> None:
+        """Update the annotation stats display."""
+        stats = annotations.get_dataset_stats()
+        total = stats.train_total + stats.val_total
+
+        total_pos = stats.train_positive + stats.val_positive
+        total_neg = stats.train_negative + stats.val_negative
+        pos_train_pct = round(100 * stats.train_positive / total_pos) if total_pos else 0
+        pos_val_pct = 100 - pos_train_pct if total_pos else 0
+        neg_train_pct = round(100 * stats.train_negative / total_neg) if total_neg else 0
+        neg_val_pct = 100 - neg_train_pct if total_neg else 0
+        all_train_pct = round(100 * stats.train_total / total) if total else 0
+        all_val_pct = 100 - all_train_pct if total else 0
+
+        text = (
+            f"Train: {stats.train_total} ({stats.train_positive} positive, {stats.train_negative} negative)\n"
+            f"Val:   {stats.val_total} ({stats.val_positive} positive, {stats.val_negative} negative)\n"
+            f"Total: {total}\n"
+            f"Positive: {pos_train_pct}% train / {pos_val_pct}% val\n"
+            f"Negative: {neg_train_pct}% train / {neg_val_pct}% val\n"
+            f"All:      {all_train_pct}% train / {all_val_pct}% val"
+        )
+        self.stats_text.config(text=text)
 
     def run(self) -> None:
         self.root.mainloop()
