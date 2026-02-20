@@ -354,11 +354,130 @@ class FineTuneDialog:
         return self.result
 
 
+class ModelSelectDialog:
+    """Modal dialog for selecting a model for detection."""
+
+    def __init__(self, parent: tk.Tk) -> None:
+        self.parent = parent
+        self.result: dict | None = None
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Select Model for Detection")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        tk.Label(content, text="Available Models:", anchor="w").pack(fill="x", pady=(0, 8))
+
+        # Listbox with scrollbar for model selection
+        list_frame = tk.Frame(content)
+        list_frame.pack(fill="both", expand=True, pady=(0, 12))
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self._listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, width=60, height=8)
+        self._listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self._listbox.yview)
+
+        # Get available models and populate listbox
+        self._models = fine_tune.get_available_models()
+        for model in self._models:
+            if model["is_base"]:
+                display_text = "yolov8n.pt (Base model)"
+            else:
+                display_text = f"{model['version']} - {model['description']}"
+            self._listbox.insert(tk.END, display_text)
+
+        # Select the first model by default (newest fine-tuned or base if none exist)
+        if self._models:
+            self._listbox.selection_set(0)
+
+        # Details frame
+        details_frame = tk.Frame(content)
+        details_frame.pack(fill="x", pady=(0, 12))
+
+        tk.Label(details_frame, text="Base model:", font=("TkDefaultFont", 8)).grid(
+            row=0, column=0, sticky="w", pady=(0, 2)
+        )
+        self._base_model_label = tk.Label(details_frame, text="", fg="#666666", font=("TkDefaultFont", 8))
+        self._base_model_label.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 2))
+
+        tk.Label(details_frame, text="Classes:", font=("TkDefaultFont", 8)).grid(
+            row=1, column=0, sticky="nw", pady=(0, 2)
+        )
+        self._classes_label = tk.Label(
+            details_frame, text="", fg="#666666", font=("TkDefaultFont", 8), justify="left", wraplength=300
+        )
+        self._classes_label.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(0, 2))
+
+        # Update details when selection changes
+        self._listbox.bind("<<ListboxSelect>>", self._on_selection_changed)
+        self._on_selection_changed()
+
+        # Buttons
+        btn_frame = tk.Frame(content)
+        btn_frame.pack()
+        tk.Button(btn_frame, text="Select", command=self._on_select, width=10).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Cancel", command=self._on_cancel, width=10).pack(side="left")
+
+        self._center_dialog()
+
+    def _center_dialog(self) -> None:
+        self.dialog.update_idletasks()
+        px, py = self.parent.winfo_x(), self.parent.winfo_y()
+        pw, ph = self.parent.winfo_width(), self.parent.winfo_height()
+        dw, dh = self.dialog.winfo_width(), self.dialog.winfo_height()
+        self.dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+    def _on_selection_changed(self, _event=None) -> None:
+        """Update details label when selection changes."""
+        selection = self._listbox.curselection()
+        if not selection:
+            return
+
+        idx = selection[0]
+        model = self._models[idx]
+
+        self._base_model_label.config(text=model["base_model"])
+
+        if model["classes"] is None:
+            classes_text = "Bird class only (default)"
+        else:
+            classes_list = ", ".join(sorted(model["classes"].values()))
+            classes_text = classes_list
+
+        self._classes_label.config(text=classes_text)
+
+    def _on_select(self) -> None:
+        selection = self._listbox.curselection()
+        if selection:
+            self.result = self._models[selection[0]]
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def wait(self) -> dict | None:
+        """Block until dialog is closed; return selected model dict or None if cancelled."""
+        self.parent.wait_window(self.dialog)
+        return self.result
+
+
 class LabGUI:
     """Tkinter GUI for selecting PNGs in a storage directory and running detection."""
 
     def __init__(self) -> None:
-        self.detector = BirdDetector()
+        # Initialize detector with default settings
+        self.__selected_model_info: dict | None = None
+        self._init_detector()
 
         # Root
         self.root = tk.Tk()
@@ -412,6 +531,9 @@ class LabGUI:
 
         self.fine_tune_btn = tk.Button(self.button_frame, text="Fine tune", command=self.open_fine_tune_dialog)
         self.fine_tune_btn.pack(side="left", padx=(0, 8))
+
+        self.select_model_btn = tk.Button(self.button_frame, text="Select model", command=self.open_model_select_dialog)
+        self.select_model_btn.pack(side="left", padx=(0, 8))
 
         self.remove_btn = tk.Button(self.button_frame, text="Remove", command=self.start_remove_recording)
 
@@ -1904,6 +2026,36 @@ class LabGUI:
             f"All:      {all_train_pct}% train / {all_val_pct}% val"
         )
         self.stats_text.config(text=text)
+
+    # ------------------------------------------------------------------
+    # Model selection and initialization
+    # ------------------------------------------------------------------
+
+    def _init_detector(self) -> None:
+        """Initialize detector with currently selected model."""
+        if self.__selected_model_info is None:
+            # On first initialization, try to find the newest fine-tuned model or use base
+            models = fine_tune.get_available_models()
+            if models:
+                self.__selected_model_info = models[0]
+
+        if self.__selected_model_info is None or self.__selected_model_info["is_base"]:
+            # Use base model
+            self.detector = BirdDetector()
+        else:
+            # Use fine-tuned model
+            model_path = self.__selected_model_info["model_path"]
+            classes = list(range(len(self.__selected_model_info["classes"])))
+            self.detector = BirdDetector(model_path=model_path, classes=classes)
+
+    def open_model_select_dialog(self) -> None:
+        """Open the model selection dialog."""
+        dialog = ModelSelectDialog(self.root)
+        result = dialog.wait()
+        if result is not None:
+            self.__selected_model_info = result
+            self._init_detector()
+            messagebox.showinfo("Model Selected", f"Using model: {result['version']}\n{result['description']}")
 
     # ------------------------------------------------------------------
     # Fine-tune model

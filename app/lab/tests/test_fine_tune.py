@@ -13,11 +13,236 @@ import pytest
 from lab.fine_tune import (
     _parse_dataset_yaml,
     _remap_label_line,
+    get_available_models,
     load_preset,
     prepare_cropped_dataset,
     run_fine_tune,
     validate_version,
 )
+
+
+class TestGetAvailableModels:
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_returns_empty_list_when_directory_not_exists(self, mock_models_dir, tmp_path):
+        mock_models_dir.exists.return_value = False
+
+        result = get_available_models()
+
+        assert len(result) == 1  # Only base model
+        assert result[0]["is_base"] is True
+        assert result[0]["version"] == "yolov8n.pt"
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_returns_base_model_when_directory_empty(self, mock_models_dir, tmp_path):
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = []
+
+        result = get_available_models()
+
+        assert len(result) == 1
+        assert result[0]["is_base"] is True
+        assert result[0]["version"] == "yolov8n.pt"
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_includes_fine_tuned_models(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        # Create a fine-tuned model
+        v1_dir = models_dir / "v1.0.0"
+        v1_dir.mkdir()
+        meta = {
+            "version": "v1.0.0",
+            "description": "First model",
+            "base_model": "yolov8n.pt",
+            "classes": {"0": "robin", "1": "sparrow"},
+            "created_at": "2026-01-15T10:00:00Z",
+        }
+        (v1_dir / "meta.json").write_text(json.dumps(meta))
+        (v1_dir / "model.pt").write_bytes(b"fake model")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [v1_dir]
+
+        result = get_available_models()
+
+        # Should have fine-tuned model + base model
+        assert len(result) == 2
+        assert result[0]["version"] == "v1.0.0"
+        assert result[0]["is_base"] is False
+        assert result[0]["description"] == "First model"
+        assert result[0]["classes"] == {"0": "robin", "1": "sparrow"}
+        assert result[1]["is_base"] is True
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_sorts_by_created_at_descending(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        # Create two fine-tuned models
+        v1_dir = models_dir / "v1.0.0"
+        v1_dir.mkdir()
+        meta1 = {
+            "version": "v1.0.0",
+            "description": "First",
+            "base_model": "yolov8n.pt",
+            "classes": None,
+            "created_at": "2026-01-15T10:00:00Z",
+        }
+        (v1_dir / "meta.json").write_text(json.dumps(meta1))
+        (v1_dir / "model.pt").write_bytes(b"fake model1")
+
+        v2_dir = models_dir / "v1.0.1"
+        v2_dir.mkdir()
+        meta2 = {
+            "version": "v1.0.1",
+            "description": "Second",
+            "base_model": "yolov8n.pt",
+            "classes": None,
+            "created_at": "2026-01-20T10:00:00Z",
+        }
+        (v2_dir / "meta.json").write_text(json.dumps(meta2))
+        (v2_dir / "model.pt").write_bytes(b"fake model2")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [v1_dir, v2_dir]
+
+        result = get_available_models()
+
+        # Newer model (v1.0.1) should be first
+        assert result[0]["version"] == "v1.0.1"
+        assert result[1]["version"] == "v1.0.0"
+        assert result[2]["is_base"] is True
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_skips_directories_without_meta_or_model(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        # Create a directory with only meta.json (missing model.pt)
+        bad_dir = models_dir / "bad"
+        bad_dir.mkdir()
+        meta = {
+            "version": "bad",
+            "description": "Missing model",
+            "base_model": "yolov8n.pt",
+            "classes": None,
+            "created_at": "2026-01-15T10:00:00Z",
+        }
+        (bad_dir / "meta.json").write_text(json.dumps(meta))
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [bad_dir]
+
+        result = get_available_models()
+
+        # Should only have base model
+        assert len(result) == 1
+        assert result[0]["is_base"] is True
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_skips_non_directories(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        # Create a file (not a directory)
+        file_path = models_dir / "not_a_dir.txt"
+        file_path.write_text("not a model")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [file_path]
+
+        result = get_available_models()
+
+        # Should only have base model
+        assert len(result) == 1
+        assert result[0]["is_base"] is True
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_skips_invalid_json(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        # Create a model with invalid JSON
+        bad_dir = models_dir / "bad_json"
+        bad_dir.mkdir()
+        (bad_dir / "meta.json").write_text("invalid json {")
+        (bad_dir / "model.pt").write_bytes(b"fake model")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [bad_dir]
+
+        result = get_available_models()
+
+        # Should only have base model
+        assert len(result) == 1
+        assert result[0]["is_base"] is True
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_model_dict_has_all_required_fields(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        v1_dir = models_dir / "v1.0.0"
+        v1_dir.mkdir()
+        meta = {
+            "version": "v1.0.0",
+            "description": "Test",
+            "base_model": "yolov8n.pt",
+            "classes": {"0": "bird"},
+            "created_at": "2026-01-15T10:00:00Z",
+        }
+        (v1_dir / "meta.json").write_text(json.dumps(meta))
+        (v1_dir / "model.pt").write_bytes(b"fake model")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [v1_dir]
+
+        result = get_available_models()
+
+        fine_tuned = result[0]
+        assert "version" in fine_tuned
+        assert "model_path" in fine_tuned
+        assert "description" in fine_tuned
+        assert "base_model" in fine_tuned
+        assert "classes" in fine_tuned
+        assert "created_at" in fine_tuned
+        assert "is_base" in fine_tuned
+
+        base = result[1]
+        assert "version" in base
+        assert "model_path" in base
+        assert "description" in base
+        assert "base_model" in base
+        assert "classes" in base
+        assert "created_at" in base
+        assert "is_base" in base
+
+    @patch("lab.fine_tune.FINE_TUNED_MODELS_DIR")
+    def test_base_model_entry_at_end(self, mock_models_dir, tmp_path):
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+
+        v1_dir = models_dir / "v1.0.0"
+        v1_dir.mkdir()
+        meta = {
+            "version": "v1.0.0",
+            "description": "Test",
+            "base_model": "yolov8n.pt",
+            "classes": None,
+            "created_at": "2026-01-15T10:00:00Z",
+        }
+        (v1_dir / "meta.json").write_text(json.dumps(meta))
+        (v1_dir / "model.pt").write_bytes(b"fake model")
+
+        mock_models_dir.exists.return_value = True
+        mock_models_dir.iterdir.return_value = [v1_dir]
+
+        result = get_available_models()
+
+        # Base model should always be last
+        assert result[-1]["is_base"] is True
+        assert result[-1]["version"] == "yolov8n.pt"
 
 
 class TestValidateVersion:

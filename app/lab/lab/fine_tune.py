@@ -25,6 +25,73 @@ def validate_version(version: str) -> bool:
     return bool(_VERSION_PATTERN.match(version))
 
 
+def get_available_models() -> list[dict]:
+    """
+    Scan FINE_TUNED_MODELS_DIR for available models.
+
+    Returns a list of model dicts sorted by created_at descending (newest first).
+    Each dict contains:
+    - version: folder name
+    - model_path: absolute path to model.pt
+    - description: from meta.json
+    - base_model: from meta.json
+    - classes: dict from meta.json (e.g., {"0": "great_tit"})
+    - created_at: ISO timestamp from meta.json
+    - is_base: True if this is the yolov8n.pt base model
+
+    Also includes a "yolov8n.pt" entry at the end with is_base=True.
+    """
+    models: list[dict] = []
+
+    # Scan FINE_TUNED_MODELS_DIR for fine-tuned models
+    if FINE_TUNED_MODELS_DIR.exists():
+        for version_dir in FINE_TUNED_MODELS_DIR.iterdir():
+            if not version_dir.is_dir():
+                continue
+
+            meta_path = version_dir / "meta.json"
+            model_path = version_dir / "model.pt"
+
+            if not meta_path.exists() or not model_path.exists():
+                continue
+
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+
+                models.append(
+                    {
+                        "version": version_dir.name,
+                        "model_path": str(model_path),
+                        "description": meta.get("description", ""),
+                        "base_model": meta.get("base_model", ""),
+                        "classes": meta.get("classes"),
+                        "created_at": meta.get("created_at", ""),
+                        "is_base": False,
+                    }
+                )
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    # Sort by created_at descending (newest first)
+    models.sort(key=lambda m: m["created_at"], reverse=True)
+
+    # Add base model entry
+    models.append(
+        {
+            "version": "yolov8n.pt",
+            "model_path": "yolov8n.pt",
+            "description": "Base model",
+            "base_model": "None",
+            "classes": None,
+            "created_at": "",
+            "is_base": True,
+        }
+    )
+
+    return models
+
+
 def load_preset(preset_path: Path) -> dict:
     """
     Load and validate a preset JSON file.
