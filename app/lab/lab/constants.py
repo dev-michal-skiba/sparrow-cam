@@ -6,6 +6,7 @@ ARCHIVE_DIR = STORAGE_DIR / "archive"
 IMAGES_DIR = STORAGE_DIR / "images"
 PRESETS_DIR = STORAGE_DIR / "presets"
 DATASET_DIR = STORAGE_DIR / "dataset"
+FINE_TUNED_MODELS_DIR = STORAGE_DIR / "fine_tuned_models"
 
 # Secrets paths (mounted into container)
 SECRETS_DIR = Path("/secrets")

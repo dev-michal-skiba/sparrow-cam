@@ -9,8 +9,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
-from lab import annotations
-from lab.constants import ARCHIVE_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
+from lab import annotations, fine_tune
+from lab.constants import ARCHIVE_DIR, FINE_TUNED_MODELS_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording
@@ -236,6 +236,124 @@ def handle_user_error(method):
     return wrapper
 
 
+class FineTuneDialog:
+    """Modal dialog for collecting fine-tune parameters (version, description, preset)."""
+
+    def __init__(self, parent: tk.Tk) -> None:
+        self.parent = parent
+        self.result: tuple[str, str, Path | None] | None = None  # (version, description, preset_path)
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Fine Tune Model")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        # Version
+        tk.Label(content, text="Version:", anchor="w").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self._version_var = tk.StringVar()
+        version_entry = tk.Entry(content, textvariable=self._version_var, width=20)
+        version_entry.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
+        tk.Label(content, text="Format: v1.2.3", fg="#888888", font=("TkDefaultFont", 8)).grid(
+            row=1, column=1, sticky="w", padx=(8, 0), pady=(0, 12)
+        )
+
+        # Description
+        tk.Label(content, text="Description:", anchor="w").grid(row=2, column=0, sticky="nw", pady=(0, 4))
+        self._desc_text = tk.Text(content, width=40, height=5, wrap="word")
+        self._desc_text.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
+        self._desc_char_label = tk.Label(content, text="0 / 256", fg="#888888", font=("TkDefaultFont", 8))
+        self._desc_char_label.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=(0, 12))
+        self._desc_text.bind("<KeyRelease>", self._on_desc_changed)
+
+        # Preset
+        tk.Label(content, text="Preset:", anchor="w").grid(row=4, column=0, sticky="w", pady=(0, 4))
+        preset_options = ["(None)"]
+        if PRESETS_DIR.exists():
+            preset_options += sorted(f.name for f in PRESETS_DIR.glob("*.json"))
+        self._preset_var = tk.StringVar(value="(None)")
+        preset_combo = ttk.Combobox(
+            content, textvariable=self._preset_var, values=preset_options, state="readonly", width=22
+        )
+        preset_combo.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=(0, 20))
+
+        # Buttons
+        btn_frame = tk.Frame(content)
+        btn_frame.grid(row=5, column=0, columnspan=2, pady=(0, 0))
+        tk.Button(btn_frame, text="Start", command=self._on_start, width=10).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Cancel", command=self._on_cancel, width=10).pack(side="left")
+
+        self._center_dialog()
+        version_entry.focus_set()
+
+    def _center_dialog(self) -> None:
+        self.dialog.update_idletasks()
+        px, py = self.parent.winfo_x(), self.parent.winfo_y()
+        pw, ph = self.parent.winfo_width(), self.parent.winfo_height()
+        dw, dh = self.dialog.winfo_width(), self.dialog.winfo_height()
+        self.dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+    def _on_desc_changed(self, _event=None) -> None:
+        count = len(self._desc_text.get("1.0", "end-1c"))
+        self._desc_char_label.config(text=f"{count} / 256")
+
+    def _on_start(self) -> None:
+        version = self._version_var.get().strip()
+        if not fine_tune.validate_version(version):
+            messagebox.showerror(
+                "Invalid Version",
+                "Version must match format v<major>.<minor>.<patch> (e.g. v1.0.0).",
+                parent=self.dialog,
+            )
+            return
+
+        description = self._desc_text.get("1.0", "end-1c")
+        if len(description) > 256:
+            messagebox.showerror(
+                "Description Too Long",
+                f"Description must be at most 256 characters (currently {len(description)}).",
+                parent=self.dialog,
+            )
+            return
+
+        output_dir = FINE_TUNED_MODELS_DIR / version
+        if output_dir.exists():
+            messagebox.showerror(
+                "Version Already Exists",
+                f"A fine-tuned model for version '{version}' already exists.\n" "Choose a different version.",
+                parent=self.dialog,
+            )
+            return
+
+        preset_name = self._preset_var.get()
+        preset_path: Path | None = None
+        if preset_name != "(None)":
+            preset_path = PRESETS_DIR / preset_name
+            try:
+                fine_tune.load_preset(preset_path)
+            except (ValueError, OSError, KeyError) as exc:
+                messagebox.showerror("Invalid Preset", str(exc), parent=self.dialog)
+                return
+
+        self.result = (version, description, preset_path)
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def wait(self) -> tuple[str, str, Path | None] | None:
+        """Block until dialog is closed; return result or None if cancelled."""
+        self.parent.wait_window(self.dialog)
+        return self.result
+
+
 class LabGUI:
     """Tkinter GUI for selecting PNGs in a storage directory and running detection."""
 
@@ -291,6 +409,9 @@ class LabGUI:
 
         self.select_btn = tk.Button(self.button_frame, text="Select recording", command=self.choose_recording)
         self.select_btn.pack(side="left", padx=(0, 8))
+
+        self.fine_tune_btn = tk.Button(self.button_frame, text="Fine tune", command=self.open_fine_tune_dialog)
+        self.fine_tune_btn.pack(side="left", padx=(0, 8))
 
         self.remove_btn = tk.Button(self.button_frame, text="Remove", command=self.start_remove_recording)
 
@@ -1352,6 +1473,7 @@ class LabGUI:
         state = "normal" if enabled else "disabled"
         self.sync_btn.config(state=state)
         self.select_btn.config(state=state)
+        self.fine_tune_btn.config(state=state)
         if self.detect_btn.winfo_ismapped():
             self.detect_btn.config(state=state)
         if self.clear_btn.winfo_ismapped():
@@ -1782,6 +1904,111 @@ class LabGUI:
             f"All:      {all_train_pct}% train / {all_val_pct}% val"
         )
         self.stats_text.config(text=text)
+
+    # ------------------------------------------------------------------
+    # Fine-tune model
+    # ------------------------------------------------------------------
+
+    def open_fine_tune_dialog(self) -> None:
+        """Open the fine-tune modal dialog and start training if confirmed."""
+        dialog = FineTuneDialog(self.root)
+        result = dialog.wait()
+        if result is None:
+            return
+        version, description, preset_path = result
+        self.start_fine_tune(version, description, preset_path)
+
+    def start_fine_tune(self, version: str, description: str, preset_path: Path | None) -> None:
+        """Disable UI and start fine-tuning in a background thread."""
+        self._fine_tune_version = version
+        self._fine_tune_description = description
+        self._fine_tune_preset_path = preset_path
+        self._fine_tune_error: str | None = None
+        self._fine_tune_result: Path | None = None
+
+        self._set_buttons_enabled(False)
+
+        self._fine_tune_progress = tk.Toplevel(self.root)
+        self._fine_tune_progress.title("Fine Tuning")
+        self._fine_tune_progress.transient(self.root)
+        self._fine_tune_progress.grab_set()
+        self._fine_tune_progress.resizable(False, False)
+        self._fine_tune_progress.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        frame = tk.Frame(self._fine_tune_progress, padx=24, pady=24)
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text=f"Fine-tuning model {version}...", font=("Helvetica", 12)).pack(pady=(0, 12))
+
+        self._ft_phase_var = tk.StringVar(value="Preparing...")
+        tk.Label(frame, textvariable=self._ft_phase_var, fg="#444444").pack(pady=(0, 8))
+
+        self._ft_epoch_var = tk.StringVar(value="")
+        tk.Label(frame, textvariable=self._ft_epoch_var, fg="#666666", font=("TkDefaultFont", 9)).pack(pady=(0, 8))
+
+        self._ft_bar = ttk.Progressbar(frame, length=360, mode="determinate", maximum=100)
+        self._ft_bar.pack(pady=(0, 4))
+
+        tk.Label(
+            frame, text="Training output is also printed to the terminal.", fg="#888888", font=("TkDefaultFont", 8)
+        ).pack(pady=(4, 0))
+
+        self._fine_tune_progress.update_idletasks()
+        px = self.root.winfo_x() + (self.root.winfo_width() - self._fine_tune_progress.winfo_width()) // 2
+        py = self.root.winfo_y() + (self.root.winfo_height() - self._fine_tune_progress.winfo_height()) // 2
+        self._fine_tune_progress.geometry(f"+{px}+{py}")
+
+        self._fine_tune_thread = threading.Thread(target=self._run_fine_tune, daemon=True)
+        self._fine_tune_thread.start()
+        self.root.after(200, self._check_fine_tune_complete)
+
+    def _on_fine_tune_epoch(self, current: int, total: int) -> None:
+        """Update progress dialog from background thread (thread-safe via root.after)."""
+
+        def _update() -> None:
+            if not self._fine_tune_progress.winfo_exists():
+                return
+            pct = int(100 * current / total)
+            self._ft_phase_var.set("Training...")
+            self._ft_epoch_var.set(f"Epoch {current}/{total}")
+            self._ft_bar["value"] = pct
+
+        self.root.after(0, _update)
+
+    def _run_fine_tune(self) -> None:
+        """Execute fine-tuning in background thread."""
+        self.root.after(
+            0,
+            lambda: self._ft_phase_var.set("Preparing dataset...") if self._fine_tune_progress.winfo_exists() else None,
+        )
+        try:
+            self._fine_tune_result = fine_tune.run_fine_tune(
+                self._fine_tune_version,
+                self._fine_tune_description,
+                self._fine_tune_preset_path,
+                on_epoch=self._on_fine_tune_epoch,
+            )
+        except Exception as exc:
+            self._fine_tune_error = str(exc)
+
+    def _check_fine_tune_complete(self) -> None:
+        """Poll for fine-tune thread completion and clean up."""
+        if self._fine_tune_thread.is_alive():
+            self.root.after(500, self._check_fine_tune_complete)
+            return
+
+        if self._fine_tune_progress.winfo_exists():
+            self._fine_tune_progress.grab_release()
+            self._fine_tune_progress.destroy()
+
+        self._set_buttons_enabled(True)
+
+        if self._fine_tune_error:
+            messagebox.showerror("Fine Tune Error", self._fine_tune_error)
+        else:
+            messagebox.showinfo(
+                "Fine Tune Complete",
+                f"Model saved to:\n{self._fine_tune_result}",
+            )
 
     def run(self) -> None:
         self.root.mainloop()
