@@ -23,6 +23,7 @@ from lab.annotations import (
     get_extended_dataset_stats,
     load_annotations,
     pixels_to_yolo,
+    remove_annotation,
     save_annotations,
     yolo_to_pixels,
 )
@@ -333,6 +334,60 @@ class TestSaveAnnotations:
             save_annotations(image, recording, [])
 
         assert (dataset_dir / "labels" / "train").is_dir()
+
+
+class TestRemoveAnnotation:
+    def test_returns_false_when_not_annotated(self, dataset_with_structure, tmp_path):
+        recording = tmp_path / "rec"
+        image = recording / "frame-1-0.png"
+        assert remove_annotation(image, recording) is False
+
+    def test_removes_label_file_from_train(self, dataset_with_structure, tmp_path):
+        recording = tmp_path / "rec"
+        image = recording / "frame-1-0.png"
+        stem = "rec_frame-1-0"
+        label = dataset_with_structure / "labels" / "train" / f"{stem}.txt"
+        label.write_text("0 0.5 0.5 0.2 0.3")
+        remove_annotation(image, recording)
+        assert not label.exists()
+
+    def test_removes_image_file_from_train(self, dataset_with_structure, tmp_path):
+        recording = tmp_path / "rec"
+        image = recording / "frame-1-0.png"
+        stem = "rec_frame-1-0"
+        label = dataset_with_structure / "labels" / "train" / f"{stem}.txt"
+        label.write_text("0 0.5 0.5 0.2 0.3")
+        img = dataset_with_structure / "images" / "train" / f"{stem}.png"
+        img.write_bytes(b"fake image")
+        remove_annotation(image, recording)
+        assert not img.exists()
+
+    def test_returns_true_when_annotation_found(self, dataset_with_structure, tmp_path):
+        recording = tmp_path / "rec"
+        image = recording / "frame-2-0.png"
+        stem = "rec_frame-2-0"
+        (dataset_with_structure / "labels" / "train" / f"{stem}.txt").write_text("")
+        assert remove_annotation(image, recording) is True
+
+    def test_removes_from_val_split(self, dataset_with_structure, tmp_path):
+        recording = tmp_path / "rec"
+        image = recording / "frame-3-0.png"
+        stem = "rec_frame-3-0"
+        label = dataset_with_structure / "labels" / "val" / f"{stem}.txt"
+        label.write_text("1 0.5 0.5 0.2 0.3")
+        remove_annotation(image, recording)
+        assert not label.exists()
+
+    def test_handles_missing_image_file_gracefully(self, dataset_with_structure, tmp_path):
+        """Removal succeeds even if the image copy is absent from the dataset."""
+        recording = tmp_path / "rec"
+        image = recording / "frame-4-0.png"
+        stem = "rec_frame-4-0"
+        label = dataset_with_structure / "labels" / "train" / f"{stem}.txt"
+        label.write_text("")
+        # No image file present in dataset
+        assert remove_annotation(image, recording) is True
+        assert not label.exists()
 
 
 class TestGetAnnotationStatus:

@@ -550,6 +550,10 @@ class LabGUI:
             self.button_frame, text="Leave annotation mode", command=self.leave_annotation_mode
         )
 
+        self.remove_annotation_btn = tk.Button(
+            self.button_frame, text="Remove annotation", command=self.remove_frame_annotation
+        )
+
         # Detection parameters frame (always visible)
         self.params_frame = tk.Frame(self.root)
         self.params_frame.pack(pady=(0, 12))
@@ -1020,6 +1024,14 @@ class LabGUI:
     def hide_leave_annotation_button(self) -> None:
         if self.leave_annotation_btn.winfo_ismapped():
             self.leave_annotation_btn.pack_forget()
+
+    def show_remove_annotation_button(self) -> None:
+        if not self.remove_annotation_btn.winfo_ismapped():
+            self.remove_annotation_btn.pack(side="left", padx=(8, 0))
+
+    def hide_remove_annotation_button(self) -> None:
+        if self.remove_annotation_btn.winfo_ismapped():
+            self.remove_annotation_btn.pack_forget()
 
     def show_detect_button(self) -> None:
         if not self.detect_btn.winfo_ismapped():
@@ -1884,6 +1896,7 @@ class LabGUI:
         self.hide_annotate_button()
         self.hide_submit_button()
         self.hide_leave_annotation_button()
+        self.hide_remove_annotation_button()
 
         # Hide detect button (it's shown when recording is loaded)
         if self.detect_btn.winfo_ismapped():
@@ -1978,10 +1991,12 @@ class LabGUI:
         self.hide_annotate_button()
         self.show_submit_button()
         self.show_leave_annotation_button()
+        self.show_remove_annotation_button()
         self._set_buttons_enabled(False)
-        # submit_btn and leave_annotation_btn must stay enabled while in annotation mode
+        # submit_btn, leave_annotation_btn and remove_annotation_btn must stay enabled while in annotation mode
         self.submit_btn.config(state="normal")
         self.leave_annotation_btn.config(state="normal")
+        self.remove_annotation_btn.config(state="normal")
         # Navigation buttons should be enabled in annotation mode
         self._set_navigation_buttons_enabled(True)
 
@@ -2003,6 +2018,7 @@ class LabGUI:
 
         self.hide_submit_button()
         self.hide_leave_annotation_button()
+        self.hide_remove_annotation_button()
         self.show_annotate_button()
         self._set_buttons_enabled(True)
 
@@ -2069,6 +2085,31 @@ class LabGUI:
         self.set_image_preview()
         self._load_frame_annotations()
 
+        self.update_annotation_status()
+        self._update_stats_display()
+
+    def remove_frame_annotation(self) -> None:
+        """Remove annotation files for the current frame and reload the GUI."""
+        if self.__selected_image is None or self.__current_recording is None:
+            return
+
+        removed = annotations.remove_annotation(self.__selected_image, self.__current_recording)
+        if not removed:
+            messagebox.showinfo("No Annotation", "This frame has no annotation to remove.")
+            return
+
+        # Clear annotation items and canvas selections
+        self.__annotation_items.clear()
+        self._clear_annotation_list_ui()
+        self.clear_canvas_elements()
+        self.__image_obj = tk.PhotoImage(file=self.__selected_image)
+        self.set_image_preview()
+
+        # Keep the annotation list frame visible (now empty)
+        if not self.annotation_list_frame.winfo_ismapped():
+            self.annotation_list_frame.pack(before=self.path_hint, fill="x", padx=self.content_pad, pady=(4, 4))
+
+        # Reload stats and annotation status
         self.update_annotation_status()
         self._update_stats_display()
 

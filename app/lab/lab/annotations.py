@@ -185,6 +185,30 @@ def save_annotations(
     _write_label_file(dest_label, boxes)
 
 
+def remove_annotation(image_path: Path, recording_path: Path) -> bool:
+    """
+    Remove annotation files (label and image copy) for a frame from the dataset.
+
+    Returns True if annotation was found and removed, False if not found.
+    """
+    existing = find_existing(image_path, recording_path)
+    if existing is None:
+        return False
+
+    split, _ = existing
+    stem = get_dataset_filename(image_path, recording_path)
+
+    label_path = DATASET_DIR / "labels" / split / f"{stem}.txt"
+    dataset_image_path = DATASET_DIR / "images" / split / f"{stem}.png"
+
+    if label_path.exists():
+        label_path.unlink()
+    if dataset_image_path.exists():
+        dataset_image_path.unlink()
+
+    return True
+
+
 def get_annotation_status(image_path: Path, recording_path: Path) -> str:
     """
     Return annotation status for a frame.
