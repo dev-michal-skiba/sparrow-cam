@@ -713,26 +713,20 @@ class LabGUI:
         self.stats_frame = tk.Frame(self.root, bg="white")
         self.stats_frame.place(relx=0.0, rely=0.0, anchor="nw", x=self.content_pad, y=self.content_pad)
 
-        # Header
-        self.stats_header = tk.Label(
+        # Stats text (selectable/copyable with Text widget)
+        self.stats_text = tk.Text(
             self.stats_frame,
-            text="Global annotation stats",
-            fg="#000000",
-            bg="white",
-            font=("Helvetica", 14),
-        )
-        self.stats_header.pack(anchor="w")
-
-        # Stats text (2pt smaller = Helvetica 12)
-        self.stats_text = tk.Label(
-            self.stats_frame,
-            text="",
             fg="#000000",
             bg="white",
             font=("Helvetica", 12),
-            justify="left",
+            height=12,
+            width=40,
+            relief="flat",
+            borderwidth=0,
+            wrap="word",
         )
-        self.stats_text.pack(anchor="w")
+        self.stats_text.pack(anchor="w", fill="both", expand=True)
+        self.stats_text.config(state="disabled")  # Read-only but still selectable
 
         # Update stats on initialization
         self.root.after(100, self._update_stats_display)
@@ -2019,28 +2013,43 @@ class LabGUI:
     # ------------------------------------------------------------------
 
     def _update_stats_display(self) -> None:
-        """Update the annotation stats display."""
-        stats = annotations.get_dataset_stats()
+        """Update the annotation stats display with new format."""
+        stats = annotations.get_extended_dataset_stats()
         total = stats.train_total + stats.val_total
 
         total_pos = stats.train_positive + stats.val_positive
-        total_neg = stats.train_negative + stats.val_negative
-        pos_train_pct = round(100 * stats.train_positive / total_pos) if total_pos else 0
-        pos_val_pct = 100 - pos_train_pct if total_pos else 0
-        neg_train_pct = round(100 * stats.train_negative / total_neg) if total_neg else 0
-        neg_val_pct = 100 - neg_train_pct if total_neg else 0
-        all_train_pct = round(100 * stats.train_total / total) if total else 0
-        all_val_pct = 100 - all_train_pct if total else 0
 
-        text = (
-            f"Train: {stats.train_total} ({stats.train_positive} positive, {stats.train_negative} negative)\n"
-            f"Val:   {stats.val_total} ({stats.val_positive} positive, {stats.val_negative} negative)\n"
-            f"Total: {total}\n"
-            f"Positive: {pos_train_pct}% train / {pos_val_pct}% val\n"
-            f"Negative: {neg_train_pct}% train / {neg_val_pct}% val\n"
-            f"All:      {all_train_pct}% train / {all_val_pct}% val"
-        )
-        self.stats_text.config(text=text)
+        # Calculate percentages for total train/val
+        total_train_pct = round(100 * stats.train_total / total) if total else 0
+        total_val_pct = 100 - total_train_pct if total else 0
+
+        # Calculate percentages for total pos/neg
+        total_pos_pct = round(100 * total_pos / total) if total else 0
+        total_neg_pct = 100 - total_pos_pct if total else 0
+
+        # Build the text content
+        lines = [
+            f"Total annotations: {total}",
+            f"Total train/val: {total_train_pct}% / {total_val_pct}%",
+            f"Total pos/neg: {total_pos_pct}% / {total_neg_pct}%",
+        ]
+
+        # Add per-class stats
+        for class_info in stats.class_stats:
+            class_total = class_info.train_count + class_info.val_count
+            if class_total > 0:
+                class_train_pct = round(100 * class_info.train_count / class_total)
+                class_val_pct = 100 - class_train_pct
+                lines.append(f"{class_info.name} annotations: {class_total}")
+                lines.append(f"{class_info.name} train/val: {class_train_pct}% / {class_val_pct}%")
+
+        text = "\n".join(lines)
+
+        # Update the Text widget (need to enable it to edit)
+        self.stats_text.config(state="normal")
+        self.stats_text.delete("1.0", "end")
+        self.stats_text.insert("1.0", text)
+        self.stats_text.config(state="disabled")
 
     # ------------------------------------------------------------------
     # Model selection and initialization

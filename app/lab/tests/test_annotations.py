@@ -6,7 +6,9 @@ import pytest
 
 from lab.annotations import (
     AnnotationBox,
+    ClassStats,
     DatasetStats,
+    ExtendedDatasetStats,
     _count_class_stats,
     _count_split_stats,
     _read_label_file,
@@ -18,6 +20,7 @@ from lab.annotations import (
     get_annotation_status,
     get_dataset_filename,
     get_dataset_stats,
+    get_extended_dataset_stats,
     load_annotations,
     pixels_to_yolo,
     save_annotations,
@@ -63,6 +66,41 @@ class TestDatasetStats:
         )
         assert stats.train_total == 10
         assert stats.val_total == 5
+
+
+class TestClassStats:
+    def test_fields(self):
+        stats = ClassStats(
+            name="Great tit",
+            class_id=0,
+            train_count=5,
+            val_count=3,
+        )
+        assert stats.name == "Great tit"
+        assert stats.class_id == 0
+        assert stats.train_count == 5
+        assert stats.val_count == 3
+
+
+class TestExtendedDatasetStats:
+    def test_fields(self):
+        class_stats = [
+            ClassStats(name="Great tit", class_id=0, train_count=5, val_count=3),
+            ClassStats(name="House sparrow", class_id=1, train_count=2, val_count=1),
+        ]
+        stats = ExtendedDatasetStats(
+            train_total=10,
+            train_positive=7,
+            train_negative=3,
+            val_total=5,
+            val_positive=4,
+            val_negative=1,
+            class_stats=class_stats,
+        )
+        assert stats.train_total == 10
+        assert stats.val_total == 5
+        assert len(stats.class_stats) == 2
+        assert stats.class_stats[0].name == "Great tit"
 
 
 class TestEnsureDatasetStructure:
@@ -367,6 +405,79 @@ class TestGetDatasetStats:
         assert stats.val_total == 2
         assert stats.val_positive == 1
         assert stats.val_negative == 1
+
+
+class TestGetExtendedDatasetStats:
+    def test_empty_dataset(self, dataset_with_structure):
+        stats = get_extended_dataset_stats()
+        assert stats.train_total == 0
+        assert stats.val_total == 0
+        assert stats.train_positive == 0
+        assert stats.train_negative == 0
+        assert len(stats.class_stats) == 3  # Three classes defined
+
+    def test_has_all_classes(self, dataset_with_structure):
+        stats = get_extended_dataset_stats()
+        class_names = {cs.name for cs in stats.class_stats}
+        assert "Great tit" in class_names
+        assert "House sparrow" in class_names
+        assert "Pigeon" in class_names
+
+    def test_counts_correctly_with_single_class(self, dataset_with_structure):
+        labels_train = dataset_with_structure / "labels" / "train"
+        labels_val = dataset_with_structure / "labels" / "val"
+        (labels_train / "pos1.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels_train / "pos2.txt").write_text("0 0.1 0.1 0.1 0.1")
+        (labels_train / "neg1.txt").write_text("")
+        (labels_val / "pos3.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels_val / "neg2.txt").write_text("")
+
+        stats = get_extended_dataset_stats()
+        assert stats.train_total == 3
+        assert stats.train_positive == 2
+        assert stats.train_negative == 1
+        assert stats.val_total == 2
+        assert stats.val_positive == 1
+        assert stats.val_negative == 1
+
+        # Check class stats for class 0 (Great tit)
+        # _count_class_stats counts files containing each class
+        tit_stats = next(cs for cs in stats.class_stats if cs.class_id == 0)
+        assert tit_stats.train_count == 2  # Two files with class 0 (pos1.txt, pos2.txt)
+        assert tit_stats.val_count == 1  # One file with class 0 (pos3.txt)
+
+        # Check other classes have 0 count
+        sparrow_stats = next(cs for cs in stats.class_stats if cs.class_id == 1)
+        assert sparrow_stats.train_count == 0
+        assert sparrow_stats.val_count == 0
+
+    def test_counts_correctly_with_multiple_classes(self, dataset_with_structure):
+        labels_train = dataset_with_structure / "labels" / "train"
+        labels_val = dataset_with_structure / "labels" / "val"
+        (labels_train / "file1.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels_train / "file2.txt").write_text("1 0.1 0.1 0.1 0.1")
+        (labels_train / "file3.txt").write_text("2 0.3 0.3 0.2 0.2")
+        (labels_val / "file4.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels_val / "file5.txt").write_text("1 0.1 0.1 0.1 0.1")
+
+        stats = get_extended_dataset_stats()
+        assert stats.train_total == 3
+        assert stats.val_total == 2
+
+        # Check class 0 stats
+        tit_stats = next(cs for cs in stats.class_stats if cs.class_id == 0)
+        assert tit_stats.train_count == 1
+        assert tit_stats.val_count == 1
+
+        # Check class 1 stats
+        sparrow_stats = next(cs for cs in stats.class_stats if cs.class_id == 1)
+        assert sparrow_stats.train_count == 1
+        assert sparrow_stats.val_count == 1
+
+        # Check class 2 stats
+        pigeon_stats = next(cs for cs in stats.class_stats if cs.class_id == 2)
+        assert pigeon_stats.train_count == 1
+        assert pigeon_stats.val_count == 0
 
 
 class TestPixelsToYolo:

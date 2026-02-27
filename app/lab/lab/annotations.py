@@ -45,6 +45,29 @@ class DatasetStats:
     val_negative: int
 
 
+@dataclass
+class ClassStats:
+    """Stats for a single bird class."""
+
+    name: str
+    class_id: int
+    train_count: int
+    val_count: int
+
+
+@dataclass
+class ExtendedDatasetStats:
+    """Extended dataset stats including per-class information."""
+
+    train_total: int
+    train_positive: int
+    train_negative: int
+    val_total: int
+    val_positive: int
+    val_negative: int
+    class_stats: list[ClassStats]
+
+
 def ensure_dataset_structure() -> None:
     """Create dataset directory tree and always rewrite dataset.yaml with current classes."""
     for split in ("train", "val"):
@@ -198,6 +221,38 @@ def get_dataset_stats() -> DatasetStats:
         val_total=val_pos + val_neg,
         val_positive=val_pos,
         val_negative=val_neg,
+    )
+
+
+def get_extended_dataset_stats() -> ExtendedDatasetStats:
+    """Get dataset stats including per-class information."""
+    train_pos, train_neg = _count_split_stats("train")
+    val_pos, val_neg = _count_split_stats("val")
+
+    train_class_counts = _count_class_stats("train")
+    val_class_counts = _count_class_stats("val")
+
+    class_stats_list = []
+    for class_name, class_id in AVAILABLE_CLASSES:
+        train_count = train_class_counts.get(class_id, 0)
+        val_count = val_class_counts.get(class_id, 0)
+        class_stats_list.append(
+            ClassStats(
+                name=class_name,
+                class_id=class_id,
+                train_count=train_count,
+                val_count=val_count,
+            )
+        )
+
+    return ExtendedDatasetStats(
+        train_total=train_pos + train_neg,
+        train_positive=train_pos,
+        train_negative=train_neg,
+        val_total=val_pos + val_neg,
+        val_positive=val_pos,
+        val_negative=val_neg,
+        class_stats=class_stats_list,
     )
 
 
