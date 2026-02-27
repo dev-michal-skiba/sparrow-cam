@@ -11,7 +11,17 @@ from lab.constants import DATASET_DIR
 
 AVAILABLE_CLASSES: list[tuple[str, int]] = [
     ("Great tit", 0),
+    ("House sparrow", 1),
+    ("Pigeon", 2),
 ]
+
+
+def class_name_for_id(class_id: int) -> str:
+    """Return the display name for a class_id. Falls back to first class if not found."""
+    for name, cid in AVAILABLE_CLASSES:
+        if cid == class_id:
+            return name
+    return AVAILABLE_CLASSES[0][0]
 
 
 @dataclass
@@ -36,16 +46,15 @@ class DatasetStats:
 
 
 def ensure_dataset_structure() -> None:
-    """Create dataset directory tree and dataset.yaml if they don't exist."""
+    """Create dataset directory tree and always rewrite dataset.yaml with current classes."""
     for split in ("train", "val"):
         (DATASET_DIR / "images" / split).mkdir(parents=True, exist_ok=True)
         (DATASET_DIR / "labels" / split).mkdir(parents=True, exist_ok=True)
 
     yaml_path = DATASET_DIR / "dataset.yaml"
-    if not yaml_path.exists():
-        yaml_path.write_text(
-            "path: ../dataset\n" "train: images/train\n" "val: images/val\n" "names:\n" "  0: great_tit\n"
-        )
+    names_section = "\n".join(f"  {cid}: {name.lower().replace(' ', '_')}" for name, cid in AVAILABLE_CLASSES)
+    yaml_content = f"path: ../dataset\ntrain: images/train\nval: images/val\nnames:\n{names_section}\n"
+    yaml_path.write_text(yaml_content)
 
 
 def get_dataset_filename(image_path: Path, recording_path: Path) -> str:
@@ -73,20 +82,45 @@ def find_existing(image_path: Path, recording_path: Path) -> tuple[str, list[Ann
     return None
 
 
-def choose_split(is_positive: bool) -> str:
+def choose_split(class_ids: set[int]) -> str:
     """
     Randomly choose 'train' or 'val' weighted to maintain ~80/20 ratio.
 
-    Counts only the same category (positive or negative) to adjust
-    probability so each category independently corrects imbalances over time.
-    """
-    train_pos, train_neg = _count_split_stats("train")
-    val_pos, val_neg = _count_split_stats("val")
+    For negative samples (empty class_ids set): counts only the same category
+    to adjust probability so each category independently corrects imbalances.
 
-    if is_positive:
-        train_count, val_count = train_pos, val_pos
-    else:
+    For positive samples: counts per-class across train/val, finds the class
+    with the worst imbalance, and uses that to decide the split.
+    """
+    if not class_ids:
+        # Negative sample: use existing positive/negative balancing logic
+        train_pos, train_neg = _count_split_stats("train")
+        val_pos, val_neg = _count_split_stats("val")
         train_count, val_count = train_neg, val_neg
+    else:
+        # Positive sample: find the class with worst imbalance among class_ids
+        train_stats = _count_class_stats("train")
+        val_stats = _count_class_stats("val")
+
+        worst_imbalance = -1
+        worst_class_train_count = 0
+        worst_class_val_count = 0
+
+        for class_id in class_ids:
+            train_count = train_stats.get(class_id, 0)
+            val_count = val_stats.get(class_id, 0)
+            total = train_count + val_count
+            if total > 0:
+                # Calculate how far from 80/20
+                target_train = 0.8 * total
+                imbalance = abs(train_count - target_train)
+                if imbalance > worst_imbalance:
+                    worst_imbalance = imbalance
+                    worst_class_train_count = train_count
+                    worst_class_val_count = val_count
+
+        train_count = worst_class_train_count
+        val_count = worst_class_val_count
 
     total = train_count + val_count
     if total == 0:
@@ -118,7 +152,8 @@ def save_annotations(
         split = existing[0]
         # Image already in dataset, just overwrite the label
     else:
-        split = choose_split(is_positive=bool(boxes))
+        class_ids = {b.class_id for b in boxes}
+        split = choose_split(class_ids)
         # New annotation, copy the image
         dest_image = DATASET_DIR / "images" / split / f"{stem}.png"
         shutil.copy2(image_path, dest_image)
@@ -217,6 +252,34 @@ def _count_split_stats(split: str) -> tuple[int, int]:
         else:
             negative += 1
     return positive, negative
+
+
+def _count_class_stats(split: str) -> dict[int, int]:
+    """Count how many label files contain each class_id."""
+    labels_dir = DATASET_DIR / "labels" / split
+    class_counts: dict[int, int] = {}
+    if not labels_dir.exists():
+        return class_counts
+    for label_file in labels_dir.iterdir():
+        if label_file.suffix != ".txt":
+            continue
+        content = label_file.read_text().strip()
+        if not content:
+            continue
+        # Track which classes appear in this file
+        classes_in_file: set[int] = set()
+        for line in content.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 1:
+                try:
+                    class_id = int(parts[0])
+                    classes_in_file.add(class_id)
+                except ValueError:
+                    pass
+        # Increment count for each class found in this file
+        for class_id in classes_in_file:
+            class_counts[class_id] = class_counts.get(class_id, 0) + 1
+    return class_counts
 
 
 def _read_label_file(path: Path) -> list[AnnotationBox]:

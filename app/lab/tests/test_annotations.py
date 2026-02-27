@@ -7,10 +7,12 @@ import pytest
 from lab.annotations import (
     AnnotationBox,
     DatasetStats,
+    _count_class_stats,
     _count_split_stats,
     _read_label_file,
     _write_label_file,
     choose_split,
+    class_name_for_id,
     ensure_dataset_structure,
     find_existing,
     get_annotation_status,
@@ -77,18 +79,41 @@ class TestEnsureDatasetStructure:
         assert yaml_path.exists()
         content = yaml_path.read_text()
         assert "great_tit" in content
+        assert "house_sparrow" in content
+        assert "pigeon" in content
 
-    def test_does_not_overwrite_existing_yaml(self, dataset_dir):
+    def test_always_rewrites_yaml_with_current_classes(self, dataset_dir):
         ensure_dataset_structure()
         yaml_path = dataset_dir / "dataset.yaml"
+        # Write custom content (simulating old version)
         yaml_path.write_text("custom content")
+        # Call ensure_dataset_structure again
         ensure_dataset_structure()
-        assert yaml_path.read_text() == "custom content"
+        # Should rewrite with current classes
+        content = yaml_path.read_text()
+        assert "great_tit" in content
+        assert "house_sparrow" in content
+        assert "pigeon" in content
+        assert "custom content" not in content
 
     def test_idempotent(self, dataset_dir):
         ensure_dataset_structure()
         ensure_dataset_structure()
         assert (dataset_dir / "images" / "train").is_dir()
+
+
+class TestClassNameForId:
+    def test_returns_great_tit_for_zero(self):
+        assert class_name_for_id(0) == "Great tit"
+
+    def test_returns_house_sparrow_for_one(self):
+        assert class_name_for_id(1) == "House sparrow"
+
+    def test_returns_pigeon_for_two(self):
+        assert class_name_for_id(2) == "Pigeon"
+
+    def test_returns_first_class_for_unknown_id(self):
+        assert class_name_for_id(999) == "Great tit"
 
 
 class TestGetDatasetFilename:
@@ -148,22 +173,26 @@ class TestFindExisting:
 
 
 class TestChooseSplit:
-    def test_returns_train_or_val(self, dataset_with_structure):
-        result = choose_split(is_positive=True)
+    def test_returns_train_or_val_for_positive(self, dataset_with_structure):
+        result = choose_split({0})
         assert result in ("train", "val")
 
-    def test_empty_dataset_mostly_returns_train(self, dataset_with_structure):
-        results = [choose_split(is_positive=True) for _ in range(100)]
+    def test_returns_train_or_val_for_negative(self, dataset_with_structure):
+        result = choose_split(set())
+        assert result in ("train", "val")
+
+    def test_empty_dataset_mostly_returns_train_for_positive(self, dataset_with_structure):
+        results = [choose_split({0}) for _ in range(100)]
         train_count = results.count("train")
         assert train_count > 50
 
-    def test_corrects_imbalance_toward_val(self, dataset_with_structure):
-        """When train is overpopulated, probability should favor val."""
+    def test_corrects_imbalance_toward_val_for_positive(self, dataset_with_structure):
+        """When train is overpopulated with class 0, probability should favor val."""
         labels_train = dataset_with_structure / "labels" / "train"
         for i in range(8):
             (labels_train / f"frame-{i}.txt").write_text("0 0.5 0.5 0.2 0.3")
 
-        results = [choose_split(is_positive=True) for _ in range(100)]
+        results = [choose_split({0}) for _ in range(100)]
         val_count = results.count("val")
         assert val_count > 0
 
@@ -173,7 +202,7 @@ class TestChooseSplit:
         for i in range(8):
             (labels_train / f"frame-neg-{i}.txt").write_text("")
 
-        result = choose_split(is_positive=False)
+        result = choose_split(set())
         assert result in ("train", "val")
 
     def test_prob_clamped_to_zero_when_train_overfull(self, dataset_with_structure):
@@ -183,9 +212,26 @@ class TestChooseSplit:
         for i in range(9):
             (labels_train / f"frame-{i}.txt").write_text("0 0.5 0.5 0.2 0.3")
         (labels_val / "frame-v.txt").write_text("0 0.5 0.5 0.2 0.3")
-        results = [choose_split(is_positive=True) for _ in range(50)]
+        results = [choose_split({0}) for _ in range(50)]
         val_count = results.count("val")
         assert val_count > 20
+
+    def test_per_class_imbalance_considers_worst_class(self, dataset_with_structure):
+        """When multiple classes present, use imbalance of worst class."""
+        labels_train = dataset_with_structure / "labels" / "train"
+        labels_val = dataset_with_structure / "labels" / "val"
+        # Class 0: 8 in train, 0 in val (imbalanced)
+        # Class 1: 4 in train, 1 in val (less imbalanced)
+        for i in range(8):
+            (labels_train / f"frame-0-{i}.txt").write_text("0 0.5 0.5 0.2 0.3")
+        for i in range(4):
+            (labels_train / f"frame-1-{i}.txt").write_text("1 0.5 0.5 0.2 0.3")
+        (labels_val / "frame-1-val.txt").write_text("1 0.5 0.5 0.2 0.3")
+
+        results = [choose_split({0, 1}) for _ in range(100)]
+        val_count = results.count("val")
+        # Should heavily favor val due to class 0 imbalance
+        assert val_count > 50
 
 
 class TestSaveAnnotations:
@@ -396,6 +442,44 @@ class TestCountSplitStats:
         pos, neg = _count_split_stats("train")
         assert pos == 0
         assert neg == 0
+
+
+class TestCountClassStats:
+    def test_nonexistent_dir_returns_empty_dict(self, tmp_path):
+        with patch("lab.annotations.DATASET_DIR", tmp_path / "dataset"):
+            stats = _count_class_stats("train")
+        assert stats == {}
+
+    def test_counts_classes_in_files(self, dataset_with_structure):
+        labels = dataset_with_structure / "labels" / "train"
+        (labels / "file1.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels / "file2.txt").write_text("1 0.5 0.5 0.2 0.3")
+        (labels / "file3.txt").write_text("0 0.1 0.1 0.1 0.1")
+        stats = _count_class_stats("train")
+        assert stats[0] == 2
+        assert stats[1] == 1
+
+    def test_ignores_empty_files(self, dataset_with_structure):
+        labels = dataset_with_structure / "labels" / "train"
+        (labels / "pos.txt").write_text("0 0.5 0.5 0.2 0.3")
+        (labels / "neg.txt").write_text("")
+        stats = _count_class_stats("train")
+        assert 0 in stats
+        # Empty file shouldn't be counted
+
+    def test_counts_multiple_classes_in_single_file(self, dataset_with_structure):
+        labels = dataset_with_structure / "labels" / "train"
+        (labels / "multi.txt").write_text("0 0.1 0.1 0.1 0.1\n1 0.5 0.5 0.2 0.3\n0 0.3 0.3 0.1 0.1")
+        stats = _count_class_stats("train")
+        # File contains both class 0 (twice) and class 1 (once), but each class counts as 1 file
+        assert stats[0] == 1  # File contains class 0
+        assert stats[1] == 1  # File contains class 1
+
+    def test_ignores_non_txt_files(self, dataset_with_structure):
+        labels = dataset_with_structure / "labels" / "train"
+        (labels / "image.png").write_bytes(b"")
+        stats = _count_class_stats("train")
+        assert stats == {}
 
 
 class TestReadLabelFile:

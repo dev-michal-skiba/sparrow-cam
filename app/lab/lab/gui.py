@@ -511,6 +511,7 @@ class LabGUI:
         self.__annotation_mode: bool = False
         self.__annotation_items: list[dict] = []  # [{class_id, x1, y1, x2, y2}]
         self.__annotation_row_widgets: list[tk.Frame] = []  # row frames in annotation list
+        self.__last_selected_class: str = annotations.AVAILABLE_CLASSES[0][0]
 
         # Recording navigation state
         self.__current_recording: Path | None = None  # Selected recording folder
@@ -1156,7 +1157,10 @@ class LabGUI:
         if not too_small:
             if self.__annotation_mode:
                 # Add annotation item and UI row (no ROI labels shown for annotations)
-                class_id = annotations.AVAILABLE_CLASSES[0][1]
+                class_id = next(
+                    (cid for name, cid in annotations.AVAILABLE_CLASSES if name == self.__last_selected_class),
+                    annotations.AVAILABLE_CLASSES[0][1],
+                )
                 self.__annotation_items.append({"class_id": class_id, "x1": x1, "y1": y1, "x2": x2, "y2": y2})
                 self.__selection_rects.append(self.__current_rect)
                 self.__current_rect = None
@@ -1865,8 +1869,19 @@ class LabGUI:
         tk.Label(row, text=f"({x1}, {y1}, {x2}, {y2})", anchor="w", width=24).pack(side="left", padx=(0, 6))
 
         class_names = [name for name, _ in annotations.AVAILABLE_CLASSES]
-        class_var = tk.StringVar(value=class_names[0])
+        initial_class_name = annotations.class_name_for_id(item["class_id"])
+        class_var = tk.StringVar(value=initial_class_name)
         item["class_var"] = class_var
+
+        def on_class_changed(*args) -> None:
+            class_name = class_var.get()
+            self.__last_selected_class = class_name
+            for name, cid in annotations.AVAILABLE_CLASSES:
+                if name == class_name:
+                    item["class_id"] = cid
+                    break
+
+        class_var.trace_add("write", on_class_changed)
         combo = ttk.Combobox(row, textvariable=class_var, values=class_names, state="readonly", width=14)
         combo.pack(side="left", padx=(0, 6))
 
