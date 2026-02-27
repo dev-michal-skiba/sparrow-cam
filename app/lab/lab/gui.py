@@ -546,6 +546,10 @@ class LabGUI:
 
         self.submit_btn = tk.Button(self.button_frame, text="Submit Annotations", command=self.submit_annotations)
 
+        self.leave_annotation_btn = tk.Button(
+            self.button_frame, text="Leave annotation mode", command=self.leave_annotation_mode
+        )
+
         # Detection parameters frame (always visible)
         self.params_frame = tk.Frame(self.root)
         self.params_frame.pack(pady=(0, 12))
@@ -958,7 +962,7 @@ class LabGUI:
 
     def _on_progress_seek(self, value: str) -> None:
         """Handle progress bar seek."""
-        if not self.__frame_files or self.__annotation_mode:
+        if not self.__frame_files:
             return
         new_index = int(float(value))
         if new_index != self.__current_frame_index:
@@ -1008,6 +1012,14 @@ class LabGUI:
     def hide_submit_button(self) -> None:
         if self.submit_btn.winfo_ismapped():
             self.submit_btn.pack_forget()
+
+    def show_leave_annotation_button(self) -> None:
+        if not self.leave_annotation_btn.winfo_ismapped():
+            self.leave_annotation_btn.pack(side="left", padx=(8, 0))
+
+    def hide_leave_annotation_button(self) -> None:
+        if self.leave_annotation_btn.winfo_ismapped():
+            self.leave_annotation_btn.pack_forget()
 
     def show_detect_button(self) -> None:
         if not self.detect_btn.winfo_ismapped():
@@ -1360,7 +1372,7 @@ class LabGUI:
         """
         Load a frame at the specified index.
 
-        Clamps index to valid range, preserves selection regions.
+        Clamps index to valid range, preserves selection regions (except in annotation mode).
         """
         if not self.__frame_files:
             return
@@ -1376,12 +1388,18 @@ class LabGUI:
         self.set_selected_image(frame_path)
         self.__image_obj = tk.PhotoImage(file=frame_path)
 
-        # Clear canvas elements but preserve selection regions
+        # Clear canvas elements
         self.clear_canvas_elements()
         self.set_image_preview()
 
-        # Redraw selections on the new image
-        self.redraw_selections()
+        if self.__annotation_mode:
+            # In annotation mode: clear annotations and reload from disk for new frame
+            self.__annotation_items.clear()
+            self._clear_annotation_list_ui()
+            self._load_frame_annotations()
+        else:
+            # Redraw selections on the new image (detection ROIs)
+            self.redraw_selections()
 
         # Update progress display
         self.update_progress_display()
@@ -1475,9 +1493,10 @@ class LabGUI:
         # Load first frame
         self.load_frame(0)
 
-        # Ensure remove and annotate buttons are shown
+        # Ensure remove button is shown; annotate only when not in annotation mode
         self.show_remove_button()
-        self.show_annotate_button()
+        if not self.__annotation_mode:
+            self.show_annotate_button()
 
     @handle_user_error
     def detect_bird(self) -> None:
@@ -1621,6 +1640,23 @@ class LabGUI:
         ):
             btn.config(state=state)
         self.progress_bar.config(state=state)
+
+    def _set_navigation_buttons_enabled(self, enabled: bool) -> None:
+        """Enable or disable navigation buttons specifically."""
+        state = "normal" if enabled else "disabled"
+        for btn in (
+            self.prev_rec_btn,
+            self.next_rec_btn,
+            self.nav_minus_5s_btn,
+            self.nav_minus_1s_btn,
+            self.nav_minus_5f_btn,
+            self.nav_minus_1f_btn,
+            self.nav_plus_1f_btn,
+            self.nav_plus_5f_btn,
+            self.nav_plus_1s_btn,
+            self.nav_plus_5s_btn,
+        ):
+            btn.config(state=state)
 
     def _run_sync(self) -> None:
         """Run sync, conversion, and cleanup in background thread (per-stream pipeline)."""
@@ -1835,6 +1871,11 @@ class LabGUI:
         # Clear selections
         self.clear_all()
 
+        # Reset annotation mode state
+        self.__annotation_mode = False
+        self.__annotation_items.clear()
+        self._clear_annotation_list_ui()
+
         # Hide navigation, recording info, annotation status and buttons
         self.hide_navigation()
         self.hide_recording_info()
@@ -1842,6 +1883,7 @@ class LabGUI:
         self.hide_remove_button()
         self.hide_annotate_button()
         self.hide_submit_button()
+        self.hide_leave_annotation_button()
 
         # Hide detect button (it's shown when recording is loaded)
         if self.detect_btn.winfo_ismapped():
@@ -1935,40 +1977,66 @@ class LabGUI:
         self.__annotation_mode = True
         self.hide_annotate_button()
         self.show_submit_button()
+        self.show_leave_annotation_button()
         self._set_buttons_enabled(False)
-        # submit_btn must stay enabled while in annotation mode
+        # submit_btn and leave_annotation_btn must stay enabled while in annotation mode
         self.submit_btn.config(state="normal")
+        self.leave_annotation_btn.config(state="normal")
+        # Navigation buttons should be enabled in annotation mode
+        self._set_navigation_buttons_enabled(True)
 
         # Clear canvas (does not clear annotation_items)
         self.__annotation_items.clear()
         self.clear_all()
 
-        # Load existing annotations if any
-        if self.__selected_image is not None and self.__current_recording is not None:
-            existing_boxes = annotations.load_annotations(self.__selected_image, self.__current_recording)
-            if existing_boxes and self.__image_obj is not None:
-                img_w = self.__image_obj.width()
-                img_h = self.__image_obj.height()
-                for box in existing_boxes:
-                    px1, py1, px2, py2 = annotations.yolo_to_pixels(box, img_w, img_h)
-                    self.__annotation_items.append(
-                        {
-                            "class_id": box.class_id,
-                            "x1": px1,
-                            "y1": py1,
-                            "x2": px2,
-                            "y2": py2,
-                        }
-                    )
-                self._redraw_annotation_rects()
-                self._rebuild_annotation_list()
+        # Load existing annotations for the current frame
+        self._load_frame_annotations()
+
+    def leave_annotation_mode(self) -> None:
+        """Exit annotation mode without submitting: restore normal controls."""
+        self.__annotation_mode = False
+        self.__annotation_items.clear()
+        self._clear_annotation_list_ui()
+
+        # Restore canvas to clean image
+        self.clear_all()
+
+        self.hide_submit_button()
+        self.hide_leave_annotation_button()
+        self.show_annotate_button()
+        self._set_buttons_enabled(True)
+
+        self.update_annotation_status()
+
+    def _load_frame_annotations(self) -> None:
+        """Load and display existing annotations for the current frame."""
+        if self.__selected_image is None or self.__current_recording is None:
+            return
+
+        existing_boxes = annotations.load_annotations(self.__selected_image, self.__current_recording)
+        if existing_boxes and self.__image_obj is not None:
+            img_w = self.__image_obj.width()
+            img_h = self.__image_obj.height()
+            for box in existing_boxes:
+                px1, py1, px2, py2 = annotations.yolo_to_pixels(box, img_w, img_h)
+                self.__annotation_items.append(
+                    {
+                        "class_id": box.class_id,
+                        "x1": px1,
+                        "y1": py1,
+                        "x2": px2,
+                        "y2": py2,
+                    }
+                )
+            self._redraw_annotation_rects()
+            self._rebuild_annotation_list()
 
         # Show annotation list frame
         if not self.annotation_list_frame.winfo_ismapped():
             self.annotation_list_frame.pack(before=self.path_hint, fill="x", padx=self.content_pad, pady=(4, 4))
 
     def submit_annotations(self) -> None:
-        """Submit annotations: save to dataset, exit annotation mode."""
+        """Submit annotations: save to dataset and stay in annotation mode."""
         if self.__selected_image is None or self.__current_recording is None:
             return
 
@@ -1993,17 +2061,13 @@ class LabGUI:
 
         annotations.save_annotations(self.__selected_image, self.__current_recording, boxes)
 
-        # Exit annotation mode
-        self.__annotation_mode = False
+        # Stay in annotation mode: clear items and reload saved annotations
         self.__annotation_items.clear()
         self._clear_annotation_list_ui()
-
-        # Restore canvas to clean image
-        self.clear_all()
-
-        self.hide_submit_button()
-        self.show_annotate_button()
-        self._set_buttons_enabled(True)
+        self.clear_canvas_elements()
+        self.__image_obj = tk.PhotoImage(file=self.__selected_image)
+        self.set_image_preview()
+        self._load_frame_annotations()
 
         self.update_annotation_status()
         self._update_stats_display()
