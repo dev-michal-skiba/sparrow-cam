@@ -13,7 +13,7 @@ from lab import annotations, fine_tune
 from lab.constants import ARCHIVE_DIR, FINE_TUNED_MODELS_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
-from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording
+from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording, remove_recording_locally
 from lab.utils import Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
@@ -467,6 +467,81 @@ class ModelSelectDialog:
 
     def wait(self) -> dict | None:
         """Block until dialog is closed; return selected model dict or None if cancelled."""
+        self.parent.wait_window(self.dialog)
+        return self.result
+
+
+class RemoveRecordingDialog:
+    """Modal dialog for choosing how to remove a recording: locally or completely."""
+
+    def __init__(self, parent: tk.Tk, recording_name: str) -> None:
+        self.parent = parent
+        self.result: str | None = None  # "local", "complete", or None (cancelled)
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Remove Recording")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        tk.Label(content, text=f"Recording: {recording_name}", anchor="w", font=("TkDefaultFont", 9, "bold")).pack(
+            fill="x", pady=(0, 16)
+        )
+
+        tk.Label(content, text="Remove locally", anchor="w", font=("TkDefaultFont", 10, "bold")).pack(fill="x")
+        tk.Label(
+            content,
+            text="Deletes local frames only. Archive folder is kept so it won't re-sync from server.",
+            anchor="w",
+            wraplength=360,
+            justify="left",
+        ).pack(fill="x", pady=(2, 12))
+
+        tk.Label(content, text="Remove completely", anchor="w", font=("TkDefaultFont", 10, "bold")).pack(fill="x")
+        tk.Label(
+            content,
+            text="Deletes local frames, local archive, and server copy. Cannot be undone.",
+            anchor="w",
+            wraplength=360,
+            justify="left",
+        ).pack(fill="x", pady=(2, 20))
+
+        btn_frame = tk.Frame(content)
+        btn_frame.pack()
+        tk.Button(btn_frame, text="Cancel", command=self._on_cancel, width=12).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Remove locally", command=self._on_local, width=14).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Remove completely", command=self._on_complete, width=16, fg="red").pack(side="left")
+
+        self._center_dialog()
+
+    def _center_dialog(self) -> None:
+        self.dialog.update_idletasks()
+        px, py = self.parent.winfo_x(), self.parent.winfo_y()
+        pw, ph = self.parent.winfo_width(), self.parent.winfo_height()
+        dw, dh = self.dialog.winfo_width(), self.dialog.winfo_height()
+        self.dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_local(self) -> None:
+        self.result = "local"
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_complete(self) -> None:
+        self.result = "complete"
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def wait(self) -> str | None:
+        """Block until dialog is closed; return 'local', 'complete', or None (cancelled)."""
         self.parent.wait_window(self.dialog)
         return self.result
 
@@ -1781,23 +1856,16 @@ class LabGUI:
             messagebox.showerror("Error", "Cannot determine recording path.")
             return
 
-        # Show confirmation dialog
-        recording_name = self.__current_recording.name
-        confirmed = messagebox.askyesno(
-            "Confirm Removal",
-            f"Are you sure you want to remove this recording?\n\n"
-            f"Recording: {recording_name}\n\n"
-            f"WARNING: This will permanently delete data from:\n"
-            f"  - Target device\n"
-            f"  - Local storage\n\n"
-            f"This action cannot be undone.",
-        )
+        # Show choice dialog
+        dialog = RemoveRecordingDialog(self.root, self.__current_recording.name)
+        mode = dialog.wait()
 
-        if not confirmed:
+        if mode is None:
             return
 
-        # Store the relative path for the background thread
+        # Store the relative path and mode for the background thread
         self.__remove_relative_path = relative_path
+        self.__remove_mode = mode
 
         # Disable all buttons (freeze UI)
         self._set_buttons_enabled(False)
@@ -1813,7 +1881,10 @@ class LabGUI:
     def _run_remove(self) -> None:
         """Run removal operation in background thread."""
         try:
-            remove_recording(self.__remove_relative_path)
+            if self.__remove_mode == "local":
+                remove_recording_locally(self.__remove_relative_path)
+            else:
+                remove_recording(self.__remove_relative_path)
         except SyncError as e:
             self.__remove_error = str(e)
         except Exception as e:

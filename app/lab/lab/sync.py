@@ -551,6 +551,22 @@ def remove_recording(relative_path: str) -> None:
         shutil.rmtree(local_images_path)
 
 
+def remove_recording_locally(relative_path: str) -> None:
+    """
+    Remove a recording from local images storage only.
+
+    Preserves the local archive folder as a marker to prevent re-syncing.
+    Does not touch the remote server.
+
+    Args:
+        relative_path: Path relative to archive/images root
+                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
+    """
+    local_images_path = IMAGES_DIR / relative_path
+    if local_images_path.exists():
+        shutil.rmtree(local_images_path)
+
+
 def remove_hls_files(relative_path: str) -> int:
     """
     Remove .ts and .m3u8 files from a local archive folder.

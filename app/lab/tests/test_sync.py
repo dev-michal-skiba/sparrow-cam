@@ -15,6 +15,7 @@ from lab.sync import (
     SyncManager,
     remove_hls_files,
     remove_recording,
+    remove_recording_locally,
 )
 
 
@@ -1061,6 +1062,37 @@ class TestSyncSingleFolder:
 
                 with pytest.raises(SyncError, match="Download failed"):
                     manager.sync_single_folder(folder)
+
+
+class TestRemoveRecordingLocally:
+    """Tests for remove_recording_locally function."""
+
+    def test_removes_images_folder_when_exists(self):
+        """Should remove local images folder."""
+        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
+
+        with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+            with patch.object(Path, "exists", return_value=True):
+                remove_recording_locally(relative_path)
+                mock_rmtree.assert_called_once()
+
+    def test_skips_rmtree_when_images_folder_missing(self):
+        """Should not call rmtree if images folder does not exist."""
+        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
+
+        with patch("lab.sync.shutil.rmtree") as mock_rmtree:
+            with patch.object(Path, "exists", return_value=False):
+                remove_recording_locally(relative_path)
+                mock_rmtree.assert_not_called()
+
+    def test_does_not_connect_to_server(self):
+        """Should not create a SyncManager / connect to server."""
+        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
+
+        with patch("lab.sync.SyncManager") as mock_sync_class:
+            with patch.object(Path, "exists", return_value=False):
+                remove_recording_locally(relative_path)
+                mock_sync_class.assert_not_called()
 
 
 class TestRemoveHlsFiles:
