@@ -19,6 +19,7 @@ class HLSWatchtower:
     def __init__(self):
         self.seen_segments = set()
         self.retry_delay = self.INITIAL_RETRY_DELAY
+        self._prev_segment_mtime = None
 
     def read_playlist(self, playlist_path):
         """Read HLS playlist and extract segment filenames.
@@ -66,6 +67,13 @@ class HLSWatchtower:
                 segment_path = os.path.join(self.INPUT_HLS_DIR, segment)
                 # Check if segment file exists before yielding
                 if os.path.exists(segment_path):
+                    mtime = os.path.getmtime(segment_path)
+                    if self._prev_segment_mtime is None:
+                        generation_time = "N/A"
+                    else:
+                        generation_time = f"{mtime - self._prev_segment_mtime:.2f}s"
+                    logger.info(f"{segment}: Segment generation time: {generation_time}")
+                    self._prev_segment_mtime = mtime
                     yield segment_path
                 else:
                     logger.warning(f"Input segment not found: {segment_path}")

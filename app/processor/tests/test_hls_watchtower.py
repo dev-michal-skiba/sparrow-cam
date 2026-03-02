@@ -21,6 +21,7 @@ class TestHLSWatchtower:
         watchtower = HLSWatchtower()
         assert watchtower.seen_segments == set()
         assert watchtower.retry_delay == HLSWatchtower.INITIAL_RETRY_DELAY
+        assert watchtower._prev_segment_mtime is None
 
     def test_read_playlist_file_not_exists(self):
         """Test read_playlist when playlist file doesn't exist."""
@@ -107,6 +108,7 @@ class TestHLSWatchtower:
         with (
             patch.object(watchtower, "read_playlist") as mock_read_playlist,
             patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", return_value=1000.0),
             patch("time.sleep"),
         ):
             mock_read_playlist.side_effect = [
@@ -136,6 +138,7 @@ class TestHLSWatchtower:
         with (
             patch.object(watchtower, "read_playlist") as mock_read_playlist,
             patch("os.path.exists", side_effect=mock_exists),
+            patch("os.path.getmtime", return_value=1000.0),
             patch("time.sleep"),
         ):
             mock_read_playlist.side_effect = [
@@ -157,6 +160,7 @@ class TestHLSWatchtower:
         with (
             patch.object(watchtower, "read_playlist") as mock_read_playlist,
             patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", return_value=1000.0),
             patch("time.sleep"),
         ):
             mock_read_playlist.side_effect = [
@@ -185,6 +189,7 @@ class TestHLSWatchtower:
         with (
             patch.object(watchtower, "read_playlist") as mock_read_playlist,
             patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", return_value=1000.0),
             patch("time.sleep"),
         ):
             mock_read_playlist.side_effect = [None, None, ["segment_001.ts"], None]
@@ -196,6 +201,49 @@ class TestHLSWatchtower:
             assert mock_read_playlist.call_count == 3
             assert_iterator_exhausted(iterator)
 
+    def test_segments_iterator_logs_na_for_first_segment(self):
+        """Test that segments_iterator logs N/A for the first segment."""
+        watchtower = HLSWatchtower()
+
+        with (
+            patch.object(watchtower, "read_playlist") as mock_read_playlist,
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", return_value=1000.0),
+            patch("time.sleep"),
+            patch("processor.hls_watchtower.logger") as mock_logger,
+        ):
+            mock_read_playlist.side_effect = [["segment_001.ts"], None]
+
+            iterator = watchtower.segments_iterator
+            next(iterator)
+
+        mock_logger.info.assert_any_call("segment_001.ts: Segment generation time: N/A")
+        assert watchtower._prev_segment_mtime == 1000.0
+
+    def test_segments_iterator_logs_elapsed_time_for_subsequent_segments(self):
+        """Test that segments_iterator logs elapsed time between segments."""
+        watchtower = HLSWatchtower()
+
+        mtimes = [1000.0, 1002.0]
+        mtime_iter = iter(mtimes)
+
+        with (
+            patch.object(watchtower, "read_playlist") as mock_read_playlist,
+            patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", side_effect=mtime_iter),
+            patch("time.sleep"),
+            patch("processor.hls_watchtower.logger") as mock_logger,
+        ):
+            mock_read_playlist.side_effect = [["segment_001.ts", "segment_002.ts"], None]
+
+            iterator = watchtower.segments_iterator
+            next(iterator)
+            next(iterator)
+
+        mock_logger.info.assert_any_call("segment_001.ts: Segment generation time: N/A")
+        mock_logger.info.assert_any_call("segment_002.ts: Segment generation time: 2.00s")
+        assert watchtower._prev_segment_mtime == 1002.0
+
     def test_segments_iterator_sleeps_between_iterations(self):
         """Test that segments_iterator sleeps with POLL_INTERVAL between checks."""
         watchtower = HLSWatchtower()
@@ -203,6 +251,7 @@ class TestHLSWatchtower:
         with (
             patch.object(watchtower, "read_playlist") as mock_read_playlist,
             patch("os.path.exists", return_value=True),
+            patch("os.path.getmtime", return_value=1000.0),
             patch("time.sleep") as mock_sleep,
         ):
             mock_read_playlist.side_effect = [["segment_001.ts"], ["segment_001.ts", "segment_002.ts"], None]
