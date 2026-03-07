@@ -100,7 +100,9 @@ ffmpeg \
    -c:v libx264 \
    -preset ultrafast \
    -tune zerolatency \
-   -g 24 \
+   -g 8 \
+   -keyint_min 8 \
+   -sc_threshold 0 \
    -pix_fmt yuv420p \
    -an \
    -f hls \
@@ -109,6 +111,21 @@ ffmpeg \
    -hls_flags delete_segments+append_list \
    -hls_segment_filename "/var/www/html/hls/sparrow_cam-%d.ts" /var/www/html/hls/sparrow_cam.m3u8
 ```
+
+### Changing frames per segment
+
+Segments start on keyframes, so the frame rate and keyframe interval must match the segment duration.
+
+Use the formula:
+
+frames_per_segment = fps × segment_duration
+g = keyint_min = frames_per_segment
+
+Example (1s segments at 8 FPS):
+
+- `fps=8`
+- `-g 8`
+- `-keyint_min 8`
 
 ## Usage
 
