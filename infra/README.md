@@ -73,6 +73,7 @@ make -C infra setup_all
 # Or deploy separately
 make -C infra setup_users     # Setup users and groups
 make -C infra setup_storage   # Mount external hard drive
+make -C infra setup_logs      # Setup journal log
 make -C infra setup_processor # Processor service
 make -C infra setup_web       # Web server (port 80)
 ```
@@ -131,6 +132,36 @@ Example (1s segments at 8 FPS):
 
 **Access** (replace with your Pi's IP):
 - Web: http://192.168.1.100/
+
+## Journal Logs
+
+Processor logs are stored persistently on the external drive at `/var/www/html/storage/journal/` (via symlink at `/var/log/journal/`) and are retained for 7 days.
+
+> **Note:** To read logs without `sudo`, add your user to the `systemd-journal` group and re-login:
+> ```bash
+> sudo usermod -aG systemd-journal <your-user>
+> ```
+
+```bash
+# Live tail processor logs
+journalctl -u sparrow-processor -f
+
+# Show last 100 lines
+journalctl -u sparrow-processor -n 100
+
+# Filter by date range
+journalctl -u sparrow-processor --since "2026-03-03" --until "2026-03-04"
+journalctl -u sparrow-processor --since "2026-03-07 13:15:35" --until "2026-03-07 13:15:55"
+journalctl -u sparrow-processor --since "today"
+journalctl -u sparrow-processor --since "1 hour ago"
+journalctl -u sparrow-processor --since "5 seconds ago"
+
+# Search for a phrase (pipe through grep)
+journalctl -u sparrow-processor --no-pager | grep "Bird detected"
+
+# Check total disk usage of all journal logs
+journalctl --disk-usage
+```
 
 ## Service Architecture
 

@@ -1,0 +1,64 @@
+---
+- name: Setup Journal Log Persistence and Retention
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Create journal storage directory on external drive
+      file:
+        path: /var/www/html/storage/journal
+        state: directory
+        owner: root
+        group: systemd-journal
+        mode: '2755'
+
+    - name: Check if /var/log/journal exists and its type
+      stat:
+        path: /var/log/journal
+      register: journal_stat
+
+    - name: Remove /var/log/journal if it is a regular directory (not a symlink)
+      file:
+        path: /var/log/journal
+        state: absent
+      when: journal_stat.stat.exists and not journal_stat.stat.islnk
+
+    - name: Create symlink /var/log/journal -> /var/www/html/storage/journal
+      file:
+        path: /var/log/journal
+        src: /var/www/html/storage/journal
+        state: link
+        owner: root
+        group: systemd-journal
+
+    - name: Create journald config drop-in directory
+      file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Write journald config drop-in
+      copy:
+        content: |
+          [Journal]
+          Storage=persistent
+          MaxRetentionSec=7day
+        dest: /etc/systemd/journald.conf.d/sparrow-cam.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart systemd-journald
+
+    - name: Flush handlers to restart journald before flushing logs
+      meta: flush_handlers
+
+    - name: Flush volatile journal logs to persistent storage
+      command: journalctl --flush
+
+  handlers:
+    - name: restart systemd-journald
+      systemd:
+        name: systemd-journald
+        state: restarted
