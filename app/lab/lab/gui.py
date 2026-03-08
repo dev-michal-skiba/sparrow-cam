@@ -557,8 +557,6 @@ class LabGUI:
         # Root
         self.root = tk.Tk()
         self.root.title("Sparrow Cam Lab")
-        self.set_window_size()
-        self.root.bind("<Configure>", self.on_resize, add="+")
         self.content_pad = 24
 
         # State
@@ -813,25 +811,6 @@ class LabGUI:
 
         # Update stats on initialization
         self.root.after(100, self._update_stats_display)
-
-    def set_window_size(self) -> None:
-        """Set an initial window size to about half the screen and center it."""
-        self.root.update_idletasks()  # ensure screen metrics are available
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-
-        width = int(screen_w * 0.55)
-        height = int(screen_h * 0.6)
-        x = (screen_w - width) // 2
-        y = (screen_h - height) // 2
-
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.minsize(640, 480)
-
-    def on_resize(self, event) -> None:
-        """Keep the filename hint spanning the available width."""
-        available = max(event.width - 2 * self.content_pad, 200)
-        self.path_hint.config(wraplength=available)
 
     def get_selected_folder_from_user(self) -> Path | None:
         """Open directory dialog to select a recording folder."""
