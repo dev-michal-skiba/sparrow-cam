@@ -46,3 +46,10 @@
         append: yes
         system: no
         state: present
+
+    - name: Install packages for sparrow_cam_stream
+      apt:
+        name:
+          - tmux
+          - ffmpeg
+        state: present

@@ -1,10 +1,10 @@
 # Infrastructure
 
-Ansible-based infrastructure deployment to Raspberry Pi or similar devices.
+Ansible-based infrastructure deployment to Raspberry Pi 5 or similar.
 
 ## Prerequisites
 
-- Target device: Raspberry Pi with Ubuntu Server 25.04
+- Target device: Raspberry Pi 5 with Raspberry Pi OS Lite (64-bit) or similar
 - Same local network as development machine
 
 ### Target User Setup (sparrow_cam_infra)
@@ -22,32 +22,19 @@ ssh-keygen -t ed25519 -f infra/ansible/ssh_key -C "sparrow_cam_infra"
 #   infra/ansible/ssh_key.pub  (public key - copy to target)
 ```
 
-**Step 2: Create user on target device**
+**Step 2: Flash OS with Raspberry Pi Imager**
+
+Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash the OS. In the OS customisation settings:
+- Set a username (e.g. `sparrow_cam_infra`) and password
+- Enable SSH and add your public key under "Allow public-key authentication only"
+
+This creates the user and sets up SSH key access automatically.
+
+**Step 3: Enable passwordless sudo on target device**
 
 ```bash
-# On target device (as root or existing sudo user)
-sudo adduser sparrow_cam_infra
-sudo usermod -aG sudo sparrow_cam_infra
-
-# Add to sparrow_cam_processor group for access to archive storage
-sudo usermod -aG sparrow_cam_processor sparrow_cam_infra
-
-# Enable passwordless sudo
+# On target device
 echo "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/sparrow_cam_infra
-```
-
-**Step 3: Copy public key to target**
-
-```bash
-# Option A: Using ssh-copy-id (requires password auth enabled temporarily)
-ssh-copy-id -i infra/ansible/ssh_key.pub sparrow_cam_infra@<target-ip>
-
-# Option B: Manual copy (if password auth disabled)
-# On target device:
-sudo -u sparrow_cam_infra mkdir -p /home/sparrow_cam_infra/.ssh
-sudo -u sparrow_cam_infra chmod 700 /home/sparrow_cam_infra/.ssh
-echo "<contents of ssh_key.pub>" | sudo -u sparrow_cam_infra tee /home/sparrow_cam_infra/.ssh/authorized_keys
-sudo -u sparrow_cam_infra chmod 600 /home/sparrow_cam_infra/.ssh/authorized_keys
 ```
 
 **Step 4: Configure Ansible variables**
@@ -90,6 +77,8 @@ sudo -u sparrow_cam_stream -i
 
 # Start tmux session
 tmux
+# Or attach to existing one
+tmux attach
 
 # Run ffmpeg
 ffmpeg \
