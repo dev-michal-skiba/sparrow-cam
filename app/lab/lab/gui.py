@@ -607,9 +607,8 @@ class LabGUI:
         self.fine_tune_btn.pack(side="left", padx=(0, 8))
 
         self.select_model_btn = tk.Button(self.button_frame, text="Select model", command=self.open_model_select_dialog)
-        self.select_model_btn.pack(side="left", padx=(0, 8))
 
-        self.remove_btn = tk.Button(self.button_frame, text="Remove", command=self.start_remove_recording)
+        self.remove_btn = tk.Button(self.button_frame, text="Remove recording", command=self.start_remove_recording)
 
         self.detect_btn = tk.Button(self.button_frame, text="Detect Bird", command=self.detect_bird)
 
@@ -617,7 +616,7 @@ class LabGUI:
 
         self.annotate_btn = tk.Button(self.button_frame, text="Annotate", command=self.enter_annotation_mode)
 
-        self.submit_btn = tk.Button(self.button_frame, text="Submit Annotations", command=self.submit_annotations)
+        self.submit_btn = tk.Button(self.button_frame, text="Submit annotations", command=self.submit_annotations)
 
         self.leave_annotation_btn = tk.Button(
             self.button_frame, text="Leave annotation mode", command=self.leave_annotation_mode
@@ -627,12 +626,10 @@ class LabGUI:
             self.button_frame, text="Remove annotation", command=self.remove_frame_annotation
         )
 
-        # Detection parameters frame (always visible)
+        # Detection parameters frame (managed by _apply_mode)
         self.params_frame = tk.Frame(self.root)
-        self.params_frame.pack(pady=(0, 12))
 
         self.conf_label = tk.Label(self.params_frame, text="Confidence:")
-        self.conf_label.pack(side="left", padx=(0, 4))
 
         self.conf_var = tk.DoubleVar(value=DEFAULT_DETECTION_PARAMS["conf"])
         self.conf_spinbox = ttk.Spinbox(
@@ -644,10 +641,8 @@ class LabGUI:
             width=6,
             format="%.2f",
         )
-        self.conf_spinbox.pack(side="left", padx=(0, 16))
 
         self.imgsz_label = tk.Label(self.params_frame, text="Image Size:")
-        self.imgsz_label.pack(side="left", padx=(0, 4))
 
         self.imgsz_var = tk.IntVar(value=DEFAULT_DETECTION_PARAMS["imgsz"])
         self.imgsz_spinbox = ttk.Spinbox(
@@ -658,10 +653,8 @@ class LabGUI:
             textvariable=self.imgsz_var,
             width=6,
         )
-        self.imgsz_spinbox.pack(side="left", padx=(0, 16))
 
         self.iou_label = tk.Label(self.params_frame, text="IOU:")
-        self.iou_label.pack(side="left", padx=(0, 4))
 
         self.iou_var = tk.DoubleVar(value=DEFAULT_DETECTION_PARAMS["iou"])
         self.iou_spinbox = ttk.Spinbox(
@@ -673,13 +666,10 @@ class LabGUI:
             width=6,
             format="%.2f",
         )
-        self.iou_spinbox.pack(side="left", padx=(0, 16))
 
         self.export_btn = tk.Button(self.params_frame, text="Export", command=self.export_settings)
-        self.export_btn.pack(side="left", padx=(0, 4))
 
         self.import_btn = tk.Button(self.params_frame, text="Import", command=self.import_settings)
-        self.import_btn.pack(side="left")
 
         # Recording info header (hidden until recording is loaded)
         self.__recording_info_text = tk.StringVar(value="")
@@ -709,7 +699,7 @@ class LabGUI:
         self.nav_frame = tk.Frame(self.root)
 
         # Recording navigation buttons
-        self.prev_rec_btn = tk.Button(self.nav_frame, text="< Prev Recording", command=self.prev_recording)
+        self.prev_rec_btn = tk.Button(self.nav_frame, text="< Prev recording", command=self.prev_recording)
         self.prev_rec_btn.pack(side="left", padx=(0, 8))
 
         # Frame navigation buttons
@@ -737,7 +727,7 @@ class LabGUI:
         self.nav_plus_5s_btn = tk.Button(self.nav_frame, text="+5s", command=lambda: self.navigate_seconds(5))
         self.nav_plus_5s_btn.pack(side="left", padx=(0, 8))
 
-        self.next_rec_btn = tk.Button(self.nav_frame, text="Next Recording >", command=self.next_recording)
+        self.next_rec_btn = tk.Button(self.nav_frame, text="Next recording >", command=self.next_recording)
         self.next_rec_btn.pack(side="left")
 
         # Canvas for image preview with selection support
@@ -788,7 +778,15 @@ class LabGUI:
             font=("TkDefaultFont", 9),
             anchor="w",
         )
-        self.path_hint.pack(side="bottom", fill="x", padx=self.content_pad, pady=(0, 12))
+
+        self.__selected_model_text = tk.StringVar(value="")
+        self.selected_model_label = tk.Label(
+            self.root,
+            textvariable=self.__selected_model_text,
+            fg="#555555",
+            font=("TkDefaultFont", 9),
+            anchor="w",
+        )
 
         # Global annotation stats frame (top-left corner, always visible)
         self.stats_frame = tk.Frame(self.root, bg="white")
@@ -809,8 +807,58 @@ class LabGUI:
         self.stats_text.pack(anchor="w", fill="both", expand=True)
         self.stats_text.config(state="disabled")  # Read-only but still selectable
 
+        # Widget registry: (attr_name, widget, pack_kwargs, visible_no_file, visible_detection, visible_annotation)
+        self._widget_registry = [
+            # button_frame children
+            ("sync_btn", self.sync_btn, {"side": "left", "padx": (0, 8)}, True, False, False),
+            ("select_btn", self.select_btn, {"side": "left", "padx": (0, 8)}, True, True, False),
+            ("fine_tune_btn", self.fine_tune_btn, {"side": "left", "padx": (0, 8)}, True, False, False),
+            ("select_model_btn", self.select_model_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
+            ("remove_btn", self.remove_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
+            ("detect_btn", self.detect_btn, {"side": "left"}, False, True, False),
+            ("annotate_btn", self.annotate_btn, {"side": "left", "padx": (8, 0)}, False, True, False),
+            ("submit_btn", self.submit_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
+            ("leave_annotation_btn", self.leave_annotation_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
+            ("remove_annotation_btn", self.remove_annotation_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
+            # params_frame children
+            ("conf_label", self.conf_label, {"side": "left", "padx": (0, 4)}, False, True, False),
+            ("conf_spinbox", self.conf_spinbox, {"side": "left", "padx": (0, 16)}, False, True, False),
+            ("imgsz_label", self.imgsz_label, {"side": "left", "padx": (0, 4)}, False, True, False),
+            ("imgsz_spinbox", self.imgsz_spinbox, {"side": "left", "padx": (0, 16)}, False, True, False),
+            ("iou_label", self.iou_label, {"side": "left", "padx": (0, 4)}, False, True, False),
+            ("iou_spinbox", self.iou_spinbox, {"side": "left", "padx": (0, 16)}, False, True, False),
+            ("export_btn", self.export_btn, {"side": "left", "padx": (0, 4)}, False, True, False),
+            ("import_btn", self.import_btn, {"side": "left"}, False, True, False),
+            # nav_frame children
+            ("prev_rec_btn", self.prev_rec_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
+            ("nav_minus_5s_btn", self.nav_minus_5s_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_minus_1s_btn", self.nav_minus_1s_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_minus_5f_btn", self.nav_minus_5f_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_minus_1f_btn", self.nav_minus_1f_btn, {"side": "left", "padx": (0, 8)}, False, True, True),
+            ("nav_plus_1f_btn", self.nav_plus_1f_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_plus_5f_btn", self.nav_plus_5f_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_plus_1s_btn", self.nav_plus_1s_btn, {"side": "left", "padx": (0, 2)}, False, True, True),
+            ("nav_plus_5s_btn", self.nav_plus_5s_btn, {"side": "left", "padx": (0, 8)}, False, True, True),
+            ("next_rec_btn", self.next_rec_btn, {"side": "left"}, False, True, False),
+        ]
+
+        # Key bindings (bind_all so they work regardless of which child widget has focus)
+        self.root.bind("<space>", lambda e: self._on_key_submit_annotations(e))
+        # Numpad navigation: 1/5 forward, Right Shift+1/5 backward
+        # Bind both KP_1/KP_5 (NumLock on) and KP_End/KP_Begin (NumLock off) variants
+        self.__left_shift_held = False
+        self.root.bind_all("<KeyPress-Shift_L>", lambda e: self._set_right_shift(True))
+        self.root.bind_all("<KeyRelease-Shift_L>", lambda e: self._set_right_shift(False))
+        for seq in ("<KP_1>", "<KP_End>", "<Shift-KP_1>", "<Shift-KP_End>"):
+            self.root.bind_all(seq, lambda e, c=1: self._on_nav_key(c))
+        for seq in ("<KP_5>", "<KP_Begin>", "<Shift-KP_5>", "<Shift-KP_Begin>"):
+            self.root.bind_all(seq, lambda e, c=5: self._on_nav_key(c))
+
         # Update stats on initialization
         self.root.after(100, self._update_stats_display)
+
+        # Apply initial mode
+        self._apply_mode()
 
     def get_selected_folder_from_user(self) -> Path | None:
         """Open directory dialog to select a recording folder."""
@@ -979,20 +1027,6 @@ class LabGUI:
             # Failed to parse, hide the label
             self.hide_recording_info()
 
-    def show_navigation(self) -> None:
-        """Show navigation controls."""
-        if not self.nav_frame.winfo_ismapped():
-            self.nav_frame.pack(pady=(0, 8))
-        if not self.progress_frame.winfo_ismapped():
-            self.progress_frame.pack(fill="x", padx=self.content_pad, pady=(0, 8))
-
-    def hide_navigation(self) -> None:
-        """Hide navigation controls."""
-        if self.nav_frame.winfo_ismapped():
-            self.nav_frame.pack_forget()
-        if self.progress_frame.winfo_ismapped():
-            self.progress_frame.pack_forget()
-
     def update_progress_display(self) -> None:
         """Update progress bar and position label based on current frame."""
         if not self.__frame_files or self.__frames_per_segment == 0:
@@ -1054,50 +1088,6 @@ class LabGUI:
             self.image_canvas.tag_raise(self.__dimension_bg)
         if self.__dimension_text is not None:
             self.image_canvas.tag_raise(self.__dimension_text)
-
-    def show_annotate_button(self) -> None:
-        if not self.annotate_btn.winfo_ismapped():
-            self.annotate_btn.pack(side="left", padx=(8, 0))
-
-    def hide_annotate_button(self) -> None:
-        if self.annotate_btn.winfo_ismapped():
-            self.annotate_btn.pack_forget()
-
-    def show_submit_button(self) -> None:
-        if not self.submit_btn.winfo_ismapped():
-            self.submit_btn.pack(side="left", padx=(8, 0))
-
-    def hide_submit_button(self) -> None:
-        if self.submit_btn.winfo_ismapped():
-            self.submit_btn.pack_forget()
-
-    def show_leave_annotation_button(self) -> None:
-        if not self.leave_annotation_btn.winfo_ismapped():
-            self.leave_annotation_btn.pack(side="left", padx=(8, 0))
-
-    def hide_leave_annotation_button(self) -> None:
-        if self.leave_annotation_btn.winfo_ismapped():
-            self.leave_annotation_btn.pack_forget()
-
-    def show_remove_annotation_button(self) -> None:
-        if not self.remove_annotation_btn.winfo_ismapped():
-            self.remove_annotation_btn.pack(side="left", padx=(8, 0))
-
-    def hide_remove_annotation_button(self) -> None:
-        if self.remove_annotation_btn.winfo_ismapped():
-            self.remove_annotation_btn.pack_forget()
-
-    def show_detect_button(self) -> None:
-        if not self.detect_btn.winfo_ismapped():
-            self.detect_btn.pack(side="left")
-
-    def show_remove_button(self) -> None:
-        if not self.remove_btn.winfo_ismapped():
-            self.remove_btn.pack(side="left", padx=(8, 0))
-
-    def hide_remove_button(self) -> None:
-        if self.remove_btn.winfo_ismapped():
-            self.remove_btn.pack_forget()
 
     def show_clear_button(self) -> None:
         if not self.clear_btn.winfo_ismapped():
@@ -1428,11 +1418,7 @@ class LabGUI:
         # Load first frame
         self.load_frame(0)
 
-        # Show navigation controls
-        self.show_navigation()
-        self.show_detect_button()
-        self.show_remove_button()
-        self.show_annotate_button()
+        self._apply_mode()
 
     def load_frame(self, index: int) -> None:
         """
@@ -1559,10 +1545,7 @@ class LabGUI:
         # Load first frame
         self.load_frame(0)
 
-        # Ensure remove button is shown; annotate only when not in annotation mode
-        self.show_remove_button()
-        if not self.__annotation_mode:
-            self.show_annotate_button()
+        self._apply_mode()
 
     @handle_user_error
     def detect_bird(self) -> None:
@@ -1660,9 +1643,6 @@ class LabGUI:
 
     def start_sync(self) -> None:
         """Start the sync operation in a background thread with progress dialog."""
-        # Disable all buttons (freeze UI)
-        self._set_buttons_enabled(False)
-
         # Create and show progress dialog
         self.__sync_dialog = SyncProgressDialog(self.root)
 
@@ -1672,57 +1652,6 @@ class LabGUI:
 
         # Poll for completion
         self.root.after(100, self._check_sync_complete)
-
-    def _set_buttons_enabled(self, enabled: bool) -> None:
-        """Enable or disable all action buttons."""
-        state = "normal" if enabled else "disabled"
-        self.sync_btn.config(state=state)
-        self.select_btn.config(state=state)
-        self.fine_tune_btn.config(state=state)
-        if self.detect_btn.winfo_ismapped():
-            self.detect_btn.config(state=state)
-        if self.clear_btn.winfo_ismapped():
-            self.clear_btn.config(state=state)
-        if self.remove_btn.winfo_ismapped():
-            self.remove_btn.config(state=state)
-        if self.annotate_btn.winfo_ismapped():
-            self.annotate_btn.config(state=state)
-        self.conf_spinbox.config(state=state)
-        self.imgsz_spinbox.config(state=state)
-        self.iou_spinbox.config(state=state)
-        self.export_btn.config(state=state)
-        self.import_btn.config(state=state)
-        for btn in (
-            self.prev_rec_btn,
-            self.next_rec_btn,
-            self.nav_minus_5s_btn,
-            self.nav_minus_1s_btn,
-            self.nav_minus_5f_btn,
-            self.nav_minus_1f_btn,
-            self.nav_plus_1f_btn,
-            self.nav_plus_5f_btn,
-            self.nav_plus_1s_btn,
-            self.nav_plus_5s_btn,
-        ):
-            btn.config(state=state)
-        self.progress_bar.config(state=state)
-
-    def _set_navigation_buttons_enabled(self, enabled: bool) -> None:
-        """Enable or disable navigation buttons specifically."""
-        state = "normal" if enabled else "disabled"
-        for btn in (
-            self.prev_rec_btn,
-            self.next_rec_btn,
-            self.nav_minus_5s_btn,
-            self.nav_minus_1s_btn,
-            self.nav_minus_5f_btn,
-            self.nav_minus_1f_btn,
-            self.nav_plus_1f_btn,
-            self.nav_plus_5f_btn,
-            self.nav_plus_1s_btn,
-            self.nav_plus_5s_btn,
-        ):
-            btn.config(state=state)
 
     def _run_sync(self) -> None:
         """Run sync, conversion, and cleanup in background thread (per-stream pipeline)."""
@@ -1800,8 +1729,7 @@ class LabGUI:
         error = dialog.get_error()
         dialog.close()
 
-        # Re-enable buttons
-        self._set_buttons_enabled(True)
+        self._apply_mode()
 
         # Show error or success message
         if error:
@@ -1846,9 +1774,6 @@ class LabGUI:
         self.__remove_relative_path = relative_path
         self.__remove_mode = mode
 
-        # Disable all buttons (freeze UI)
-        self._set_buttons_enabled(False)
-
         # Start removal thread
         self.__remove_thread = threading.Thread(target=self._run_remove, daemon=True)
         self.__remove_error: str | None = None
@@ -1879,8 +1804,7 @@ class LabGUI:
         # Thread finished
         error = self.__remove_error
 
-        # Re-enable buttons
-        self._set_buttons_enabled(True)
+        self._apply_mode()
 
         if error:
             messagebox.showerror("Removal Error", error)
@@ -1938,19 +1862,7 @@ class LabGUI:
         self.__annotation_items.clear()
         self._clear_annotation_list_ui()
 
-        # Hide navigation, recording info, annotation status and buttons
-        self.hide_navigation()
-        self.hide_recording_info()
-        self.hide_annotation_status()
-        self.hide_remove_button()
-        self.hide_annotate_button()
-        self.hide_submit_button()
-        self.hide_leave_annotation_button()
-        self.hide_remove_annotation_button()
-
-        # Hide detect button (it's shown when recording is loaded)
-        if self.detect_btn.winfo_ismapped():
-            self.detect_btn.pack_forget()
+        self._apply_mode()
 
     # ------------------------------------------------------------------
     # Annotation list UI helpers
@@ -2038,17 +1950,7 @@ class LabGUI:
     def enter_annotation_mode(self) -> None:
         """Enter annotation mode: freeze controls, clear canvas, load existing annotations."""
         self.__annotation_mode = True
-        self.hide_annotate_button()
-        self.show_submit_button()
-        self.show_leave_annotation_button()
-        self.show_remove_annotation_button()
-        self._set_buttons_enabled(False)
-        # submit_btn, leave_annotation_btn and remove_annotation_btn must stay enabled while in annotation mode
-        self.submit_btn.config(state="normal")
-        self.leave_annotation_btn.config(state="normal")
-        self.remove_annotation_btn.config(state="normal")
-        # Navigation buttons should be enabled in annotation mode
-        self._set_navigation_buttons_enabled(True)
+        self._apply_mode()
 
         # Clear canvas (does not clear annotation_items)
         self.__annotation_items.clear()
@@ -2066,12 +1968,7 @@ class LabGUI:
         # Restore canvas to clean image
         self.clear_all()
 
-        self.hide_submit_button()
-        self.hide_leave_annotation_button()
-        self.hide_remove_annotation_button()
-        self.show_annotate_button()
-        self._set_buttons_enabled(True)
-
+        self._apply_mode()
         self.update_annotation_status()
 
     def _load_frame_annotations(self) -> None:
@@ -2234,7 +2131,7 @@ class LabGUI:
         if result is not None:
             self.__selected_model_info = result
             self._init_detector()
-            messagebox.showinfo("Model Selected", f"Using model: {result['version']}\n{result['description']}")
+            self._update_selected_model_display()
 
     # ------------------------------------------------------------------
     # Fine-tune model
@@ -2256,8 +2153,6 @@ class LabGUI:
         self._fine_tune_preset_path = preset_path
         self._fine_tune_error: str | None = None
         self._fine_tune_result: Path | None = None
-
-        self._set_buttons_enabled(False)
 
         self._fine_tune_progress = tk.Toplevel(self.root)
         self._fine_tune_progress.title("Fine Tuning")
@@ -2331,7 +2226,7 @@ class LabGUI:
             self._fine_tune_progress.grab_release()
             self._fine_tune_progress.destroy()
 
-        self._set_buttons_enabled(True)
+        self._apply_mode()
 
         if self._fine_tune_error:
             messagebox.showerror("Fine Tune Error", self._fine_tune_error)
@@ -2340,6 +2235,95 @@ class LabGUI:
                 "Fine Tune Complete",
                 f"Model saved to:\n{self._fine_tune_result}",
             )
+
+    def _update_selected_model_display(self) -> None:
+        """Update selected model label text based on current model info."""
+        if self.__selected_model_info is None:
+            self.__selected_model_text.set("")
+        elif self.__selected_model_info["is_base"]:
+            self.__selected_model_text.set("Model: yolov8n.pt (Base)")
+        else:
+            version = self.__selected_model_info["version"]
+            self.__selected_model_text.set(f"Model: {version}")
+
+    def _get_current_mode(self) -> str:
+        if self.__current_recording is None:
+            return "no_file"
+        if self.__annotation_mode:
+            return "annotation"
+        return "detection"
+
+    def _apply_mode(self) -> None:
+        mode = self._get_current_mode()
+        mode_idx = {"no_file": 0, "detection": 1, "annotation": 2}[mode]
+        in_file = mode in ("detection", "annotation")
+        in_detection = mode == "detection"
+
+        # Two-pass: forget all registry widgets, then re-pack visible ones in order
+        for _, widget, _, *vis in self._widget_registry:
+            if widget.winfo_ismapped():
+                widget.pack_forget()
+        for _, widget, pack_kw, *vis in self._widget_registry:
+            if vis[mode_idx]:
+                widget.pack(**pack_kw)
+
+        # params_frame container (detection only, above canvas but below timestamp/annotation status)
+        if in_detection:
+            if not self.params_frame.winfo_ismapped():
+                self.params_frame.pack(before=self.image_canvas, pady=(0, 12))
+        else:
+            if self.params_frame.winfo_ismapped():
+                self.params_frame.pack_forget()
+
+        # nav_frame + progress_frame (detection + annotation)
+        if in_file:
+            if not self.nav_frame.winfo_ismapped():
+                self.nav_frame.pack(pady=(0, 8))
+            if not self.progress_frame.winfo_ismapped():
+                self.progress_frame.pack(fill="x", padx=self.content_pad, pady=(0, 8))
+        else:
+            if self.nav_frame.winfo_ismapped():
+                self.nav_frame.pack_forget()
+            if self.progress_frame.winfo_ismapped():
+                self.progress_frame.pack_forget()
+
+        # recording_info_label and annotation_status_label: hide in no_file mode only
+        # (shown by update_recording_info / update_annotation_status in other modes)
+        if not in_file:
+            if self.recording_info_label.winfo_ismapped():
+                self.recording_info_label.pack_forget()
+            if self.annotation_status_label.winfo_ismapped():
+                self.annotation_status_label.pack_forget()
+
+        # path_hint (bottom, detection + annotation)
+        if in_file:
+            if not self.path_hint.winfo_ismapped():
+                self.path_hint.pack(side="bottom", fill="x", padx=self.content_pad, pady=(0, 12))
+        else:
+            if self.path_hint.winfo_ismapped():
+                self.path_hint.pack_forget()
+
+        # selected_model_label (bottom, detection only)
+        if in_detection:
+            if not self.selected_model_label.winfo_ismapped():
+                self.selected_model_label.pack(side="bottom", fill="x", padx=self.content_pad, pady=(0, 4))
+            self._update_selected_model_display()
+        else:
+            if self.selected_model_label.winfo_ismapped():
+                self.selected_model_label.pack_forget()
+
+    def _on_key_submit_annotations(self, event) -> None:
+        if self.__annotation_mode:
+            self.submit_annotations()
+
+    def _set_right_shift(self, held: bool) -> None:
+        self.__left_shift_held = held
+
+    def _on_nav_key(self, count: int) -> None:
+        if self.__left_shift_held:
+            self.navigate_frames(-count)
+        else:
+            self.navigate_frames(count)
 
     def run(self) -> None:
         self.root.mainloop()
