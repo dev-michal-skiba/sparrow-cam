@@ -844,15 +844,15 @@ class LabGUI:
 
         # Key bindings (bind_all so they work regardless of which child widget has focus)
         self.root.bind("<space>", lambda e: self._on_key_submit_annotations(e))
-        # Numpad navigation: 1/5 forward, Right Shift+1/5 backward
-        # Bind both KP_1/KP_5 (NumLock on) and KP_End/KP_Begin (NumLock off) variants
-        self.__left_shift_held = False
-        self.root.bind_all("<KeyPress-Shift_L>", lambda e: self._set_right_shift(True))
-        self.root.bind_all("<KeyRelease-Shift_L>", lambda e: self._set_right_shift(False))
-        for seq in ("<KP_1>", "<KP_End>", "<Shift-KP_1>", "<Shift-KP_End>"):
-            self.root.bind_all(seq, lambda e, c=1: self._on_nav_key(c))
-        for seq in ("<KP_5>", "<KP_Begin>", "<Shift-KP_5>", "<Shift-KP_Begin>"):
-            self.root.bind_all(seq, lambda e, c=5: self._on_nav_key(c))
+        # Arrow keys navigate by current step size
+        self.__nav_step = 1
+        self.root.bind_all("<Left>", lambda e: self.navigate_frames(-self.__nav_step))
+        self.root.bind_all("<Right>", lambda e: self.navigate_frames(self.__nav_step))
+        # Numpad 1/5 set the step size (bind NumLock-on and NumLock-off variants)
+        for seq in ("<KP_1>", "<KP_End>"):
+            self.root.bind_all(seq, lambda e: self._set_nav_step(1))
+        for seq in ("<KP_5>", "<KP_Begin>"):
+            self.root.bind_all(seq, lambda e: self._set_nav_step(5))
 
         # Update stats on initialization
         self.root.after(100, self._update_stats_display)
@@ -2316,14 +2316,8 @@ class LabGUI:
         if self.__annotation_mode:
             self.submit_annotations()
 
-    def _set_right_shift(self, held: bool) -> None:
-        self.__left_shift_held = held
-
-    def _on_nav_key(self, count: int) -> None:
-        if self.__left_shift_held:
-            self.navigate_frames(-count)
-        else:
-            self.navigate_frames(count)
+    def _set_nav_step(self, step: int) -> None:
+        self.__nav_step = step
 
     def run(self) -> None:
         self.root.mainloop()
