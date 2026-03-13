@@ -53,6 +53,8 @@ class ClassStats:
     class_id: int
     train_count: int
     val_count: int
+    train_annotation_count: int
+    val_annotation_count: int
 
 
 @dataclass
@@ -65,6 +67,7 @@ class ExtendedDatasetStats:
     val_total: int
     val_positive: int
     val_negative: int
+    total_annotation_count: int
     class_stats: list[ClassStats]
 
 
@@ -256,6 +259,9 @@ def get_extended_dataset_stats() -> ExtendedDatasetStats:
     train_class_counts = _count_class_stats("train")
     val_class_counts = _count_class_stats("val")
 
+    train_annotation_counts = _count_class_annotation_stats("train")
+    val_annotation_counts = _count_class_annotation_stats("val")
+
     class_stats_list = []
     for class_name, class_id in AVAILABLE_CLASSES:
         train_count = train_class_counts.get(class_id, 0)
@@ -266,8 +272,14 @@ def get_extended_dataset_stats() -> ExtendedDatasetStats:
                 class_id=class_id,
                 train_count=train_count,
                 val_count=val_count,
+                train_annotation_count=train_annotation_counts.get(class_id, 0),
+                val_annotation_count=val_annotation_counts.get(class_id, 0),
             )
         )
+
+    total_annotation_count = sum(
+        cs.train_annotation_count + cs.val_annotation_count for cs in class_stats_list
+    )
 
     return ExtendedDatasetStats(
         train_total=train_pos + train_neg,
@@ -276,6 +288,7 @@ def get_extended_dataset_stats() -> ExtendedDatasetStats:
         val_total=val_pos + val_neg,
         val_positive=val_pos,
         val_negative=val_neg,
+        total_annotation_count=total_annotation_count,
         class_stats=class_stats_list,
     )
 
@@ -358,6 +371,29 @@ def _count_class_stats(split: str) -> dict[int, int]:
         # Increment count for each class found in this file
         for class_id in classes_in_file:
             class_counts[class_id] = class_counts.get(class_id, 0) + 1
+    return class_counts
+
+
+def _count_class_annotation_stats(split: str) -> dict[int, int]:
+    """Count total bounding-box annotations per class_id (each box counted separately)."""
+    labels_dir = DATASET_DIR / "labels" / split
+    class_counts: dict[int, int] = {}
+    if not labels_dir.exists():
+        return class_counts
+    for label_file in labels_dir.iterdir():
+        if label_file.suffix != ".txt":
+            continue
+        content = label_file.read_text().strip()
+        if not content:
+            continue
+        for line in content.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 1:
+                try:
+                    class_id = int(parts[0])
+                    class_counts[class_id] = class_counts.get(class_id, 0) + 1
+                except ValueError:
+                    pass
     return class_counts
 
 

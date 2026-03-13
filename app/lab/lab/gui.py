@@ -2071,7 +2071,7 @@ class LabGUI:
 
         total_pos = stats.train_positive + stats.val_positive
 
-        # Calculate percentages for total train/val
+        # Calculate percentages for total train/val (file-based)
         total_train_pct = round(100 * stats.train_total / total) if total else 0
         total_val_pct = 100 - total_train_pct if total else 0
 
@@ -2081,18 +2081,19 @@ class LabGUI:
 
         # Build the text content
         lines = [
-            f"Total annotations: {total}",
+            f"Total annotations: {stats.total_annotation_count}",
             f"Total train/val: {total_train_pct}% / {total_val_pct}%",
             f"Total pos/neg: {total_pos_pct}% / {total_neg_pct}%",
         ]
 
         # Add per-class stats
         for class_info in stats.class_stats:
-            class_total = class_info.train_count + class_info.val_count
-            if class_total > 0:
-                class_train_pct = round(100 * class_info.train_count / class_total)
+            class_annotation_total = class_info.train_annotation_count + class_info.val_annotation_count
+            class_file_total = class_info.train_count + class_info.val_count
+            if class_annotation_total > 0:
+                class_train_pct = round(100 * class_info.train_count / class_file_total) if class_file_total else 0
                 class_val_pct = 100 - class_train_pct
-                lines.append(f"{class_info.name} annotations: {class_total}")
+                lines.append(f"{class_info.name} annotations: {class_annotation_total}")
                 lines.append(f"{class_info.name} train/val: {class_train_pct}% / {class_val_pct}%")
 
         text = "\n".join(lines)

@@ -76,18 +76,22 @@ class TestClassStats:
             class_id=0,
             train_count=5,
             val_count=3,
+            train_annotation_count=8,
+            val_annotation_count=4,
         )
         assert stats.name == "Great tit"
         assert stats.class_id == 0
         assert stats.train_count == 5
         assert stats.val_count == 3
+        assert stats.train_annotation_count == 8
+        assert stats.val_annotation_count == 4
 
 
 class TestExtendedDatasetStats:
     def test_fields(self):
         class_stats = [
-            ClassStats(name="Great tit", class_id=0, train_count=5, val_count=3),
-            ClassStats(name="House sparrow", class_id=1, train_count=2, val_count=1),
+            ClassStats(name="Great tit", class_id=0, train_count=5, val_count=3, train_annotation_count=8, val_annotation_count=4),
+            ClassStats(name="House sparrow", class_id=1, train_count=2, val_count=1, train_annotation_count=3, val_annotation_count=1),
         ]
         stats = ExtendedDatasetStats(
             train_total=10,
@@ -96,10 +100,12 @@ class TestExtendedDatasetStats:
             val_total=5,
             val_positive=4,
             val_negative=1,
+            total_annotation_count=16,
             class_stats=class_stats,
         )
         assert stats.train_total == 10
         assert stats.val_total == 5
+        assert stats.total_annotation_count == 16
         assert len(stats.class_stats) == 2
         assert stats.class_stats[0].name == "Great tit"
 

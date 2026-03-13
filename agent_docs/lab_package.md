@@ -37,7 +37,7 @@ YOLO dataset management. Handles:
 - Automatic train/val split with ~80/20 ratio (per-class balancing for positives, separate balancing for negatives)
 - Dataset structure creation and `dataset.yaml` generation
 - Conversion between pixel coordinates and normalized YOLO format
-- Dataset statistics (total/positive/negative counts per split, per-class counts)
+- Dataset statistics (total/positive/negative counts per split, per-class file counts and per-class bounding-box annotation counts, total annotation count across all classes)
 
 ### `converter.py`
 - Converts archived `.ts` HLS video segments into PNG frames using OpenCV
