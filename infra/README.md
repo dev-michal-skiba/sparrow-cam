@@ -30,14 +30,21 @@ Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash the OS
 
 This creates the user and sets up SSH key access automatically.
 
-**Step 3: Enable passwordless sudo on target device**
+**Step 3: Add user to processor group on target device**
+
+```bash
+# Add the SSH user to the processor group
+sudo usermod -a -G sparrow_cam_processor sparrow_cam_infra
+```
+
+**Step 4: Enable passwordless sudo on target device**
 
 ```bash
 # On target device
 echo "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/sparrow_cam_infra
 ```
 
-**Step 4: Configure Ansible variables**
+**Step 5: Configure Ansible variables**
 
 ```bash
 # Copy example vars and update with your values
