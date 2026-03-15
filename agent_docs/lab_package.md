@@ -30,6 +30,7 @@ Tkinter-based GUI (`LabGUI` class). Provides:
     - Manually annotate birds on images and update local dataset
     - Dataset statistics display (per-class train/val counts) always visible
 - Fine-tune dialog — collects version, description, and optional crop preset, then runs training in a background thread
+- FPS tracking — reads actual FPS from `stream_info.json` during recording playback, with fallback to calculated frames-per-segment for older streams
 
 ### `annotations.py`
 YOLO dataset management. Handles:
@@ -42,6 +43,7 @@ YOLO dataset management. Handles:
 ### `converter.py`
 - Converts archived `.ts` HLS video segments into PNG frames using OpenCV
 - Walks the nested `year/month/day/folder` archive structure, identifies unconverted playlists, and extracts every frame from each `.ts` file
+- Reads actual FPS from the video stream during conversion and saves it to `stream_info.json` in the output folder
 
 ### `sync.py`
 SFTP-based sync manager that downloads HLS archive folders from the production Raspberry Pi. Features:

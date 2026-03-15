@@ -591,7 +591,7 @@ class LabGUI:
         self.__all_recordings: list[Path] = []  # All recordings sorted by date
         self.__frame_files: list[Path] = []  # All PNG files in current recording, sorted
         self.__current_frame_index: int = 0  # Index into frame_files
-        self.__frames_per_segment: int = 0  # Frames per segment (calculated from first segment)
+        self.__fps: int = 0  # Frames per second (read from stream_info.json or calculated from first segment)
 
         # UI components
         self.button_frame = tk.Frame(self.root)
@@ -892,7 +892,7 @@ class LabGUI:
         return [f[2] for f in frames]
 
     def calculate_frames_per_segment(self) -> int:
-        """Calculate frames per segment from the first segment's frame count."""
+        """Calculate frames per segment from the first segment's frame count (fallback for old streams)."""
         if not self.__frame_files:
             return 0
 
@@ -914,6 +914,27 @@ class LabGUI:
                 break
 
         return count
+
+    def _calculate_fps(self) -> int:
+        """Return actual FPS for the current recording.
+
+        Reads fps from stream_info.json saved during conversion.
+        Falls back to frames-per-segment count for streams converted before this feature.
+        """
+        if not self.__frame_files:
+            return 0
+
+        stream_info = self.__frame_files[0].parent / "stream_info.json"
+        if stream_info.exists():
+            try:
+                data = json.loads(stream_info.read_text())
+                fps = data.get("fps", 0)
+                if isinstance(fps, (int, float)) and fps > 0:
+                    return max(1, round(fps))
+            except (ValueError, KeyError):
+                pass
+
+        return self.calculate_frames_per_segment()
 
     def scan_all_recordings(self) -> list[Path]:
         """
@@ -1029,20 +1050,20 @@ class LabGUI:
 
     def update_progress_display(self) -> None:
         """Update progress bar and position label based on current frame."""
-        if not self.__frame_files or self.__frames_per_segment == 0:
+        if not self.__frame_files or self.__fps == 0:
             return
 
         total_frames = len(self.__frame_files)
         current = self.__current_frame_index
 
         # Calculate current position as seconds and frame within second
-        current_second = current // self.__frames_per_segment
-        current_frame_in_second = current % self.__frames_per_segment
+        current_second = current // self.__fps
+        current_frame_in_second = current % self.__fps
 
         # Calculate total duration (last frame position)
         last_frame = total_frames - 1
-        total_second = last_frame // self.__frames_per_segment
-        total_frame_in_second = last_frame % self.__frames_per_segment
+        total_second = last_frame // self.__fps
+        total_frame_in_second = last_frame % self.__fps
 
         # Format as XsYf / XsYf
         position_str = f"{current_second}s{current_frame_in_second}f / " f"{total_second}s{total_frame_in_second}f"
@@ -1407,7 +1428,7 @@ class LabGUI:
         self.__current_recording = folder.resolve()
         self.__frame_files = frames
         self.__current_frame_index = 0
-        self.__frames_per_segment = self.calculate_frames_per_segment()
+        self.__fps = self._calculate_fps()
 
         # Scan all recordings for prev/next navigation
         self.__all_recordings = self.scan_all_recordings()
@@ -1473,10 +1494,10 @@ class LabGUI:
 
     def navigate_seconds(self, delta: int) -> None:
         """Navigate by a number of seconds (positive or negative)."""
-        if not self.__frame_files or self.__frames_per_segment == 0:
+        if not self.__frame_files or self.__fps == 0:
             return
 
-        frame_delta = delta * self.__frames_per_segment
+        frame_delta = delta * self.__fps
         new_index = self.__current_frame_index + frame_delta
         # Clamp to valid range
         new_index = max(0, min(new_index, len(self.__frame_files) - 1))
@@ -1537,7 +1558,7 @@ class LabGUI:
         self.__current_recording = folder.resolve()
         self.__frame_files = frames
         self.__current_frame_index = 0
-        self.__frames_per_segment = self.calculate_frames_per_segment()
+        self.__fps = self._calculate_fps()
 
         # Update recording info header
         self.update_recording_info(folder)
@@ -1844,7 +1865,7 @@ class LabGUI:
         self.__current_recording = None
         self.__frame_files = []
         self.__current_frame_index = 0
-        self.__frames_per_segment = 0
+        self.__fps = 0
 
         # Clear image and canvas
         self.__selected_image = None

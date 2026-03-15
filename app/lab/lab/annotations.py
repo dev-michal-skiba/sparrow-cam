@@ -277,9 +277,7 @@ def get_extended_dataset_stats() -> ExtendedDatasetStats:
             )
         )
 
-    total_annotation_count = sum(
-        cs.train_annotation_count + cs.val_annotation_count for cs in class_stats_list
-    )
+    total_annotation_count = sum(cs.train_annotation_count + cs.val_annotation_count for cs in class_stats_list)
 
     return ExtendedDatasetStats(
         train_total=train_pos + train_neg,

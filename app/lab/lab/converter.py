@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -97,6 +98,7 @@ def convert_playlist_to_pngs(
     target_folder = images_base_path / relative_path
     target_folder.mkdir(parents=True, exist_ok=True)
 
+    fps: float | None = None
     total_frames = 0
 
     for idx, ts_file in enumerate(ts_files):
@@ -106,6 +108,9 @@ def convert_playlist_to_pngs(
         cap = cv2.VideoCapture(str(ts_file))
         if not cap.isOpened():
             continue
+
+        if fps is None:
+            fps = cap.get(cv2.CAP_PROP_FPS)
 
         frame_index = 0
         while True:
@@ -119,6 +124,9 @@ def convert_playlist_to_pngs(
 
         cap.release()
         total_frames += frame_index
+
+    if fps is not None and fps > 0:
+        (target_folder / "stream_info.json").write_text(json.dumps({"fps": fps}))
 
     return total_frames
 

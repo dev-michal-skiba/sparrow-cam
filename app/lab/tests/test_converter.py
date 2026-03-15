@@ -7,6 +7,15 @@ import pytest
 from lab.converter import convert_all_playlists, convert_playlist_to_pngs, get_unconverted_playlists
 
 
+def create_mock_video_capture(read_side_effects, fps=30.0):
+    """Create a mock VideoCapture with FPS support."""
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.read.side_effect = read_side_effects
+    mock_cap.get.return_value = fps
+    return mock_cap
+
+
 class TestGetUnconvertedPlaylists:
     """Tests for get_unconverted_playlists function."""
 
@@ -208,13 +217,13 @@ class TestConvertPlaylistToPngs:
             folder_path.mkdir()
 
             # Mock cv2.VideoCapture
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [
-                (True, b"frame1"),
-                (True, b"frame2"),
-                (False, None),
-            ]
+            mock_cap = create_mock_video_capture(
+                [
+                    (True, b"frame1"),
+                    (True, b"frame2"),
+                    (False, None),
+                ]
+            )
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
@@ -234,9 +243,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir(parents=True)
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)]
+            mock_cap = create_mock_video_capture([(False, None)])
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite"):
@@ -256,13 +263,13 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [
-                (True, b"frame1"),
-                (True, b"frame2"),
-                (False, None),
-            ]
+            mock_cap = create_mock_video_capture(
+                [
+                    (True, b"frame1"),
+                    (True, b"frame2"),
+                    (False, None),
+                ]
+            )
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
@@ -283,9 +290,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(True, b"frame1"), (False, None)]
+            mock_cap = create_mock_video_capture([(True, b"frame1"), (False, None)])
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite") as mock_imwrite:
@@ -305,9 +310,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)] * 10
+            mock_cap = create_mock_video_capture([(False, None)] * 10)
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap) as mock_video_capture:
                 with patch("lab.converter.cv2.imwrite"):
@@ -364,9 +367,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(True, b"frame"), (False, None)]
+            mock_cap = create_mock_video_capture([(True, b"frame"), (False, None)])
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite"):
@@ -413,9 +414,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)]
+            mock_cap = create_mock_video_capture([(False, None)])
 
             assert not images_path.exists()
 
@@ -436,9 +435,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)]
+            mock_cap = create_mock_video_capture([(False, None)])
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite"):
@@ -457,9 +454,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)] * 10
+            mock_cap = create_mock_video_capture([(False, None)] * 10)
 
             progress_callback = MagicMock()
 
@@ -486,18 +481,18 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
             # First file: 2 frames, second file: 3 frames
-            mock_cap.read.side_effect = [
-                (True, b"frame1"),
-                (True, b"frame2"),
-                (False, None),
-                (True, b"frame1"),
-                (True, b"frame2"),
-                (True, b"frame3"),
-                (False, None),
-            ]
+            mock_cap = create_mock_video_capture(
+                [
+                    (True, b"frame1"),
+                    (True, b"frame2"),
+                    (False, None),
+                    (True, b"frame1"),
+                    (True, b"frame2"),
+                    (True, b"frame3"),
+                    (False, None),
+                ]
+            )
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite"):
@@ -517,9 +512,7 @@ class TestConvertPlaylistToPngs:
 
             folder_path.mkdir()
 
-            mock_cap = MagicMock()
-            mock_cap.isOpened.return_value = True
-            mock_cap.read.side_effect = [(False, None)]
+            mock_cap = create_mock_video_capture([(False, None)])
 
             with patch("lab.converter.cv2.VideoCapture", return_value=mock_cap):
                 with patch("lab.converter.cv2.imwrite"):

@@ -90,8 +90,22 @@ class TestClassStats:
 class TestExtendedDatasetStats:
     def test_fields(self):
         class_stats = [
-            ClassStats(name="Great tit", class_id=0, train_count=5, val_count=3, train_annotation_count=8, val_annotation_count=4),
-            ClassStats(name="House sparrow", class_id=1, train_count=2, val_count=1, train_annotation_count=3, val_annotation_count=1),
+            ClassStats(
+                name="Great tit",
+                class_id=0,
+                train_count=5,
+                val_count=3,
+                train_annotation_count=8,
+                val_annotation_count=4,
+            ),
+            ClassStats(
+                name="House sparrow",
+                class_id=1,
+                train_count=2,
+                val_count=1,
+                train_annotation_count=3,
+                val_annotation_count=1,
+            ),
         ]
         stats = ExtendedDatasetStats(
             train_total=10,
