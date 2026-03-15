@@ -41,6 +41,7 @@ The user provides a task in this format:
 - Follow existing code style and patterns in the package
 - For new business features prefer creating new files over of editing existing ones
 - Keep changes minimal and focused on the task
+- DO NOT implement or fix any tests, lint and formatting issues
 
 ### 4. Verify & Update Documentation
 
