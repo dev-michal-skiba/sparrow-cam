@@ -617,6 +617,10 @@ class LabGUI:
 
         self.annotate_btn = tk.Button(self.button_frame, text="Annotate", command=self.enter_annotation_mode)
 
+        self.leave_detection_btn = tk.Button(
+            self.button_frame, text="Leave detection mode", command=self.leave_detection_mode
+        )
+
         self.submit_btn = tk.Button(self.button_frame, text="Submit annotations", command=self.submit_annotations)
 
         self.leave_annotation_btn = tk.Button(
@@ -818,6 +822,7 @@ class LabGUI:
             ("remove_btn", self.remove_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
             ("detect_btn", self.detect_btn, {"side": "left"}, False, True, False),
             ("annotate_btn", self.annotate_btn, {"side": "left", "padx": (8, 0)}, False, True, False),
+            ("leave_detection_btn", self.leave_detection_btn, {"side": "left", "padx": (8, 0)}, False, True, False),
             ("submit_btn", self.submit_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
             ("leave_annotation_btn", self.leave_annotation_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
             ("remove_annotation_btn", self.remove_annotation_btn, {"side": "left", "padx": (8, 0)}, False, False, True),
@@ -1992,6 +1997,10 @@ class LabGUI:
 
         self._apply_mode()
         self.update_annotation_status()
+
+    def leave_detection_mode(self) -> None:
+        """Exit detection mode and return to the initial view."""
+        self._reset_recording_state()
 
     def _load_frame_annotations(self) -> None:
         """Load and display existing annotations for the current frame."""
