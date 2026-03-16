@@ -371,14 +371,19 @@ def run_fine_tune(
     if cancel_event is not None and cancel_event.is_set():
         raise TrainingCancelledError("Fine-tuning cancelled.")
 
-    if on_epoch is not None or cancel_event is not None:
+    if cancel_event is not None:
+
+        def _cancel_check(trainer) -> None:
+            if cancel_event.is_set():
+                raise TrainingCancelledError("Fine-tuning cancelled.")
+
+        model.add_callback("on_train_batch_end", _cancel_check)
+
+    if on_epoch is not None:
         total = _DEFAULT_EPOCHS
 
         def _epoch_callback(trainer) -> None:
-            if cancel_event is not None and cancel_event.is_set():
-                raise TrainingCancelledError("Fine-tuning cancelled.")
-            if on_epoch is not None:
-                on_epoch(trainer.epoch + 1, total)
+            on_epoch(trainer.epoch + 1, total)
 
         model.add_callback("on_train_epoch_end", _epoch_callback)
 
