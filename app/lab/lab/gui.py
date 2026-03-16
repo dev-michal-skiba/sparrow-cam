@@ -2399,4 +2399,5 @@ class LabGUI:
         self.__nav_step = step
 
     def run(self) -> None:
+        self.root.attributes('-zoomed', True)
         self.root.mainloop()
