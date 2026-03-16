@@ -57,7 +57,9 @@ SFTP-based sync manager that downloads HLS archive folders from the production R
 YOLOv8 fine-tuning pipeline:
 - Validates semantic version format (`v<major>.<minor>.<patch>`)
 - Lists available fine-tuned models from `FINE_TUNED_MODELS_DIR`
-- Optionally crops the dataset to a preset detection region before training
+- Optionally crops the dataset to a preset detection region before training with intelligent frame filtering:
+    - Positive frames (frames with annotations) are included only if ALL annotation boxes are fully within the detection region; frames with any box extending outside are discarded
+    - Negative frames (frames without annotations) are randomly subsampled to preserve the original positive-to-negative ratio
 - Runs `YOLO.train()` (100 epochs, batch 16, imgsz 480 by default)
 - Saves `model.pt` + `meta.json` (version, description, classes, metrics) per version
 

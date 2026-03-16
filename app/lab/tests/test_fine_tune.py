@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from lab.fine_tune import (
+    _is_box_fully_inside,
     _parse_dataset_yaml,
     _remap_label_line,
     get_available_models,
@@ -490,7 +491,7 @@ class TestPrepareCroppedDataset:
         # Should not crash; no output image created for the bad file
         assert not (dst / "images" / "train" / "bad.png").exists()
 
-    def test_skips_label_lines_outside_crop(self, tmp_path):
+    def test_discards_frame_when_annotation_outside_crop(self, tmp_path):
         src = tmp_path / "src"
         dst = tmp_path / "dst"
         self._write_yaml(src)
@@ -499,13 +500,14 @@ class TestPrepareCroppedDataset:
         src_labels = src / "labels" / "train"
         src_labels.mkdir(parents=True)
         self._make_image(src_images / "frame.png", w=200, h=200)
-        # Box center at (20,20) — outside crop [50,50,150,150]
+        # Box extends outside crop [50,50,150,150]: center (20,20), so box is fully outside
         (src_labels / "frame.txt").write_text("0 0.1 0.1 0.05 0.05\n")
 
         prepare_cropped_dataset(src, dst, (50, 50, 150, 150))
 
-        label_text = (dst / "labels" / "train" / "frame.txt").read_text()
-        assert label_text.strip() == ""
+        # Entire frame discarded — no output image or label
+        assert not (dst / "images" / "train" / "frame.png").exists()
+        assert not (dst / "labels" / "train" / "frame.txt").exists()
 
     def test_skips_empty_label_lines(self, tmp_path):
         src = tmp_path / "src"

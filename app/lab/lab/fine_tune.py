@@ -9,6 +9,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+import random
+
 import cv2
 
 from lab.constants import DATASET_DIR, FINE_TUNED_MODELS_DIR
@@ -190,6 +192,33 @@ def _remap_label_line(
     return f"{class_id} {cx_new:.6f} {cy_new:.6f} {w_new:.6f} {h_new:.6f}"
 
 
+def _is_box_fully_inside(
+    line: str,
+    orig_w: int,
+    orig_h: int,
+    rx1: int,
+    ry1: int,
+    rx2: int,
+    ry2: int,
+) -> bool:
+    """Return True if all corners of the bounding box lie within the crop region."""
+    parts = line.strip().split()
+    if len(parts) != 5:
+        return False
+
+    cx_abs = float(parts[1]) * orig_w
+    cy_abs = float(parts[2]) * orig_h
+    w_abs = float(parts[3]) * orig_w
+    h_abs = float(parts[4]) * orig_h
+
+    return (
+        cx_abs - w_abs / 2 >= rx1
+        and cy_abs - h_abs / 2 >= ry1
+        and cx_abs + w_abs / 2 <= rx2
+        and cy_abs + h_abs / 2 <= ry2
+    )
+
+
 def prepare_cropped_dataset(
     source_dir: Path,
     dest_dir: Path,
@@ -216,7 +245,43 @@ def prepare_cropped_dataset(
         if not src_images_dir.exists():
             continue
 
+        # First pass: categorise each image.
+        # Positive frames whose annotations all fall fully inside the region are kept.
+        # Positive frames with any annotation outside the region are discarded.
+        # Negative frames (no annotations) are collected for subsampling.
+        positive_paths: list[Path] = []
+        negative_paths: list[Path] = []
+        total_original_positives = 0
+
         for img_path in src_images_dir.glob("*.png"):
+            frame = cv2.imread(str(img_path))
+            if frame is None:
+                continue
+
+            orig_h, orig_w = frame.shape[:2]
+            src_label = src_labels_dir / (img_path.stem + ".txt")
+            annotation_lines = [
+                ln
+                for ln in (src_label.read_text().splitlines() if src_label.exists() else [])
+                if ln.strip()
+            ]
+
+            if annotation_lines:
+                total_original_positives += 1
+                if all(_is_box_fully_inside(ln, orig_w, orig_h, rx1, ry1, rx2, ry2) for ln in annotation_lines):
+                    positive_paths.append(img_path)
+            else:
+                negative_paths.append(img_path)
+
+        # Subsample negatives to preserve original pos/neg ratio
+        if total_original_positives > 0:
+            target_neg = round(len(negative_paths) * len(positive_paths) / total_original_positives)
+        else:
+            target_neg = len(negative_paths)
+        kept_negatives = random.sample(negative_paths, min(target_neg, len(negative_paths)))
+
+        # Second pass: crop and write only the kept images
+        for img_path in positive_paths + kept_negatives:
             frame = cv2.imread(str(img_path))
             if frame is None:
                 continue
@@ -225,7 +290,6 @@ def prepare_cropped_dataset(
             cropped = frame[ry1:ry2, rx1:rx2]
             cv2.imwrite(str(dest_images / img_path.name), cropped)
 
-            # Remap corresponding label file
             src_label = src_labels_dir / (img_path.stem + ".txt")
             dest_label = dest_labels / (img_path.stem + ".txt")
 
