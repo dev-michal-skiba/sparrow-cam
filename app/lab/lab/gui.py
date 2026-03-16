@@ -184,6 +184,8 @@ class SyncProgressDialog:
         self.parent = parent
         self.cancelled = False
         self._sync_error: str | None = None
+        self._confirm_event: threading.Event | None = None
+        self._confirm_result: bool = False
 
         # Create modal dialog
         self.dialog = tk.Toplevel(parent)
@@ -217,9 +219,13 @@ class SyncProgressDialog:
         self.status_label = tk.Label(content, text="", anchor="w", fg="#666666")
         self.status_label.pack(fill="x", pady=(0, 10))
 
-        # Cancel button
-        self.cancel_btn = tk.Button(content, text="Cancel", command=self._on_cancel)
-        self.cancel_btn.pack()
+        # Button frame (holds cancel and optional proceed button)
+        self._btn_frame = tk.Frame(content)
+        self._btn_frame.pack()
+        self.cancel_btn = tk.Button(self._btn_frame, text="Cancel", command=self._on_cancel, width=10)
+        self.cancel_btn.pack(side="left")
+        self._proceed_btn = tk.Button(self._btn_frame, text="Proceed", command=self._on_proceed, width=10)
+        # _proceed_btn is not packed until confirmation is requested
 
         # Center dialog on parent
         self._center_dialog()
@@ -241,6 +247,11 @@ class SyncProgressDialog:
         """Handle cancel button click."""
         self.cancelled = True
         self.cancel_btn.config(state="disabled")
+        if self._confirm_event is not None and not self._confirm_event.is_set():
+            self._proceed_btn.pack_forget()
+            self._confirm_result = False
+            self._confirm_event.set()
+            return
         self.status_label.config(text="Cancelling after current stream completes...")
 
     def _on_close(self) -> None:
@@ -296,6 +307,46 @@ class SyncProgressDialog:
     def get_error(self) -> str | None:
         """Get stored error message, if any."""
         return self._sync_error
+
+    def request_confirmation(self, count: int, from_date: date | None, to_date: date | None) -> bool:
+        """Pause sync and ask user to confirm before proceeding (thread-safe, blocks until user responds)."""
+        self._confirm_event = threading.Event()
+        self._confirm_result = False
+        self.parent.after(0, self._do_show_confirmation, count, from_date, to_date)
+        self._confirm_event.wait()
+        return self._confirm_result
+
+    def _do_show_confirmation(self, count: int, from_date: date | None, to_date: date | None) -> None:
+        if not self.dialog.winfo_exists():
+            if self._confirm_event:
+                self._confirm_event.set()
+            return
+
+        if from_date and to_date:
+            timeframe = f"{from_date} to {to_date}"
+        elif from_date:
+            timeframe = f"from {from_date}"
+        elif to_date:
+            timeframe = f"up to {to_date}"
+        else:
+            timeframe = "all available"
+
+        self.stream_label.config(text=f"Ready to sync {count} recording{'s' if count != 1 else ''}")
+        self.stream_progress["value"] = 0
+        self.operation_label.config(text=f"Timeframe: {timeframe}")
+        self.operation_progress["value"] = 0
+        self.status_label.config(text="Proceed with sync?")
+        self._proceed_btn.pack(side="left", padx=(8, 0))
+
+    def _on_proceed(self) -> None:
+        """Handle proceed button click — continue with sync."""
+        self._proceed_btn.pack_forget()
+        self.stream_label.config(text="Preparing...")
+        self.operation_label.config(text="")
+        self.status_label.config(text="")
+        self._confirm_result = True
+        if self._confirm_event:
+            self._confirm_event.set()
 
     def close(self) -> None:
         """Close the dialog (thread-safe)."""
@@ -1821,6 +1872,13 @@ class LabGUI:
 
                 if not missing_folders:
                     dialog.set_no_streams_to_sync()
+                    return
+
+                # Ask user to confirm before starting the sync
+                if not dialog.request_confirmation(len(missing_folders), from_date, to_date):
+                    return
+
+                if dialog.cancelled:
                     return
 
                 total_streams = len(missing_folders)

@@ -17,7 +17,9 @@ Application entry point. Creates storage directories (`archive/`, `images/`), in
 Tkinter-based GUI (`LabGUI` class). Provides:
 - Sync workflow
     - Shows a modal dialog to optionally specify a date range (from/to dates, defaults to today) to filter which remote recordings to sync
-    - Downloads new HLS streams from the Pi via SFTP
+    - Fetches the list of missing folders from the remote server in a background thread
+    - Once the list is ready, displays a confirmation step showing the recording count and timeframe, asking the user to proceed or cancel
+    - Upon confirmation, downloads new HLS streams from the Pi via SFTP
     - Converts HLS stream to PNGs
     - Cleans up HLS files locally
     - File browser for navigating synced recording images
