@@ -13,6 +13,7 @@ from lab.sync import (
     FileToSync,
     SyncError,
     SyncManager,
+    _remove_empty_date_dirs,
     remove_hls_files,
     remove_recording,
     remove_recording_locally,
@@ -1195,3 +1196,126 @@ class TestRemoveHlsFiles:
                 mock_m3u8.unlink.assert_called_once()
                 mock_tss.unlink.assert_not_called()
                 mock_m3u.unlink.assert_not_called()
+
+
+class TestRemoveEmptyDateDirs:
+    """Tests for _remove_empty_date_dirs function."""
+
+    def test_removes_empty_day_directory(self):
+        """Should remove empty day directory."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[]):
+                with patch.object(Path, "rmdir") as mock_rmdir:
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+                    # Should attempt to remove the day directory
+                    assert mock_rmdir.call_count >= 1
+
+    def test_removes_empty_month_directory(self):
+        """Should remove empty month directory when day is empty."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[]):
+                with patch.object(Path, "rmdir") as mock_rmdir:
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+                    # Should attempt to remove day and month directories
+                    assert mock_rmdir.call_count >= 2
+
+    def test_removes_empty_year_directory(self):
+        """Should remove empty year directory when all are empty."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[]):
+                with patch.object(Path, "rmdir") as mock_rmdir:
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+                    # Should attempt to remove all three directories
+                    assert mock_rmdir.call_count >= 3
+
+    def test_skips_removal_when_directory_has_files(self):
+        """Should not remove directory if it still has files."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        # Return a non-empty list to simulate files in directory
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[MagicMock()]):
+                with patch.object(Path, "rmdir") as mock_rmdir:
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+                    # Should not remove anything
+                    mock_rmdir.assert_not_called()
+
+    def test_handles_short_relative_path(self):
+        """Should ignore paths with fewer than 4 parts."""
+        relative_path = "2026/01"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists") as mock_exists:
+            with patch.object(Path, "rmdir") as mock_rmdir:
+                _remove_empty_date_dirs(base_path, relative_path)
+
+                # Should not attempt any operations for short paths
+                mock_exists.assert_not_called()
+                mock_rmdir.assert_not_called()
+
+    def test_handles_nonexistent_directory_gracefully(self):
+        """Should handle OSError gracefully."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", side_effect=FileNotFoundError("Not found")):
+                # Should not raise an exception
+                _remove_empty_date_dirs(base_path, relative_path)
+
+    def test_handles_os_error_gracefully(self):
+        """Should handle OSError when removing directories."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "iterdir", return_value=[]):
+                with patch.object(Path, "rmdir", side_effect=OSError("Permission denied")):
+                    # Should not raise an exception
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+    def test_stops_removal_when_directory_not_empty(self):
+        """Should stop trying to remove parent directories when a directory has content."""
+        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
+        base_path = Path("/storage")
+
+        call_sequence = []
+
+        def mock_exists(self):
+            path_str = str(self)
+            if "day" in path_str or "15" in path_str:
+                call_sequence.append(("exists_day", True))
+                return True
+            call_sequence.append(("exists", True))
+            return True
+
+        def mock_iterdir(self):
+            path_str = str(self)
+            if "day" in path_str or "15" in path_str:
+                call_sequence.append(("iterdir_day", []))
+                return []
+            # Month directory has content
+            call_sequence.append(("iterdir_month", [MagicMock()]))
+            return [MagicMock()]
+
+        with patch.object(Path, "exists", mock_exists):
+            with patch.object(Path, "iterdir", mock_iterdir):
+                with patch.object(Path, "rmdir") as mock_rmdir:
+                    _remove_empty_date_dirs(base_path, relative_path)
+
+                    # Should only remove the day directory
+                    assert mock_rmdir.call_count == 1

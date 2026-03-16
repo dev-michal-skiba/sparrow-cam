@@ -178,6 +178,31 @@ class SyncManager:
         except OSError as e:
             raise SyncError(f"Failed to remove remote folder {path}: {e}") from e
 
+    def _remove_empty_remote_date_dirs(self, relative_path: str) -> None:
+        """Remove empty day/month/year directories on remote after recording removal."""
+        if self._sftp is None:
+            raise SyncError("Not connected")
+
+        parts = Path(relative_path).parts
+        if len(parts) < 4:
+            return
+        year, month, day = parts[0], parts[1], parts[2]
+
+        try:
+            day_path = f"{REMOTE_ARCHIVE_PATH}/{year}/{month}/{day}"
+            if not self._sftp.listdir(day_path):
+                self._sftp.rmdir(day_path)
+
+                month_path = f"{REMOTE_ARCHIVE_PATH}/{year}/{month}"
+                if not self._sftp.listdir(month_path):
+                    self._sftp.rmdir(month_path)
+
+                    year_path = f"{REMOTE_ARCHIVE_PATH}/{year}"
+                    if not self._sftp.listdir(year_path):
+                        self._sftp.rmdir(year_path)
+        except OSError:
+            pass  # Best effort - don't fail if cleanup fails
+
     def remove_remote_folder(self, relative_path: str) -> None:
         """
         Remove a folder and its contents from the remote server.
@@ -522,12 +547,37 @@ class SyncManager:
         self.disconnect()
 
 
+def _remove_empty_date_dirs(base_path: Path, relative_path: str) -> None:
+    """Remove empty day/month/year directories under base_path after recording removal."""
+    parts = Path(relative_path).parts
+    if len(parts) < 4:
+        return
+    year, month, day = parts[0], parts[1], parts[2]
+
+    try:
+        day_dir = base_path / year / month / day
+        if day_dir.exists() and not any(day_dir.iterdir()):
+            day_dir.rmdir()
+
+            month_dir = base_path / year / month
+            if month_dir.exists() and not any(month_dir.iterdir()):
+                month_dir.rmdir()
+
+                year_dir = base_path / year
+                if year_dir.exists() and not any(year_dir.iterdir()):
+                    year_dir.rmdir()
+    except (FileNotFoundError, OSError):
+        # Best effort - don't fail if cleanup fails (directory already removed or in use)
+        pass
+
+
 def remove_recording(relative_path: str) -> None:
     """
     Remove a recording from remote server and local storage.
 
     Remote removal happens first. Local removal only proceeds if remote succeeds.
     Removes both the archive folder (HLS files) and images folder (PNG frames).
+    Empty day/month/year directories are cleaned up after removal.
 
     Args:
         relative_path: Path relative to archive/images root
@@ -539,16 +589,19 @@ def remove_recording(relative_path: str) -> None:
     # Step 1: Remove from remote server first
     with SyncManager() as sync:
         sync.remove_remote_folder(relative_path)
+        sync._remove_empty_remote_date_dirs(relative_path)
 
     # Step 2: Remote removal succeeded, now remove local archive folder
     local_archive_path = ARCHIVE_DIR / relative_path
     if local_archive_path.exists():
         shutil.rmtree(local_archive_path)
+    _remove_empty_date_dirs(ARCHIVE_DIR, relative_path)
 
     # Step 3: Remove local images folder
     local_images_path = IMAGES_DIR / relative_path
     if local_images_path.exists():
         shutil.rmtree(local_images_path)
+    _remove_empty_date_dirs(IMAGES_DIR, relative_path)
 
 
 def remove_recording_locally(relative_path: str) -> None:
@@ -557,6 +610,7 @@ def remove_recording_locally(relative_path: str) -> None:
 
     Preserves the local archive folder as a marker to prevent re-syncing.
     Does not touch the remote server.
+    Empty day/month/year directories are cleaned up after removal.
 
     Args:
         relative_path: Path relative to archive/images root
@@ -565,6 +619,7 @@ def remove_recording_locally(relative_path: str) -> None:
     local_images_path = IMAGES_DIR / relative_path
     if local_images_path.exists():
         shutil.rmtree(local_images_path)
+    _remove_empty_date_dirs(IMAGES_DIR, relative_path)
 
 
 def remove_hls_files(relative_path: str) -> int:
