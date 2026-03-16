@@ -16,6 +16,7 @@ Application entry point. Creates storage directories (`archive/`, `images/`), in
 ### `gui.py`
 Tkinter-based GUI (`LabGUI` class). Provides:
 - Sync workflow
+    - Shows a modal dialog to optionally specify a date range (from/to dates, defaults to today) to filter which remote recordings to sync
     - Downloads new HLS streams from the Pi via SFTP
     - Converts HLS stream to PNGs
     - Cleans up HLS files locally
@@ -48,7 +49,7 @@ YOLO dataset management. Handles:
 ### `sync.py`
 SFTP-based sync manager that downloads HLS archive folders from the production Raspberry Pi. Features:
 - SSH connection via Ed25519/RSA key from mounted secrets
-- Remote archive folder discovery (nested date structure)
+- Remote archive folder discovery (nested date structure) with optional date range filtering (from date / to date inclusive)
 - Per-file download with automatic retry and reconnection (up to 15 attempts)
 - Recording removal — both remote+local and local-only variants
 - HLS file cleanup (removes `.ts`/`.m3u8` while keeping the folder as a sync marker)

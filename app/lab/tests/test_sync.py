@@ -1,5 +1,6 @@
 """Tests for lab.sync module."""
 
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -502,6 +503,124 @@ class TestSyncManager:
 
                 assert len(missing) == 1
                 assert "2024/01/16/playlist2" in missing
+
+    def test_get_missing_folders_with_from_date(self):
+        """Should filter folders by from_date (inclusive)."""
+        manager = SyncManager()
+
+        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
+            mock_list.return_value = [
+                "2024/01/15/playlist1",
+                "2024/01/16/playlist2",
+                "2024/01/17/playlist3",
+            ]
+
+            # All folders don't exist locally
+            mock_path1 = MagicMock()
+            mock_path1.exists.return_value = False
+            mock_path2 = MagicMock()
+            mock_path2.exists.return_value = False
+            mock_path3 = MagicMock()
+            mock_path3.exists.return_value = False
+
+            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
+                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2, mock_path3]
+
+                # Only folders on or after 2024-01-16 should be included
+                missing = manager.get_missing_folders(from_date=date(2024, 1, 16))
+
+                assert len(missing) == 2
+                assert "2024/01/16/playlist2" in missing
+                assert "2024/01/17/playlist3" in missing
+                assert "2024/01/15/playlist1" not in missing
+
+    def test_get_missing_folders_with_to_date(self):
+        """Should filter folders by to_date (inclusive)."""
+        manager = SyncManager()
+
+        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
+            mock_list.return_value = [
+                "2024/01/15/playlist1",
+                "2024/01/16/playlist2",
+                "2024/01/17/playlist3",
+            ]
+
+            # All folders don't exist locally
+            mock_path1 = MagicMock()
+            mock_path1.exists.return_value = False
+            mock_path2 = MagicMock()
+            mock_path2.exists.return_value = False
+            mock_path3 = MagicMock()
+            mock_path3.exists.return_value = False
+
+            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
+                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2, mock_path3]
+
+                # Only folders on or before 2024-01-16 should be included
+                missing = manager.get_missing_folders(to_date=date(2024, 1, 16))
+
+                assert len(missing) == 2
+                assert "2024/01/15/playlist1" in missing
+                assert "2024/01/16/playlist2" in missing
+                assert "2024/01/17/playlist3" not in missing
+
+    def test_get_missing_folders_with_date_range(self):
+        """Should filter folders by date range (both from_date and to_date)."""
+        manager = SyncManager()
+
+        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
+            mock_list.return_value = [
+                "2024/01/15/playlist1",
+                "2024/01/16/playlist2",
+                "2024/01/17/playlist3",
+                "2024/01/18/playlist4",
+            ]
+
+            # All folders don't exist locally
+            mock_paths = [MagicMock() for _ in range(4)]
+            for mock_path in mock_paths:
+                mock_path.exists.return_value = False
+
+            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
+                mock_archive_dir.__truediv__.side_effect = mock_paths
+
+                # Only folders between 2024-01-16 and 2024-01-17 should be included
+                missing = manager.get_missing_folders(
+                    from_date=date(2024, 1, 16),
+                    to_date=date(2024, 1, 17),
+                )
+
+                assert len(missing) == 2
+                assert "2024/01/16/playlist2" in missing
+                assert "2024/01/17/playlist3" in missing
+                assert "2024/01/15/playlist1" not in missing
+                assert "2024/01/18/playlist4" not in missing
+
+    def test_get_missing_folders_invalid_date_format_included(self):
+        """Should include folders with invalid date format (date filter doesn't apply)."""
+        manager = SyncManager()
+
+        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
+            mock_list.return_value = [
+                "invalid/folder/path/playlist1",  # Invalid date format
+                "2024/01/15/playlist2",  # Valid date format
+            ]
+
+            mock_path1 = MagicMock()
+            mock_path1.exists.return_value = False
+            mock_path2 = MagicMock()
+            mock_path2.exists.return_value = False
+
+            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
+                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2]
+
+                # When from_date is set but folder has invalid date format,
+                # it's included because the date filter skips invalid dates
+                missing = manager.get_missing_folders(from_date=date(2024, 1, 15))
+
+                assert len(missing) == 2
+                assert "invalid/folder/path/playlist1" in missing
+                assert "2024/01/15/playlist2" in missing
 
     def test_sync_folder_not_connected(self):
         """Should raise SyncError when not connected."""

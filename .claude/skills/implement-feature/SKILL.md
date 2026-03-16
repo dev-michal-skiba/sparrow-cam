@@ -1,6 +1,6 @@
 ---
 name: implement-feature
-description: Implement a feature based on structured task format. Use when the user provides a task starting with a package name, colon and title followed by an optional description, "## Acceptance Criteria" section with bulleted criteria.
+description: Implement or plan a feature based on structured task format. Use when the user provides a task starting with a package name, colon and title followed by an optional description, "## Acceptance Criteria" section with bulleted criteria.
 ---
 
 # Implement Feature

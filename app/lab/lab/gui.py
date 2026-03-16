@@ -4,7 +4,7 @@ import re
 import shutil
 import threading
 import tkinter as tk
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -83,6 +83,98 @@ def parse_recording_folder_name(folder_name: str) -> tuple[str | None, str | Non
         return datetime_str, key
     except ValueError:
         return None, None
+
+
+class SyncOptionsDialog:
+    """Modal dialog for selecting optional date range to filter sync."""
+
+    def __init__(self, parent: tk.Tk) -> None:
+        self.parent = parent
+        self.result: tuple[date | None, date | None] | None = None  # (from_date, to_date) or None if cancelled
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Sync Options")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        today = date.today().strftime("%Y-%m-%d")
+
+        self._from_enabled = tk.BooleanVar(value=False)
+        self._from_var = tk.StringVar(value=today)
+        tk.Checkbutton(content, text="From date:", variable=self._from_enabled, command=self._on_toggle_from).grid(
+            row=0, column=0, sticky="w", pady=(0, 8)
+        )
+        self._from_entry = tk.Entry(content, textvariable=self._from_var, width=14, state="disabled")
+        self._from_entry.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        self._to_enabled = tk.BooleanVar(value=False)
+        self._to_var = tk.StringVar(value=today)
+        tk.Checkbutton(content, text="To date:", variable=self._to_enabled, command=self._on_toggle_to).grid(
+            row=1, column=0, sticky="w", pady=(0, 20)
+        )
+        self._to_entry = tk.Entry(content, textvariable=self._to_var, width=14, state="disabled")
+        self._to_entry.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(0, 20))
+
+        btn_frame = tk.Frame(content)
+        btn_frame.grid(row=2, column=0, columnspan=2)
+        tk.Button(btn_frame, text="Sync", command=self._on_sync, width=10).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Cancel", command=self._on_cancel, width=10).pack(side="left")
+
+        self._center_dialog()
+
+    def _center_dialog(self) -> None:
+        self.dialog.update_idletasks()
+        px, py = self.parent.winfo_x(), self.parent.winfo_y()
+        pw, ph = self.parent.winfo_width(), self.parent.winfo_height()
+        dw, dh = self.dialog.winfo_width(), self.dialog.winfo_height()
+        self.dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+    def _on_toggle_from(self) -> None:
+        self._from_entry.config(state="normal" if self._from_enabled.get() else "disabled")
+
+    def _on_toggle_to(self) -> None:
+        self._to_entry.config(state="normal" if self._to_enabled.get() else "disabled")
+
+    def _parse_date(self, value: str) -> tuple[date | None, bool]:
+        """Return (parsed_date, is_valid)."""
+        try:
+            return datetime.strptime(value.strip(), "%Y-%m-%d").date(), True
+        except ValueError:
+            return None, False
+
+    def _on_sync(self) -> None:
+        from_date: date | None = None
+        if self._from_enabled.get():
+            from_date, from_valid = self._parse_date(self._from_var.get())
+            if not from_valid:
+                messagebox.showerror("Invalid Date", "From date must be in YYYY-MM-DD format.", parent=self.dialog)
+                return
+
+        to_date: date | None = None
+        if self._to_enabled.get():
+            to_date, to_valid = self._parse_date(self._to_var.get())
+            if not to_valid:
+                messagebox.showerror("Invalid Date", "To date must be in YYYY-MM-DD format.", parent=self.dialog)
+                return
+
+        self.result = (from_date, to_date)
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def wait(self) -> tuple[date | None, date | None] | None:
+        """Block until dialog is closed; return (from_date, to_date) or None if cancelled."""
+        self.parent.wait_window(self.dialog)
+        return self.result
 
 
 class SyncProgressDialog:
@@ -1696,18 +1788,25 @@ class LabGUI:
             messagebox.showerror("Import Error", f"Failed to import settings:\n{e}")
 
     def start_sync(self) -> None:
-        """Start the sync operation in a background thread with progress dialog."""
+        """Show sync options dialog, then start the sync operation in a background thread."""
+        options_dialog = SyncOptionsDialog(self.root)
+        result = options_dialog.wait()
+        if result is None:
+            return  # User cancelled
+
+        from_date, to_date = result
+
         # Create and show progress dialog
         self.__sync_dialog = SyncProgressDialog(self.root)
 
         # Start sync thread
-        self.__sync_thread = threading.Thread(target=self._run_sync, daemon=True)
+        self.__sync_thread = threading.Thread(target=self._run_sync, args=(from_date, to_date), daemon=True)
         self.__sync_thread.start()
 
         # Poll for completion
         self.root.after(100, self._check_sync_complete)
 
-    def _run_sync(self) -> None:
+    def _run_sync(self, from_date: date | None, to_date: date | None) -> None:
         """Run sync, conversion, and cleanup in background thread (per-stream pipeline)."""
         dialog = self.__sync_dialog
 
@@ -1718,7 +1817,7 @@ class LabGUI:
                     return
 
                 # Get list of streams to process
-                missing_folders = sync.get_missing_folders()
+                missing_folders = sync.get_missing_folders(from_date=from_date, to_date=to_date)
 
                 if not missing_folders:
                     dialog.set_no_streams_to_sync()

@@ -8,6 +8,7 @@ import socket
 import stat
 import time
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import paramiko
@@ -309,9 +310,17 @@ class SyncManager:
 
         return files
 
-    def get_missing_folders(self) -> list[str]:
+    def get_missing_folders(
+        self,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[str]:
         """
         Find remote folders that don't exist locally.
+
+        Args:
+            from_date: If set, only include folders on or after this date (inclusive).
+            to_date: If set, only include folders on or before this date (inclusive).
 
         Returns list of relative paths like: {year}/{month}/{day}/{folder}
         """
@@ -319,6 +328,19 @@ class SyncManager:
         missing: list[str] = []
 
         for folder in remote_folders:
+            if from_date is not None or to_date is not None:
+                parts = folder.split("/")
+                if len(parts) >= 3:
+                    try:
+                        folder_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    except ValueError:
+                        pass
+                    else:
+                        if from_date is not None and folder_date < from_date:
+                            continue
+                        if to_date is not None and folder_date > to_date:
+                            continue
+
             local_path = ARCHIVE_DIR / folder
             if not local_path.exists():
                 missing.append(folder)
