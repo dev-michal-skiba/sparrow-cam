@@ -278,24 +278,25 @@ class TestLoadPreset:
 
         assert result["regions"] == [[10, 20, 100, 200]]
 
-    def test_preset_with_zero_regions_raises_value_error(self, tmp_path):
+    def test_preset_with_zero_regions_returns_dict(self, tmp_path):
         preset = {"regions": []}
         preset_path = tmp_path / "preset.json"
         preset_path.write_text(json.dumps(preset))
 
-        with pytest.raises(ValueError, match="exactly one detection region"):
-            load_preset(preset_path)
+        result = load_preset(preset_path)
+
+        assert result["regions"] == []
 
     def test_preset_with_multiple_regions_raises_value_error(self, tmp_path):
         preset = {"regions": [[0, 0, 50, 50], [60, 60, 110, 110]]}
         preset_path = tmp_path / "preset.json"
         preset_path.write_text(json.dumps(preset))
 
-        with pytest.raises(ValueError, match="exactly one detection region"):
+        with pytest.raises(ValueError, match="at most one detection region"):
             load_preset(preset_path)
 
     def test_error_message_includes_filename(self, tmp_path):
-        preset = {"regions": []}
+        preset = {"regions": [[0, 0, 50, 50], [60, 60, 110, 110]]}
         preset_path = tmp_path / "my_preset.json"
         preset_path.write_text(json.dumps(preset))
 

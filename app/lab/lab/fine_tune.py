@@ -104,15 +104,15 @@ def load_preset(preset_path: Path) -> dict:
     """
     Load and validate a preset JSON file.
 
-    Raises ValueError if the preset does not contain exactly one region.
+    Raises ValueError if the preset contains more than one region.
     """
     with open(preset_path) as f:
         preset = json.load(f)
 
     regions = preset.get("regions", [])
-    if len(regions) != 1:
+    if len(regions) > 1:
         raise ValueError(
-            f"Preset must define exactly one detection region, " f"but '{preset_path.name}' has {len(regions)}."
+            f"Preset must define at most one detection region, " f"but '{preset_path.name}' has {len(regions)}."
         )
     return preset
 
@@ -321,6 +321,46 @@ def prepare_cropped_dataset(
     (dest_dir / "dataset.yaml").write_text(yaml_content)
 
 
+def prepare_full_dataset(
+    source_dir: Path,
+    dest_dir: Path,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """
+    Build a full (uncropped) dataset copy at dest_dir from source_dir.
+
+    Copies all images and labels as-is and writes a new dataset.yaml pointing to dest_dir.
+    """
+    for split in ("train", "val"):
+        dest_images = dest_dir / "images" / split
+        dest_labels = dest_dir / "labels" / split
+        dest_images.mkdir(parents=True, exist_ok=True)
+        dest_labels.mkdir(parents=True, exist_ok=True)
+
+        src_images_dir = source_dir / "images" / split
+        src_labels_dir = source_dir / "labels" / split
+
+        if not src_images_dir.exists():
+            continue
+
+        for img_path in src_images_dir.glob("*.png"):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Fine-tuning cancelled.")
+            shutil.copy2(img_path, dest_images / img_path.name)
+
+            src_label = src_labels_dir / (img_path.stem + ".txt")
+            dest_label = dest_labels / (img_path.stem + ".txt")
+            if src_label.exists():
+                shutil.copy2(src_label, dest_label)
+            else:
+                dest_label.write_text("")
+
+    names = _parse_dataset_yaml(source_dir)
+    names_lines = "\n".join(f"  {k}: {v}" for k, v in names.items())
+    yaml_content = f"path: {dest_dir}\n" "train: images/train\n" "val: images/val\n" f"names:\n{names_lines}\n"
+    (dest_dir / "dataset.yaml").write_text(yaml_content)
+
+
 def run_fine_tune(
     version: str,
     description: str,
@@ -349,18 +389,24 @@ def run_fine_tune(
     dataset_yaml: Path
     preset_name: str | None = None
 
+    prepared_dataset_dir = output_dir / "dataset"
+
     if preset_path is not None:
         preset = load_preset(preset_path)
         preset_name = preset_path.name
-        region_list = preset["regions"][0]
-        region = (int(region_list[0]), int(region_list[1]), int(region_list[2]), int(region_list[3]))
-        imgsz = int(preset.get("params", {}).get("imgsz", _DEFAULT_IMGSZ))
+        regions = preset.get("regions", [])
 
-        cropped_dataset_dir = output_dir / "dataset"
-        prepare_cropped_dataset(DATASET_DIR, cropped_dataset_dir, region, cancel_event=cancel_event)
-        dataset_yaml = cropped_dataset_dir / "dataset.yaml"
+        if regions:
+            region_list = regions[0]
+            region = (int(region_list[0]), int(region_list[1]), int(region_list[2]), int(region_list[3]))
+            imgsz = int(preset.get("params", {}).get("imgsz", _DEFAULT_IMGSZ))
+            prepare_cropped_dataset(DATASET_DIR, prepared_dataset_dir, region, cancel_event=cancel_event)
+        else:
+            prepare_full_dataset(DATASET_DIR, prepared_dataset_dir, cancel_event=cancel_event)
     else:
-        dataset_yaml = DATASET_DIR / "dataset.yaml"
+        prepare_full_dataset(DATASET_DIR, prepared_dataset_dir, cancel_event=cancel_event)
+
+    dataset_yaml = prepared_dataset_dir / "dataset.yaml"
 
     # Use a temp runs dir inside output_dir to keep ultralytics artefacts contained
     runs_dir = output_dir / "runs"

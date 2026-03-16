@@ -237,6 +237,33 @@ def handle_user_error(method):
     return wrapper
 
 
+def show_copyable_error(parent: tk.Misc, title: str, message: str) -> None:
+    """Show an error dialog with selectable/copyable message text."""
+    dialog = tk.Toplevel(parent)
+    dialog.title(title)
+    dialog.transient(parent)
+    dialog.grab_set()
+    dialog.resizable(True, True)
+
+    frame = tk.Frame(dialog, padx=16, pady=16)
+    frame.pack(fill="both", expand=True)
+
+    tk.Label(frame, text=title, font=("Helvetica", 11, "bold"), fg="red").pack(anchor="w", pady=(0, 8))
+
+    text = tk.Text(frame, wrap="word", width=60, height=10, relief="flat", bg=dialog.cget("bg"))
+    text.insert("1.0", message)
+    text.bind("<Key>", lambda e: None if (e.state & 0x4) and e.keysym in ("c", "C", "a", "A") else "break")
+    text.pack(fill="both", expand=True, pady=(0, 12))
+
+    tk.Button(frame, text="Close", command=dialog.destroy, width=10).pack()
+
+    dialog.update_idletasks()
+    px = parent.winfo_rootx() + (parent.winfo_width() - dialog.winfo_width()) // 2
+    py = parent.winfo_rooty() + (parent.winfo_height() - dialog.winfo_height()) // 2
+    dialog.geometry(f"+{px}+{py}")
+    dialog.wait_window()
+
+
 class FineTuneDialog:
     """Modal dialog for collecting fine-tune parameters (version, description, preset)."""
 
@@ -2263,6 +2290,8 @@ class LabGUI:
             shutil.rmtree(output_dir, ignore_errors=True)
         except Exception as exc:
             self._fine_tune_error = str(exc)
+            output_dir = FINE_TUNED_MODELS_DIR / self._fine_tune_version
+            shutil.rmtree(output_dir, ignore_errors=True)
 
     def _check_fine_tune_complete(self) -> None:
         """Poll for fine-tune thread completion and clean up."""
@@ -2279,7 +2308,7 @@ class LabGUI:
         if self._fine_tune_cancelled:
             messagebox.showinfo("Fine Tune Cancelled", "Fine tuning cancelled successfully.")
         elif self._fine_tune_error:
-            messagebox.showerror("Fine Tune Error", self._fine_tune_error)
+            show_copyable_error(self.root, "Fine Tune Error", self._fine_tune_error)
         else:
             messagebox.showinfo(
                 "Fine Tune Complete",
