@@ -1,6 +1,7 @@
 import functools
 import json
 import re
+import shutil
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -2175,6 +2176,8 @@ class LabGUI:
         self._fine_tune_preset_path = preset_path
         self._fine_tune_error: str | None = None
         self._fine_tune_result: Path | None = None
+        self._fine_tune_cancelled = False
+        self._fine_tune_cancel_event = threading.Event()
 
         self._fine_tune_progress = tk.Toplevel(self.root)
         self._fine_tune_progress.title("Fine Tuning")
@@ -2200,6 +2203,9 @@ class LabGUI:
             frame, text="Training output is also printed to the terminal.", fg="#888888", font=("TkDefaultFont", 8)
         ).pack(pady=(4, 0))
 
+        self._ft_cancel_btn = tk.Button(frame, text="Cancel", command=self._on_cancel_fine_tune, width=10)
+        self._ft_cancel_btn.pack(pady=(12, 0))
+
         self._fine_tune_progress.update_idletasks()
         px = self.root.winfo_x() + (self.root.winfo_width() - self._fine_tune_progress.winfo_width()) // 2
         py = self.root.winfo_y() + (self.root.winfo_height() - self._fine_tune_progress.winfo_height()) // 2
@@ -2208,6 +2214,12 @@ class LabGUI:
         self._fine_tune_thread = threading.Thread(target=self._run_fine_tune, daemon=True)
         self._fine_tune_thread.start()
         self.root.after(200, self._check_fine_tune_complete)
+
+    def _on_cancel_fine_tune(self) -> None:
+        """Signal fine-tuning cancellation from the UI."""
+        self._fine_tune_cancel_event.set()
+        self._ft_cancel_btn.config(state="disabled")
+        self._ft_phase_var.set("Cancelling...")
 
     def _on_fine_tune_epoch(self, current: int, total: int) -> None:
         """Update progress dialog from background thread (thread-safe via root.after)."""
@@ -2234,7 +2246,12 @@ class LabGUI:
                 self._fine_tune_description,
                 self._fine_tune_preset_path,
                 on_epoch=self._on_fine_tune_epoch,
+                cancel_event=self._fine_tune_cancel_event,
             )
+        except fine_tune.TrainingCancelledError:
+            self._fine_tune_cancelled = True
+            output_dir = FINE_TUNED_MODELS_DIR / self._fine_tune_version
+            shutil.rmtree(output_dir, ignore_errors=True)
         except Exception as exc:
             self._fine_tune_error = str(exc)
 
@@ -2250,7 +2267,9 @@ class LabGUI:
 
         self._apply_mode()
 
-        if self._fine_tune_error:
+        if self._fine_tune_cancelled:
+            messagebox.showinfo("Fine Tune Cancelled", "Fine tuning cancelled successfully.")
+        elif self._fine_tune_error:
             messagebox.showerror("Fine Tune Error", self._fine_tune_error)
         else:
             messagebox.showinfo(

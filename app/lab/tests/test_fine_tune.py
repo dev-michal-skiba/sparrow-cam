@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from lab.fine_tune import (
-    _is_box_fully_inside,
     _parse_dataset_yaml,
     _remap_label_line,
     get_available_models,
@@ -574,7 +573,7 @@ class TestRunFineTune:
         dataset_dir.mkdir()
         self._make_dataset(dataset_dir)
 
-        def fake_prepare(src, dst, region):
+        def fake_prepare(src, dst, region, **kwargs):
             dst.mkdir(parents=True, exist_ok=True)
             self._make_dataset(dst)
 
@@ -755,7 +754,7 @@ class TestRunFineTune:
         dataset_dir.mkdir()
         self._make_dataset(dataset_dir)
 
-        def fake_prepare(src, dst, region):
+        def fake_prepare(src, dst, region, **kwargs):
             dst.mkdir(parents=True, exist_ok=True)
             self._make_dataset(dst)
 

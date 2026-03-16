@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import shutil
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-
-import random
 
 import cv2
 
 from lab.constants import DATASET_DIR, FINE_TUNED_MODELS_DIR
 
 _VERSION_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
+
+
+class TrainingCancelledError(Exception):
+    """Raised when fine-tuning is cancelled via a cancel event."""
+
+
 _DEFAULT_IMGSZ = 480
 _DEFAULT_EPOCHS = 100
 _DEFAULT_BATCH = 16
@@ -223,6 +229,7 @@ def prepare_cropped_dataset(
     source_dir: Path,
     dest_dir: Path,
     region: tuple[int, int, int, int],
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """
     Build a cropped dataset at dest_dir from source_dir.
@@ -254,6 +261,8 @@ def prepare_cropped_dataset(
         total_original_positives = 0
 
         for img_path in src_images_dir.glob("*.png"):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Fine-tuning cancelled.")
             frame = cv2.imread(str(img_path))
             if frame is None:
                 continue
@@ -261,9 +270,7 @@ def prepare_cropped_dataset(
             orig_h, orig_w = frame.shape[:2]
             src_label = src_labels_dir / (img_path.stem + ".txt")
             annotation_lines = [
-                ln
-                for ln in (src_label.read_text().splitlines() if src_label.exists() else [])
-                if ln.strip()
+                ln for ln in (src_label.read_text().splitlines() if src_label.exists() else []) if ln.strip()
             ]
 
             if annotation_lines:
@@ -278,10 +285,12 @@ def prepare_cropped_dataset(
             target_neg = round(len(negative_paths) * len(positive_paths) / total_original_positives)
         else:
             target_neg = len(negative_paths)
-        kept_negatives = random.sample(negative_paths, min(target_neg, len(negative_paths)))
+        kept_negatives = random.sample(negative_paths, min(target_neg, len(negative_paths)))  # nosec B311
 
         # Second pass: crop and write only the kept images
         for img_path in positive_paths + kept_negatives:
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Fine-tuning cancelled.")
             frame = cv2.imread(str(img_path))
             if frame is None:
                 continue
@@ -317,6 +326,7 @@ def run_fine_tune(
     description: str,
     preset_path: Path | None = None,
     on_epoch: Callable[[int, int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """
     Fine-tune YOLOv8n and save model + metadata to FINE_TUNED_MODELS_DIR/version/.
@@ -347,7 +357,7 @@ def run_fine_tune(
         imgsz = int(preset.get("params", {}).get("imgsz", _DEFAULT_IMGSZ))
 
         cropped_dataset_dir = output_dir / "dataset"
-        prepare_cropped_dataset(DATASET_DIR, cropped_dataset_dir, region)
+        prepare_cropped_dataset(DATASET_DIR, cropped_dataset_dir, region, cancel_event=cancel_event)
         dataset_yaml = cropped_dataset_dir / "dataset.yaml"
     else:
         dataset_yaml = DATASET_DIR / "dataset.yaml"
@@ -358,11 +368,17 @@ def run_fine_tune(
 
     model = YOLO(_BASE_MODEL)
 
-    if on_epoch is not None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise TrainingCancelledError("Fine-tuning cancelled.")
+
+    if on_epoch is not None or cancel_event is not None:
         total = _DEFAULT_EPOCHS
 
         def _epoch_callback(trainer) -> None:
-            on_epoch(trainer.epoch + 1, total)
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Fine-tuning cancelled.")
+            if on_epoch is not None:
+                on_epoch(trainer.epoch + 1, total)
 
         model.add_callback("on_train_epoch_end", _epoch_callback)
 

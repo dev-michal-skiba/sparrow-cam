@@ -29,7 +29,7 @@ Tkinter-based GUI (`LabGUI` class). Provides:
 - Annotation
     - Manually annotate birds on images and update local dataset
     - Dataset statistics display (per-class train/val counts) always visible
-- Fine-tune dialog — collects version, description, and optional crop preset, then runs training in a background thread
+- Fine-tune dialog — collects version, description, and optional crop preset, then runs training in a background thread with a Cancel button to stop training and clean up partial output
 - FPS tracking — reads actual FPS from `stream_info.json` during recording playback, with fallback to calculated frames-per-segment for older streams
 
 ### `annotations.py`
@@ -62,6 +62,7 @@ YOLOv8 fine-tuning pipeline:
     - Negative frames (frames without annotations) are randomly subsampled to preserve the original positive-to-negative ratio
 - Runs `YOLO.train()` (100 epochs, batch 16, imgsz 480 by default)
 - Saves `model.pt` + `meta.json` (version, description, classes, metrics) per version
+- Supports cancellation: training can be stopped via a cancellation signal, which raises `TrainingCancelledError` and allows cleanup of partial output
 
 ### `constants.py`
 Shared path constants and regex patterns:

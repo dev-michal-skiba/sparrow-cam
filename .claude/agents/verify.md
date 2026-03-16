@@ -45,7 +45,7 @@ Run tests, formatting and lint checks for a package. Fix any issues found at eac
 
 ## 3. Implement Tests for New Features
 
-- Identify new functions/methods from the changes in step 1
+- Identify new functions/methods/features from the changes in step 1
 - Write tests for new features following existing test patterns
 - Run tests again and fix failures until all pass
 - Verify test coverage: both overall and per-file coverage must be ≥90%
