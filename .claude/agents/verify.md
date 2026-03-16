@@ -50,6 +50,7 @@ Run tests, formatting and lint checks for a package. Fix any issues found at eac
 - Run tests again and fix failures until all pass
 - Verify test coverage: both overall and per-file coverage must be ≥90%
   - If coverage is insufficient, add tests for uncovered code paths
+  - Make sure lines changed are covered
 
 ## 4. Verify E2E Tests
 

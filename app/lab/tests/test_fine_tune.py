@@ -628,14 +628,20 @@ class TestRunFineTune:
         ):
             run_fine_tune("v1.0.0", "epoch test", on_epoch=on_epoch)
 
-        assert len(callbacks) == 1
-        assert callbacks[0][0] == "on_train_epoch_end"
+        assert len(callbacks) == 2
+        assert callbacks[0][0] == "on_train_epoch_start"
+        assert callbacks[1][0] == "on_train_epoch_end"
 
-        # Simulate the callback being triggered
+        # Simulate the epoch start callback being triggered
         fake_trainer = MagicMock()
         fake_trainer.epoch = 4
         callbacks[0][1](fake_trainer)
-        assert epoch_calls == [(5, 100)]
+        assert epoch_calls == [(4, 100)]
+
+        # Simulate the epoch end callback being triggered
+        fake_trainer.epoch = 4
+        callbacks[1][1](fake_trainer)
+        assert epoch_calls == [(4, 100), (5, 100)]
 
     def test_best_weights_copied_when_present(self, tmp_path):
         dataset_dir = tmp_path / "dataset"

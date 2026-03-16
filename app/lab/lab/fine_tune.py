@@ -428,9 +428,13 @@ def run_fine_tune(
     if on_epoch is not None:
         total = _DEFAULT_EPOCHS
 
+        def _epoch_start_callback(trainer) -> None:
+            on_epoch(trainer.epoch, total)
+
         def _epoch_callback(trainer) -> None:
             on_epoch(trainer.epoch + 1, total)
 
+        model.add_callback("on_train_epoch_start", _epoch_start_callback)
         model.add_callback("on_train_epoch_end", _epoch_callback)
 
     results = model.train(
