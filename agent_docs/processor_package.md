@@ -28,9 +28,10 @@
 - Segment deduplication
 
 ### `bird_detector.py`
-- YOLOv8 bird detection wrapper
-- Loads and fuses model for inference
+- Fine-tuned YOLOv8 model wrapper for bird detection
+- Loads and fuses a custom model trained to detect specific bird species (Great Tit, Pigeon)
 - Methods to detect bird presence in frames and retrieve bounding boxes with associated class IDs
+- Defaults to bundled fine-tuned model but supports custom model paths
 
 ### `bird_annotator.py`
 - Detection result persistence

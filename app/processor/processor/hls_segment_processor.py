@@ -13,13 +13,13 @@ from processor.utils import load_detection_preset
 logger = logging.getLogger(__name__)
 
 # Archive configuration
-ARCHIVE_ENABLED = False  # Set to True to enable archiving bird detections
+ARCHIVE_ENABLED = True  # Set to True to enable archiving bird detections
 ARCHIVE_SEGMENT_COUNT = 30  # Total segments to archive
 SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
 SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
 
 # Detection configuration
-DETECTION_FRAME_COUNT = 4  # Number of frames to check for bird detection per segment
+DETECTION_FRAME_COUNT = 2  # Number of frames to check for bird detection per segment
 
 
 def _get_detection_frame_indices(total_frames: int, frame_count: int) -> list[int]:
