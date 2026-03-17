@@ -34,7 +34,7 @@ Tkinter-based GUI (`LabGUI` class). Provides:
     - Dataset statistics display (per-class train/val counts) always visible
 - Fine-tune dialog — collects version, description, and optional crop preset, then runs training in a background thread with a Cancel button to stop training and clean up partial output
 - Evaluate dialog — shows list of fine-tuned models that haven't been evaluated yet, runs evaluation in a background thread with a Cancel button, displays COCO-style metrics and plots
-- FPS tracking — reads actual FPS from `stream_info.json` during recording playback, with fallback to calculated frames-per-segment for older streams
+- FPS tracking — reads actual FPS from `stream_info.json` during recording playback
 
 ### `annotations.py`
 YOLO dataset management. Handles:

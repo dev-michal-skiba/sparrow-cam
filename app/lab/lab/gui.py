@@ -1152,35 +1152,10 @@ class LabGUI:
         frames.sort(key=lambda x: (x[0], x[1]))
         return [f[2] for f in frames]
 
-    def calculate_frames_per_segment(self) -> int:
-        """Calculate frames per segment from the first segment's frame count (fallback for old streams)."""
-        if not self.__frame_files:
-            return 0
-
-        # Get the first segment number
-        first_match = IMAGE_FILENAME_PATTERN.match(self.__frame_files[0].name)
-        if not first_match:
-            return 0
-
-        first_segment = int(first_match.group(2))
-
-        # Count frames in first segment
-        count = 0
-        for frame_file in self.__frame_files:
-            match = IMAGE_FILENAME_PATTERN.match(frame_file.name)
-            if match and int(match.group(2)) == first_segment:
-                count += 1
-            elif match:
-                # We've moved to the next segment
-                break
-
-        return count
-
     def _calculate_fps(self) -> int:
         """Return actual FPS for the current recording.
 
         Reads fps from stream_info.json saved during conversion.
-        Falls back to frames-per-segment count for streams converted before this feature.
         """
         if not self.__frame_files:
             return 0
@@ -1195,7 +1170,7 @@ class LabGUI:
             except (ValueError, KeyError):
                 pass
 
-        return self.calculate_frames_per_segment()
+        return 0
 
     def scan_all_recordings(self) -> list[Path]:
         """
