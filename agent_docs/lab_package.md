@@ -29,6 +29,7 @@ Tkinter-based GUI (`LabGUI` class). Provides:
     - Set detection region, yolo detection parameters
         - Export/import it to/from file
     - Test bird detection on different images
+    - Legend showing detected bird classes with color-coded swatches after detection runs
 - Annotation
     - Manually annotate birds on images and update local dataset
     - Dataset statistics display (per-class train/val counts) always visible
@@ -87,8 +88,9 @@ Shared path constants and regex patterns:
 ### `utils.py`
 Business logic utilities for bird detection and image processing:
 - Path validation (ensures files are inside storage boundary)
-- Frame loading and annotation rendering (draws detection boxes on images)
-- `get_annotated_image_bytes()` — runs `BirdDetector` on an image (optionally cropped to regions), annotates detected boxes, returns base64-encoded PNG
+- Frame loading and annotation rendering (draws detection boxes on images with class-specific colors)
+- Color mappings per bird class for both OpenCV (BGR) and tkinter (hex) formats
+- `get_annotated_image_bytes()` — runs `BirdDetector` on an image (optionally cropped to regions), annotates detected boxes with class-specific colors, optionally collects detected class IDs, returns base64-encoded PNG
 
 ### `exception.py`
 Defines `UserFacingError` — an exception with `title`, `message`, and `severity` ("error" or "info") for displaying popup dialogs via the `@handle_user_error` decorator in `gui.py`.

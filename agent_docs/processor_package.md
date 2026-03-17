@@ -30,7 +30,7 @@
 ### `bird_detector.py`
 - YOLOv8 bird detection wrapper
 - Loads and fuses model for inference
-- Methods to detect bird presence in frames and retrieve bounding boxes
+- Methods to detect bird presence in frames and retrieve bounding boxes with associated class IDs
 
 ### `bird_annotator.py`
 - Detection result persistence
@@ -45,7 +45,8 @@
 - Runnable as standalone CLI for manual archiving
 
 ### `types.py`
-- Custom type aliases used across the package
+- Custom data structures used across the package
+- Defines the detection box structure as a named tuple with box coordinates and class ID
 
 ### `constants.py`
 - Shared path constants and configuration values

@@ -34,4 +34,7 @@ class BirdDetector:
         if not results or results[0].boxes is None:
             return []
 
-        return [DetectionBox(map(int, box.tolist())) for box in results[0].boxes.xyxy]
+        return [
+            DetectionBox(int(box[0]), int(box[1]), int(box[2]), int(box[3]), int(cls))
+            for box, cls in zip(results[0].boxes.xyxy, results[0].boxes.cls)
+        ]

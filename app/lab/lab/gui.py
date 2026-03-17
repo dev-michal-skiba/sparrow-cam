@@ -15,7 +15,7 @@ from lab.constants import ARCHIVE_DIR, FINE_TUNED_MODELS_DIR, IMAGE_FILENAME_PAT
 from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
 from lab.sync import SyncError, SyncManager, remove_hls_files, remove_recording, remove_recording_locally
-from lab.utils import Region, get_annotated_image_bytes
+from lab.utils import BIRD_CLASS_TK_COLORS, Region, get_annotated_image_bytes
 
 MIN_SELECTION_SIZE = 100
 MIN_ANNOTATION_SIZE = 10
@@ -930,6 +930,7 @@ class LabGUI:
 
         self.import_btn = tk.Button(self.params_frame, text="Import", command=self.import_settings)
 
+
         # Recording info header (hidden until recording is loaded)
         self.__recording_info_text = tk.StringVar(value="")
         self.recording_info_label = tk.Label(
@@ -992,6 +993,9 @@ class LabGUI:
         # Canvas for image preview with selection support
         self.image_canvas = tk.Canvas(self.root, highlightthickness=0)
         self.image_canvas.pack(padx=24, pady=(0, 24))
+
+        # Detection legend — overlaid on the canvas at bottom-left (shown after detection)
+        self.legend_frame = tk.Frame(self.image_canvas, bg="#1e1e1e")
         self.__canvas_image_id: int | None = None
 
         # Bind mouse events for selection
@@ -1354,6 +1358,27 @@ class LabGUI:
         if self.clear_btn.winfo_ismapped():
             self.clear_btn.pack_forget()
 
+    def _show_legend(self, detected_classes: set[int]) -> None:
+        """Show legend with colors for each detected bird class, overlaid at bottom-left of canvas."""
+        _BG = "#1e1e1e"
+        _FG = "#ffffff"
+        # Clear any previous legend contents
+        for widget in self.legend_frame.winfo_children():
+            widget.destroy()
+
+        tk.Label(self.legend_frame, text="Detected:", bg=_BG, fg=_FG).pack(side="left", padx=(0, 8))
+        for class_name, class_id in annotations.AVAILABLE_CLASSES:
+            if class_id not in detected_classes:
+                continue
+            color = BIRD_CLASS_TK_COLORS.get(class_id, "#ffa500")
+            tk.Label(self.legend_frame, text="  ", bg=color).pack(side="left")
+            tk.Label(self.legend_frame, text=class_name, bg=_BG, fg=_FG).pack(side="left", padx=(2, 12))
+
+        self.legend_frame.place(relx=0, rely=1, anchor="sw", x=6, y=-6)
+
+    def _hide_legend(self) -> None:
+        self.legend_frame.place_forget()
+
     def on_selection_start(self, event) -> None:
         """Start drawing a new selection rectangle."""
         if self.__image_obj is None:
@@ -1592,6 +1617,7 @@ class LabGUI:
             self.__image_obj = tk.PhotoImage(file=self.__selected_image)
             self.set_image_preview()
 
+        self._hide_legend()
         self.hide_clear_button()
 
     def clear_canvas_elements(self) -> None:
@@ -1699,6 +1725,8 @@ class LabGUI:
 
         # Clear canvas elements
         self.clear_canvas_elements()
+        self._hide_legend()
+        self.hide_clear_button()
         self.set_image_preview()
 
         if self.__annotation_mode:
@@ -1811,11 +1839,13 @@ class LabGUI:
         self.set_image_preview()
 
         regions = [Region(*coords) for coords in self.__selection_regions] if self.__selection_regions else None
+        detected_classes: set[int] = set()
         self.__image_obj = tk.PhotoImage(
             data=get_annotated_image_bytes(
                 self.detector,
                 self.__selected_image,
                 regions=regions,
+                detected_classes_out=detected_classes,
                 conf=self.conf_var.get(),
                 imgsz=self.imgsz_var.get(),
                 iou=self.iou_var.get(),
@@ -1823,6 +1853,7 @@ class LabGUI:
             format="png",
         )
         self.set_image_preview()
+        self._show_legend(detected_classes)
         self.show_clear_button()
 
     def export_settings(self) -> None:
@@ -2697,13 +2728,14 @@ class LabGUI:
             if vis[mode_idx]:
                 widget.pack(**pack_kw)
 
-        # params_frame container (detection only, above canvas but below timestamp/annotation status)
+        # params_frame (detection only, above canvas) and legend_frame (overlaid on canvas)
         if in_detection:
             if not self.params_frame.winfo_ismapped():
                 self.params_frame.pack(before=self.image_canvas, pady=(0, 12))
         else:
             if self.params_frame.winfo_ismapped():
                 self.params_frame.pack_forget()
+            self._hide_legend()
 
         # nav_frame + progress_frame (detection + annotation)
         if in_file:
