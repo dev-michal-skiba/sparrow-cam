@@ -33,6 +33,7 @@ Tkinter-based GUI (`LabGUI` class). Provides:
     - Manually annotate birds on images and update local dataset
     - Dataset statistics display (per-class train/val counts) always visible
 - Fine-tune dialog — collects version, description, and optional crop preset, then runs training in a background thread with a Cancel button to stop training and clean up partial output
+- Evaluate dialog — shows list of fine-tuned models that haven't been evaluated yet, runs evaluation in a background thread with a Cancel button, displays COCO-style metrics and plots
 - FPS tracking — reads actual FPS from `stream_info.json` during recording playback, with fallback to calculated frames-per-segment for older streams
 
 ### `annotations.py`
@@ -66,6 +67,14 @@ YOLOv8 fine-tuning pipeline:
 - Runs `YOLO.train()` (100 epochs, batch 16, imgsz 480 by default)
 - Saves `model.pt` + `meta.json` (version, description, classes, metrics) per version
 - Supports cancellation: training can be stopped via a cancellation signal, which raises `TrainingCancelledError` and allows cleanup of partial output
+
+### `evaluation.py`
+YOLOv8 model evaluation pipeline:
+- Lists fine-tuned models from `FINE_TUNED_MODELS_DIR` that have not been evaluated yet
+- Runs `YOLO.val()` on a model's validation set to compute COCO-style metrics
+- Computes and saves comprehensive metrics (mAP50, mAP50-95, precision, recall) and per-class metrics
+- Saves evaluation results, plots, and CSV files to `{version}/evaluation/` directory
+- Supports cancellation: evaluation can be stopped via a cancellation signal, which raises `EvaluationCancelledError`
 
 ### `constants.py`
 Shared path constants and regex patterns:

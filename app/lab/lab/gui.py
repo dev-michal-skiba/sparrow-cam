@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from processor.bird_detector import DEFAULT_DETECTION_PARAMS, BirdDetector
 
-from lab import annotations, fine_tune
+from lab import annotations, evaluation, fine_tune
 from lab.constants import ARCHIVE_DIR, FINE_TUNED_MODELS_DIR, IMAGE_FILENAME_PATTERN, IMAGES_DIR, PRESETS_DIR
 from lab.converter import convert_playlist_to_pngs
 from lab.exception import UserFacingError
@@ -642,6 +642,87 @@ class ModelSelectDialog:
         return self.result
 
 
+class EvaluateModelDialog:
+    """Modal dialog for selecting a fine-tuned model to evaluate."""
+
+    def __init__(self, parent: tk.Tk) -> None:
+        self.parent = parent
+        self.result: str | None = None  # version string or None
+
+        self._models = evaluation.get_models_without_evaluation()
+
+        if not self._models:
+            messagebox.showinfo(
+                "No Models to Evaluate",
+                "All fine-tuned models have already been evaluated,\nor no fine-tuned models exist.",
+                parent=parent,
+            )
+            return
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Evaluate Model")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        content = tk.Frame(self.dialog, padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        tk.Label(content, text="Select model to evaluate:", anchor="w").pack(fill="x", pady=(0, 8))
+
+        list_frame = tk.Frame(content)
+        list_frame.pack(fill="both", expand=True, pady=(0, 12))
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self._listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, width=60, height=8)
+        self._listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self._listbox.yview)
+
+        for model in self._models:
+            display_text = f"{model['version']} - {model['description']}"
+            self._listbox.insert(tk.END, display_text)
+
+        if self._models:
+            self._listbox.selection_set(0)
+
+        btn_frame = tk.Frame(content)
+        btn_frame.pack()
+        tk.Button(btn_frame, text="Evaluate", command=self._on_evaluate, width=10).pack(side="left", padx=(0, 8))
+        tk.Button(btn_frame, text="Cancel", command=self._on_cancel, width=10).pack(side="left")
+
+        self._center_dialog()
+
+    def _center_dialog(self) -> None:
+        self.dialog.update_idletasks()
+        px, py = self.parent.winfo_x(), self.parent.winfo_y()
+        pw, ph = self.parent.winfo_width(), self.parent.winfo_height()
+        dw, dh = self.dialog.winfo_width(), self.dialog.winfo_height()
+        self.dialog.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+    def _on_evaluate(self) -> None:
+        selection = self._listbox.curselection()
+        if selection:
+            self.result = self._models[selection[0]]["version"]
+        self.dialog.grab_release()
+        self.dialog.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        if hasattr(self, "dialog"):
+            self.dialog.grab_release()
+            self.dialog.destroy()
+
+    def wait(self) -> str | None:
+        """Block until dialog is closed; return version string or None if cancelled."""
+        if not self._models:
+            return None
+        self.parent.wait_window(self.dialog)
+        return self.result
+
+
 class RemoveRecordingDialog:
     """Modal dialog for choosing how to remove a recording: locally or completely."""
 
@@ -776,6 +857,9 @@ class LabGUI:
 
         self.fine_tune_btn = tk.Button(self.button_frame, text="Fine tune", command=self.open_fine_tune_dialog)
         self.fine_tune_btn.pack(side="left", padx=(0, 8))
+
+        self.evaluate_btn = tk.Button(self.button_frame, text="Evaluate", command=self.open_evaluate_dialog)
+        self.evaluate_btn.pack(side="left", padx=(0, 8))
 
         self.select_model_btn = tk.Button(self.button_frame, text="Select model", command=self.open_model_select_dialog)
 
@@ -988,6 +1072,7 @@ class LabGUI:
             ("sync_btn", self.sync_btn, {"side": "left", "padx": (0, 8)}, True, False, False),
             ("select_btn", self.select_btn, {"side": "left", "padx": (0, 8)}, True, True, False),
             ("fine_tune_btn", self.fine_tune_btn, {"side": "left", "padx": (0, 8)}, True, False, False),
+            ("evaluate_btn", self.evaluate_btn, {"side": "left", "padx": (0, 8)}, True, False, False),
             ("select_model_btn", self.select_model_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
             ("remove_btn", self.remove_btn, {"side": "left", "padx": (0, 8)}, False, True, False),
             ("detect_btn", self.detect_btn, {"side": "left"}, False, True, False),
@@ -2471,6 +2556,140 @@ class LabGUI:
                 "Fine Tune Complete",
                 f"Model saved to:\n{self._fine_tune_result}",
             )
+
+    # ------------------------------------------------------------------
+    # Evaluate model
+    # ------------------------------------------------------------------
+
+    def open_evaluate_dialog(self) -> None:
+        """Open the evaluate model dialog and start evaluation if confirmed."""
+        dialog = EvaluateModelDialog(self.root)
+        result = dialog.wait()
+        if result is None:
+            return
+        self.start_evaluation(result)
+
+    def start_evaluation(self, version: str) -> None:
+        """Show progress dialog and run evaluation in a background thread."""
+        self._eval_version = version
+        self._eval_error: str | None = None
+        self._eval_result: Path | None = None
+        self._eval_cancelled = False
+        self._eval_cancel_event = threading.Event()
+
+        self._eval_progress = tk.Toplevel(self.root)
+        self._eval_progress.title("Evaluating Model")
+        self._eval_progress.transient(self.root)
+        self._eval_progress.grab_set()
+        self._eval_progress.resizable(False, False)
+        self._eval_progress.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        frame = tk.Frame(self._eval_progress, padx=24, pady=24)
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text=f"Evaluating model {version}...", font=("Helvetica", 12)).pack(pady=(0, 12))
+
+        self._eval_phase_var = tk.StringVar(value="Running validation...")
+        tk.Label(frame, textvariable=self._eval_phase_var, fg="#444444").pack(pady=(0, 8))
+
+        self._eval_bar = ttk.Progressbar(frame, length=360, mode="indeterminate")
+        self._eval_bar.pack(pady=(0, 4))
+        self._eval_bar.start(20)
+
+        tk.Label(
+            frame, text="Evaluation output is also printed to the terminal.", fg="#888888", font=("TkDefaultFont", 8)
+        ).pack(pady=(4, 0))
+
+        self._eval_cancel_btn = tk.Button(frame, text="Cancel", command=self._on_cancel_evaluation, width=10)
+        self._eval_cancel_btn.pack(pady=(12, 0))
+
+        self._eval_progress.update_idletasks()
+        px = self.root.winfo_x() + (self.root.winfo_width() - self._eval_progress.winfo_width()) // 2
+        py = self.root.winfo_y() + (self.root.winfo_height() - self._eval_progress.winfo_height()) // 2
+        self._eval_progress.geometry(f"+{px}+{py}")
+
+        self._eval_thread = threading.Thread(target=self._run_evaluation, daemon=True)
+        self._eval_thread.start()
+        self.root.after(200, self._check_evaluation_complete)
+
+    def _on_cancel_evaluation(self) -> None:
+        """Signal evaluation cancellation from the UI."""
+        self._eval_cancel_event.set()
+        self._eval_cancel_btn.config(state="disabled")
+        self._eval_phase_var.set("Cancelling...")
+
+    def _run_evaluation(self) -> None:
+        """Execute evaluation in background thread."""
+        try:
+            self._eval_result = evaluation.run_evaluation(
+                self._eval_version,
+                cancel_event=self._eval_cancel_event,
+            )
+        except evaluation.EvaluationCancelledError:
+            self._eval_cancelled = True
+            eval_dir = FINE_TUNED_MODELS_DIR / self._eval_version / evaluation.EVALUATION_DIR_NAME
+            shutil.rmtree(eval_dir, ignore_errors=True)
+        except Exception as exc:
+            self._eval_error = str(exc)
+            eval_dir = FINE_TUNED_MODELS_DIR / self._eval_version / evaluation.EVALUATION_DIR_NAME
+            shutil.rmtree(eval_dir, ignore_errors=True)
+
+    def _check_evaluation_complete(self) -> None:
+        """Poll for evaluation thread completion and clean up."""
+        if self._eval_thread.is_alive():
+            self.root.after(500, self._check_evaluation_complete)
+            return
+
+        if self._eval_progress.winfo_exists():
+            self._eval_bar.stop()
+            self._eval_progress.grab_release()
+            self._eval_progress.destroy()
+
+        self._apply_mode()
+
+        if self._eval_cancelled:
+            messagebox.showinfo("Evaluation Cancelled", "Evaluation cancelled successfully.")
+        elif self._eval_error:
+            show_copyable_error(self.root, "Evaluation Error", self._eval_error)
+        else:
+            self._show_evaluation_results()
+
+    def _show_evaluation_results(self) -> None:
+        """Show evaluation results in a dialog."""
+        if self._eval_result is None:
+            return
+
+        results_path = self._eval_result / "results.json"
+        if not results_path.exists():
+            messagebox.showinfo("Evaluation Complete", f"Results saved to:\n{self._eval_result}")
+            return
+
+        with open(results_path) as f:
+            results = json.load(f)
+
+        metrics = results.get("metrics", {})
+        class_metrics = results.get("class_metrics", [])
+
+        lines = [f"Model: {results.get('version', self._eval_version)}", ""]
+
+        if metrics:
+            lines.append("Overall Metrics:")
+            lines.append(f"  mAP@0.50:      {metrics.get('mAP50', 0):.4f}")
+            lines.append(f"  mAP@0.50:0.95: {metrics.get('mAP50-95', 0):.4f}")
+            lines.append(f"  Precision:     {metrics.get('precision', 0):.4f}")
+            lines.append(f"  Recall:        {metrics.get('recall', 0):.4f}")
+
+        if class_metrics:
+            lines.append("")
+            lines.append("Per-Class Metrics:")
+            for cm in class_metrics:
+                lines.append(f"  {cm['class_name']}:")
+                lines.append(f"    AP@0.50: {cm['AP50']:.4f}  AP@0.50:0.95: {cm['AP50-95']:.4f}")
+                lines.append(f"    Precision: {cm['precision']:.4f}  Recall: {cm['recall']:.4f}")
+
+        lines.append("")
+        lines.append(f"Full results and plots saved to:\n{self._eval_result}")
+
+        messagebox.showinfo("Evaluation Complete", "\n".join(lines))
 
     def _update_selected_model_display(self) -> None:
         """Update selected model label text based on current model info."""
