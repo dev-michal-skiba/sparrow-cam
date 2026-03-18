@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Archive configuration
 ARCHIVE_ENABLED = True  # Set to True to enable archiving bird detections
-ARCHIVE_SEGMENT_COUNT = 30  # Total segments to archive
+ARCHIVE_SEGMENT_COUNT = 15  # Total segments to archive
 SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
 SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
 
