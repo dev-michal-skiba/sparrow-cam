@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from ultralytics import YOLO
 
 from processor.types import DetectionBox
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_PATH = str(Path(__file__).parent / "model.pt")
 
@@ -36,6 +39,8 @@ class BirdDetector:
     def detect_boxes(self, frame, **kwargs) -> list[DetectionBox]:
         """Return bounding boxes for detected birds in xyxy integer format."""
         params = {**DEFAULT_DETECTION_PARAMS, **kwargs}
+        logger.info(f"Model classes: {self._classes}")
+        logger.info(f"Model params: {params}")
         results = self.model(frame, classes=self._classes, verbose=False, **params)
         if not results or results[0].boxes is None:
             return []

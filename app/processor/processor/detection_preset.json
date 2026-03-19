@@ -1,6 +1,6 @@
 {
   "params": {
-    "conf": 0.5,
+    "conf": 0.8,
     "imgsz": 480,
     "iou": 0.5
   },
