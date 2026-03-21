@@ -18,7 +18,7 @@
 - Central orchestrator
 - Main event loop that consumes new HLS segments
 - Per-segment bird detection — samples evenly distributed frames, crops each to configured detection regions
-- Archive scheduling with delayed trigger and overlap prevention between consecutive archives
+- Delegates archive scheduling to StreamArchiver by calling on_segment() with detection results
 - Annotation pruning after each segment
 
 ### `hls_watchtower.py`
@@ -39,11 +39,15 @@
 - Recording new annotations and pruning stale entries
 
 ### `stream_archiver.py`
-- HLS segment archival
-- Copies current stream into timestamped archive directories
+- HLS segment archival, extension, and archive scheduling orchestration
+- Owns all archive configuration and scheduling logic with delayed trigger and overlap prevention
+- Archive scheduling driven per-segment by HLSSegmentProcessor calling on_segment()
+  - When bird detected in overlap zone (region near previous archive), extends the previous archive with additional segments instead of creating a new archive
+- Creates new timestamped archives of current stream segments and extends existing archives with additional segments
 - Validates inputs, filters playlist to configurable segment window
 - Cleans up excess files
 - Runnable as standalone CLI for manual archiving
+- Returns archive directory path on successful creation
 
 ### `types.py`
 - Custom data structures used across the package

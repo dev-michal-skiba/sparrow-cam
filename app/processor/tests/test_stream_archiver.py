@@ -154,6 +154,19 @@ class TestStreamArchiver:
 
         @pytest.mark.usefixtures("stream_path")
         @freeze_time("2024-12-21T15:30:45")
+        def test_archive_returns_path(self, archive_path):
+            """Test that archive() returns the path to the created archive directory."""
+            archiver = StreamArchiver()
+
+            result = archiver.archive(prefix="manual")
+
+            destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
+            assert result == destination_path
+            assert result.is_dir() is True
+            assert (result / "playlist.m3u8").exists() is True
+
+        @pytest.mark.usefixtures("stream_path")
+        @freeze_time("2024-12-21T15:30:45")
         def test_archive_success_with_end_segment(self, archive_path, caplog):
             """Test archiving with end_segment parameter to prevent race conditions."""
             archiver = StreamArchiver()
@@ -193,9 +206,10 @@ class TestStreamArchiver:
 
         archiver = StreamArchiver()
 
-        archiver.archive(prefix="manual")
+        result = archiver.archive(prefix="manual")
 
         assert "Archive directory does not exist" in caplog.text
+        assert result is None
 
     class TestValidate:
         """Test suite for Validate method."""
@@ -522,6 +536,241 @@ class TestStreamArchiver:
                 "#EXTINF:1.668,",
                 "segment-3.ts",
             ]
+
+    class TestParsePlaylist:
+        """Test suite for parse_playlist method."""
+
+        def test_parse_playlist_success(self, archive_path):
+            """Test successful parsing of HLS playlist file."""
+            archiver = StreamArchiver()
+
+            playlist_data = archiver.parse_playlist(archive_path / "test" / "playlist.m3u8")
+
+            assert playlist_data.filename == "playlist.m3u8"
+            assert playlist_data.header_lines == [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-MEDIA-SEQUENCE:0",
+                "#EXT-X-TARGETDURATION:2",
+            ]
+            assert len(playlist_data.segments_data) == 4
+            assert playlist_data.segments_data[0].name == "segment-0.ts"
+            assert playlist_data.segments_data[1].name == "segment-1.ts"
+            assert playlist_data.segments_data[2].name == "segment-2.ts"
+            assert playlist_data.segments_data[3].name == "segment-3.ts"
+
+    class TestExtendArchive:
+        """Test suite for extend_archive method."""
+
+        def test_extend_archive_success(self, stream_path, archive_path, caplog):
+            """Test successful extension of archive with new segments."""
+            # First create an initial archive with first 2 segments
+            archiver = StreamArchiver()
+            initial_result = archiver.archive(prefix="test", limit=2)
+
+            # Add new segments to stream
+            for i in range(4, 6):
+                segment_file = stream_path / f"segment-{i}.ts"
+                segment_file.write_text(f"Dummy segment data: {i}\n")
+
+            # Update live playlist with new segments
+            playlist_file = stream_path / "playlist.m3u8"
+            original_content = playlist_file.read_text()
+            new_content = original_content + "#EXTINF:1.5,\nsegment-4.ts\n#EXTINF:1.5,\nsegment-5.ts\n"
+            playlist_file.write_text(new_content)
+
+            # Extend archive
+            archiver.extend_archive(archive_path=initial_result, end_segment="segment-5.ts")
+
+            # Verify archive was extended
+            extended_playlist = (initial_result / "playlist.m3u8").read_text()
+            assert "segment-4.ts" in extended_playlist
+            assert "segment-5.ts" in extended_playlist
+            assert (initial_result / "segment-4.ts").exists() is True
+            assert (initial_result / "segment-5.ts").exists() is True
+            assert "Extended archive" in caplog.text
+
+        def test_extend_archive_with_none_path(self, caplog):
+            """Test extend_archive with None archive path."""
+            archiver = StreamArchiver()
+
+            archiver.extend_archive(archive_path=None, end_segment="segment-2.ts")
+
+            assert "Cannot extend archive: no archive path available" in caplog.text
+
+        def test_extend_archive_no_playlist_in_archive(self, tmp_path, monkeypatch, caplog, stream_path):
+            """Test extend_archive when archive directory has no playlist file."""
+            # Create empty archive directory
+            empty_archive = tmp_path / "empty_archive"
+            empty_archive.mkdir()
+            monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_path)
+
+            archiver = StreamArchiver()
+
+            archiver.extend_archive(archive_path=empty_archive, end_segment="segment-2.ts")
+
+            assert "No playlist file found in archive directory" in caplog.text
+
+        def test_extend_archive_no_segments_in_archive_playlist(
+            self, tmp_path, monkeypatch, caplog, stream_path, populate_path
+        ):
+            """Test extend_archive when archive playlist has no segments."""
+            # Create archive with empty playlist
+            archive_dir = tmp_path / "archive_empty"
+            archive_dir.mkdir()
+            empty_playlist = archive_dir / "playlist.m3u8"
+            empty_playlist.write_text("#EXTM3U\n#EXT-X-VERSION:3\n")
+            monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", stream_path)
+
+            archiver = StreamArchiver()
+
+            archiver.extend_archive(archive_path=archive_dir, end_segment="segment-2.ts")
+
+            assert "No segments found in archive playlist" in caplog.text
+
+        def test_extend_archive_no_live_stream_playlist(self, archive_path, tmp_path, monkeypatch, caplog):
+            """Test extend_archive when no live stream playlist is available."""
+            # Set up empty stream directory
+            empty_stream = tmp_path / "empty_stream"
+            empty_stream.mkdir()
+            monkeypatch.setattr("processor.stream_archiver.STREAM_PATH", empty_stream)
+
+            archiver = StreamArchiver()
+            archiver.extend_archive(archive_path=archive_path / "test", end_segment="segment-2.ts")
+
+            assert "No live stream playlist found for archive extension" in caplog.text
+
+        def test_extend_archive_no_new_segments(self, stream_path, archive_path, caplog):
+            """Test extend_archive when there are no new segments to add."""
+            # Create an initial archive with all available segments
+            archiver = StreamArchiver()
+            initial_result = archiver.archive(prefix="test")
+
+            # Try to extend with a segment that's already archived
+            archiver.extend_archive(archive_path=initial_result, end_segment="segment-3.ts")
+
+            assert "No new segments to extend archive" in caplog.text
+
+    class TestOnSegment:
+        """Test suite for on_segment method and archive scheduling."""
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_disabled_archive(self, monkeypatch):
+            """Test that on_segment does nothing when ARCHIVE_ENABLED=False."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", False)
+            archiver = StreamArchiver()
+
+            archiver.on_segment("segment-1.ts", True)
+
+            # State should remain unchanged when archive disabled
+            assert archiver._pending_archive_countdown is None
+            assert archiver._overlap_countdown is None
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_no_detection(self, monkeypatch):
+            """Test that on_segment handles no detection correctly."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            archiver = StreamArchiver()
+
+            archiver.on_segment("segment-1.ts", False)
+
+            # State should remain unchanged when no detection
+            assert archiver._pending_archive_countdown is None
+            assert archiver._overlap_countdown is None
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_bird_detection_schedules_archive(self, monkeypatch, caplog):
+            """Test that bird detection schedules archive with delay."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 3)
+            archiver = StreamArchiver()
+
+            archiver.on_segment("segment-0.ts", True)
+
+            # Archive countdown is set to SEGMENTS_AFTER_DETECTION + 1 = 4, then decremented to 3 in same call
+            assert archiver._pending_archive_countdown == 3
+            assert archiver._pending_archive_is_extension is False
+            assert "Bird detected, archive scheduled in 3 segments" in caplog.text
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_multiple_detections_during_countdown(self, monkeypatch):
+            """Test that multiple detections during countdown don't reschedule archive."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 3)
+            archiver = StreamArchiver()
+
+            archiver.on_segment("segment-0.ts", True)  # First detection, schedules
+            first_countdown = archiver._pending_archive_countdown
+            archiver.on_segment("segment-1.ts", True)  # Second detection, should be ignored
+            second_countdown = archiver._pending_archive_countdown
+
+            # Countdown should decrease but not be reset
+            assert second_countdown == first_countdown - 1
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_countdown_execution(self, monkeypatch, caplog):
+            """Test that archive is executed after countdown completes."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 2)
+            archiver = StreamArchiver()
+
+            archiver.on_segment("segment-0.ts", True)  # Segment 1: schedules archive
+            archiver.on_segment("segment-1.ts", False)  # Segment 2: countdown = 2
+            archiver.on_segment("segment-2.ts", False)  # Segment 3: countdown = 1, countdown <= 0, execute archive
+
+            # Archive should have been executed
+            assert archiver._pending_archive_countdown is None
+            assert archiver._overlap_countdown == 7  # SEGMENTS_BEFORE_DETECTION
+            assert "Executing scheduled archive" in caplog.text
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_overlap_zone_extends_archive(self, monkeypatch, caplog):
+            """Test that detection in overlap zone extends previous archive."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_BEFORE_DETECTION", 7)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 7)
+            archiver = StreamArchiver()
+
+            # First detection triggers archive at segment 8 (7 after + 1)
+            archiver.on_segment("segment-0.ts", True)
+            for i in range(1, 8):
+                archiver.on_segment(f"segment-{i}.ts", False)
+            # Now at segment 8, countdown should be 0 and archive executes
+            archiver.on_segment("segment-8.ts", False)
+
+            # Now detect again within overlap zone (within 7 segments of segment 8)
+            # Second detection at segment 10 (within overlap zone)
+            archiver.on_segment("segment-9.ts", False)
+            archiver.on_segment("segment-10.ts", True)  # In overlap zone
+
+            # Should schedule extension instead of new archive
+            assert archiver._pending_archive_is_extension is True
+            assert "Bird in overlap zone, extending previous archive" in caplog.text
+
+        @pytest.mark.usefixtures("stream_path", "archive_path")
+        def test_on_segment_outside_overlap_zone_new_archive(self, monkeypatch):
+            """Test that detection outside overlap zone creates new archive."""
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_BEFORE_DETECTION", 7)
+            monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 7)
+            archiver = StreamArchiver()
+
+            # First detection
+            archiver.on_segment("segment-0.ts", True)
+            for i in range(1, 8):
+                archiver.on_segment(f"segment-{i}.ts", False)
+            archiver.on_segment("segment-8.ts", False)
+
+            # Second detection outside overlap zone (more than 7 segments later)
+            for i in range(9, 17):  # Segments 9-16
+                archiver.on_segment(f"segment-{i}.ts", False)
+            archiver.on_segment("segment-17.ts", True)  # Outside overlap zone
+
+            # Should schedule new archive, not extension
+            assert archiver._pending_archive_is_extension is False
 
 
 class TestParseLimit:

@@ -28,10 +28,10 @@ def archive_config(request, monkeypatch):
     segments_before = _calc_segments_before(segment_count)
     segments_after = _calc_segments_after(segment_count)
 
-    monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", True)
-    monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_SEGMENT_COUNT", segment_count)
-    monkeypatch.setattr("processor.hls_segment_processor.SEGMENTS_BEFORE_DETECTION", segments_before)
-    monkeypatch.setattr("processor.hls_segment_processor.SEGMENTS_AFTER_DETECTION", segments_after)
+    monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+    monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", segment_count)
+    monkeypatch.setattr("processor.stream_archiver.SEGMENTS_BEFORE_DETECTION", segments_before)
+    monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", segments_after)
 
     return {
         "segment_count": segment_count,
@@ -312,7 +312,6 @@ class TestHLSSegmentProcessor:
             detection_frame_config,
         ):
             """Test that archive is triggered segments_after segments after bird detection."""
-            segment_count = archive_config["segment_count"]
             segments_after = archive_config["segments_after"]
             frame_count = detection_frame_config["frame_count"]
 
@@ -330,12 +329,13 @@ class TestHLSSegmentProcessor:
 
             processor.run()
 
-            # Archive should be called once, segments_after segments after detection
-            mock_stream_archiver.archive.assert_called_once_with(
-                limit=segment_count,
-                prefix="auto",
-                end_segment=f"segment_{segments_after:03d}.ts",
-            )
+            # on_segment should be called for each segment
+            assert mock_stream_archiver.on_segment.call_count == num_segments
+            # Verify on_segment was called with correct values
+            on_segment_calls = mock_stream_archiver.on_segment.call_args_list
+            assert on_segment_calls[0] == call("segment_000.ts", True)  # Bird detected
+            for i in range(1, num_segments):
+                assert on_segment_calls[i] == call(f"segment_{i:03d}.ts", False)  # No bird
 
         def test_no_archive_if_not_enough_segments_after_detection(
             self,
@@ -343,10 +343,12 @@ class TestHLSSegmentProcessor:
             mock_bird_annotator,
             mock_stream_archiver,
             monkeypatch,
+            setup_video_capture,
+            no_bird_frame,
             archive_config,
             detection_frame_config,
         ):
-            """Test that archive is not triggered if stream ends before delay completes."""
+            """Test that on_segment is called correctly even if stream ends before delay completes."""
             segments_after = archive_config["segments_after"]
             frame_count = detection_frame_config["frame_count"]
 
@@ -358,12 +360,17 @@ class TestHLSSegmentProcessor:
 
             # Bird detected on segment 0 (early exit after first True)
             mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
             processor.run()
 
-            # Archive should not be called (not enough segments after detection)
-            mock_stream_archiver.archive.assert_not_called()
+            # on_segment should be called for each segment (archive behavior is tested in test_stream_archiver.py)
+            assert mock_stream_archiver.on_segment.call_count == num_segments
+            on_segment_calls = mock_stream_archiver.on_segment.call_args_list
+            assert on_segment_calls[0] == call("segment_000.ts", True)  # Bird detected
+            for i in range(1, num_segments):
+                assert on_segment_calls[i] == call(f"segment_{i:03d}.ts", False)  # No bird
 
         def test_multiple_detections_only_one_archive(
             self,
@@ -399,13 +406,18 @@ class TestHLSSegmentProcessor:
 
             processor.run()
 
-            # Only one archive should be called (first detection starts countdown, others ignored)
-            assert mock_stream_archiver.archive.call_count == 1
+            # on_segment should be called for each segment
+            assert mock_stream_archiver.on_segment.call_count == num_segments
+            on_segment_calls = mock_stream_archiver.on_segment.call_args_list
+            # Verify multiple birds detected
+            assert on_segment_calls[0] == call("segment_000.ts", True)
+            assert on_segment_calls[1] == call("segment_001.ts", True)
+            assert on_segment_calls[2] == call("segment_002.ts", True)
 
     class TestOverlapPrevention:
         """Tests for overlap prevention when bird detected near last archive."""
 
-        def test_overlap_zone_detection_adjusts_countdown(
+        def test_overlap_zone_detection_extends_previous_archive(
             self,
             mock_bird_detector,
             mock_bird_annotator,
@@ -416,7 +428,7 @@ class TestHLSSegmentProcessor:
             archive_config,
             detection_frame_config,
         ):
-            """Test that detection in overlap zone starts archive from after last archived segment."""
+            """Test that detection in overlap zone extends the previous archive instead of creating a new one."""
             segment_count = archive_config["segment_count"]
             segments_before = archive_config["segments_before"]
             segments_after = archive_config["segments_after"]
@@ -429,12 +441,12 @@ class TestHLSSegmentProcessor:
             # Pick middle of overlap zone
             second_detection = first_archive_end + (segments_before // 2) + 1
 
-            # Second archive should continue from first archive end + 1, taking segment_count segments
-            # So it ends at first_archive_end + segment_count
-            second_archive_end = first_archive_end + segment_count
+            # Extension adds segment_count segments from last_archived_counter + 1,
+            # so it ends at first_archive_end + segment_count
+            extension_end = first_archive_end + segment_count
 
             # Need enough segments for both archives
-            num_segments = second_archive_end + 5
+            num_segments = extension_end + 5
             segment_names = [f"segment_{i:03d}.ts" for i in range(num_segments)]
             watchtower = make_watchtower(segment_names)
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
@@ -456,19 +468,12 @@ class TestHLSSegmentProcessor:
 
             processor.run()
 
-            # Should have two archive calls
-            assert mock_stream_archiver.archive.call_count == 2
-            calls = mock_stream_archiver.archive.call_args_list
-
-            # First archive at segment segments_after (segments after detection at 0)
-            assert calls[0] == call(
-                limit=segment_count, prefix="auto", end_segment=f"segment_{first_archive_end:03d}.ts"
-            )
-
-            # Second archive continues from first archive, ending at second_archive_end
-            assert calls[1] == call(
-                limit=segment_count, prefix="auto", end_segment=f"segment_{second_archive_end:03d}.ts"
-            )
+            # on_segment should be called for each segment
+            assert mock_stream_archiver.on_segment.call_count == num_segments
+            on_segment_calls = mock_stream_archiver.on_segment.call_args_list
+            # Verify first and second detections
+            assert on_segment_calls[0] == call("segment_000.ts", True)
+            assert on_segment_calls[second_detection] == call(f"segment_{second_detection:03d}.ts", True)
 
         def test_no_overlap_when_detection_outside_zone(
             self,
@@ -482,7 +487,6 @@ class TestHLSSegmentProcessor:
             detection_frame_config,
         ):
             """Test that detection outside overlap zone triggers normal centered archive."""
-            segment_count = archive_config["segment_count"]
             segments_before = archive_config["segments_before"]
             segments_after = archive_config["segments_after"]
             frame_count = detection_frame_config["frame_count"]
@@ -519,18 +523,13 @@ class TestHLSSegmentProcessor:
 
             processor.run()
 
-            assert mock_stream_archiver.archive.call_count == 2
-            calls = mock_stream_archiver.archive.call_args_list
+            # on_segment should be called for each segment
+            assert mock_stream_archiver.on_segment.call_count == num_segments
+            on_segment_calls = mock_stream_archiver.on_segment.call_args_list
 
-            # First archive at segment segments_after
-            assert calls[0] == call(
-                limit=segment_count, prefix="auto", end_segment=f"segment_{first_archive_end:03d}.ts"
-            )
-
-            # Second archive centered on second_detection, ends at second_archive_end
-            assert calls[1] == call(
-                limit=segment_count, prefix="auto", end_segment=f"segment_{second_archive_end:03d}.ts"
-            )
+            # Verify first and second detections
+            assert on_segment_calls[0] == call("segment_000.ts", True)
+            assert on_segment_calls[second_detection] == call(f"segment_{second_detection:03d}.ts", True)
 
     class TestArchiveEnabledSwitch:
         """Tests for the ARCHIVE_ENABLED configuration switch."""
@@ -546,7 +545,7 @@ class TestHLSSegmentProcessor:
             detection_frame_config,
         ):
             """Test that when ARCHIVE_ENABLED=False, archiving is skipped even when birds are detected."""
-            monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", False)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", False)
             segments_after = 15  # Use default value
 
             # Create enough segments that archive would trigger if enabled
@@ -582,7 +581,7 @@ class TestHLSSegmentProcessor:
             detection_frame_config,
         ):
             """Test that when ARCHIVE_ENABLED=True, archiving is triggered on bird detection."""
-            monkeypatch.setattr("processor.hls_segment_processor.ARCHIVE_ENABLED", True)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
             segments_after = 15  # Use default value
 
             # Create enough segments that archive will trigger
@@ -603,8 +602,8 @@ class TestHLSSegmentProcessor:
             assert mock_bird_detector.detect.call_count > 0
             assert mock_bird_annotator.annotate.call_count == num_segments
 
-            # Archive is triggered
-            mock_stream_archiver.archive.assert_called_once()
+            # on_segment is called for each segment
+            assert mock_stream_archiver.on_segment.call_count == num_segments
 
     class TestRun:
         """Tests for the main run loop."""

@@ -14,6 +14,11 @@ STREAM_PATH = Path("/var/www/html/hls")
 ARCHIVE_PATH = Path("/var/www/html/storage/sparrow_cam/archive")
 M3U8_HEADER_TAGS = ["#EXTM3U", "#EXT-X-VERSION", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-TARGETDURATION", "#EXT-X-STREAM-INF"]
 
+ARCHIVE_ENABLED = True  # Set to True to enable archiving bird detections
+ARCHIVE_SEGMENT_COUNT = 15  # Total segments to archive
+SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
+SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
+
 
 @dataclass
 class ValidationResult:
@@ -48,9 +53,107 @@ class PlaylistData:
 
 
 class StreamArchiver:
-    """Archive current HLS segments to timestamped UUID directories."""
+    """Archive current HLS segments to timestamped UUID directories.
 
-    def archive(self, prefix: str, limit: int | None = None, end_segment: str | None = None) -> None:
+    Also manages archive scheduling state: call on_segment() once per processed
+    segment to drive delayed and overlap-aware archive triggering.
+    """
+
+    def __init__(self):
+        # Archive scheduling state
+        self._overlap_countdown: int | None = (
+            None  # Counts down from SEGMENTS_BEFORE_DETECTION after each archive; None = no archive yet
+        )
+        self._last_archive_path: Path | None = None
+        self._pending_archive_countdown: int | None = None
+        self._pending_archive_is_extension = False
+
+    def on_segment(self, segment_name: str, bird_detected: bool) -> None:
+        """Process a segment for archive scheduling and execution.
+
+        Called once per segment after bird detection. Handles delayed triggering
+        and overlap-aware extension of previous archives.
+
+        Args:
+            segment_name: Name of the current segment.
+            bird_detected: Whether a bird was detected in this segment.
+        """
+        if not ARCHIVE_ENABLED:
+            return
+
+        if bird_detected:
+            if self._pending_archive_countdown is None:
+                in_overlap_zone = self._overlap_countdown is not None and self._overlap_countdown > 0
+                if in_overlap_zone:
+                    # Extend previous archive instead of creating a new one.
+                    # remaining = segments until _overlap_countdown reaches 0 + SEGMENTS_AFTER_DETECTION + 1
+                    remaining = ARCHIVE_SEGMENT_COUNT - SEGMENTS_BEFORE_DETECTION + self._overlap_countdown
+                    self._pending_archive_countdown = remaining
+                    self._pending_archive_is_extension = True
+                    logger.info(
+                        f"{segment_name}: Bird in overlap zone, extending previous archive "
+                        f"in {remaining - 1} segments"
+                    )
+                else:
+                    self.schedule_archive(segment_name)
+
+        # Decrement overlap countdown (bounded at 0, never grows unbounded)
+        if self._overlap_countdown is not None and self._overlap_countdown > 0:
+            self._overlap_countdown -= 1
+
+        self.check_and_execute_archive(segment_name)
+
+    def schedule_archive(self, segment_name: str) -> None:
+        """Schedule an archive to trigger after SEGMENTS_AFTER_DETECTION more segments.
+
+        Args:
+            segment_name: Name of the segment where bird was detected.
+        """
+        if self._pending_archive_countdown is not None:
+            logger.debug(f"{segment_name}: Archive already scheduled, ignoring detection")
+            return
+
+        # Add 1 to account for decrement happening on this same segment in check_and_execute_archive
+        self._pending_archive_countdown = SEGMENTS_AFTER_DETECTION + 1
+        self._pending_archive_is_extension = False
+        logger.info(f"{segment_name}: Bird detected, archive scheduled in {SEGMENTS_AFTER_DETECTION} segments")
+
+    def check_and_execute_archive(self, segment_name: str) -> None:
+        """Check if archive should be triggered and execute if so.
+
+        Args:
+            segment_name: Name of the current segment (will be the end segment of archive).
+        """
+        if self._pending_archive_countdown is None:
+            return
+
+        self._pending_archive_countdown -= 1
+
+        if self._pending_archive_countdown <= 0:
+            if self._pending_archive_is_extension:
+                logger.info(
+                    f"{segment_name}: Executing archive extension: "
+                    f"archive_path={self._last_archive_path}, end_segment={segment_name}"
+                )
+                self.extend_archive(
+                    archive_path=self._last_archive_path,
+                    end_segment=segment_name,
+                )
+            else:
+                logger.info(
+                    f"{segment_name}: Executing scheduled archive: "
+                    f"limit={ARCHIVE_SEGMENT_COUNT}, prefix=auto, end_segment={segment_name}"
+                )
+                self._last_archive_path = self.archive(
+                    limit=ARCHIVE_SEGMENT_COUNT,
+                    prefix="auto",
+                    end_segment=segment_name,
+                )
+            self._overlap_countdown = SEGMENTS_BEFORE_DETECTION
+            self._pending_archive_countdown = None
+            self._pending_archive_is_extension = False
+
+    def archive(self, prefix: str, limit: int | None = None, end_segment: str | None = None) -> Path | None:
         """Copy playlist file and its referenced segment files to a timestamped UUID directory.
 
         Args:
@@ -59,13 +162,16 @@ class StreamArchiver:
                 "manual" for manual archiving via script.
             end_segment: If provided, archive segments ending with this segment name.
                 This prevents race conditions when new segments appear during archiving.
+
+        Returns:
+            Path to the created archive directory, or None if archiving failed.
         """
 
         # Validate archive prerequisites
         validation_result = self.validate(limit)
         if not validation_result.is_valid:
             logger.error(validation_result.error_message)
-            return
+            return None
         # Copy stream files to archive directory
         copy_result = self.copy_stream(validation_result.playlist_filename, prefix)
         # Get playlist data
@@ -74,6 +180,7 @@ class StreamArchiver:
         self.clean_archive(copy_result.destination_path, playlist_data)
 
         logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
+        return copy_result.destination_path
 
     def validate(self, limit: int | None) -> ValidationResult:
         """Validate archive prerequisites.
@@ -148,27 +255,17 @@ class StreamArchiver:
             playlist_filename=playlist_filename,
         )
 
-    def get_playlist_data(
-        self, copy_result: CopyResult, limit: int | None, end_segment: str | None = None
-    ) -> PlaylistData:
-        """Get data from playlist file.
+    def parse_playlist(self, playlist_path: Path) -> PlaylistData:
+        """Parse an HLS playlist file into structured data.
 
         Args:
-            copy_result: CopyResult object.
-            limit: Maximum number of segments to keep. If None, all segments are kept.
-            end_segment: If provided, select segments ending with this segment name.
+            playlist_path: Path to the .m3u8 playlist file.
 
         Returns:
-            PlaylistData object.
+            PlaylistData object with all segments (no filtering applied).
         """
-
-        with open(copy_result.destination_path / copy_result.playlist_filename) as f:
-            playlist_lines = list(
-                filter(
-                    None,
-                    [line.strip() for line in f.readlines()],
-                ),
-            )
+        with open(playlist_path) as f:
+            playlist_lines = list(filter(None, [line.strip() for line in f.readlines()]))
 
         header_lines = []
         segment_lines = []
@@ -191,6 +288,28 @@ class StreamArchiver:
                 segments_data.append(current_segment_data)
                 current_segment_data = SegmentData(metadata=[], name="")
 
+        return PlaylistData(
+            filename=playlist_path.name,
+            header_lines=header_lines,
+            segments_data=segments_data,
+        )
+
+    def get_playlist_data(
+        self, copy_result: CopyResult, limit: int | None, end_segment: str | None = None
+    ) -> PlaylistData:
+        """Get data from playlist file.
+
+        Args:
+            copy_result: CopyResult object.
+            limit: Maximum number of segments to keep. If None, all segments are kept.
+            end_segment: If provided, select segments ending with this segment name.
+
+        Returns:
+            PlaylistData object.
+        """
+        playlist_data = self.parse_playlist(copy_result.destination_path / copy_result.playlist_filename)
+        segments_data = playlist_data.segments_data
+
         # Apply segment selection based on end_segment or limit
         if end_segment is not None:
             # Find index of end_segment and slice to get `limit` segments ending with it
@@ -205,10 +324,80 @@ class StreamArchiver:
             segments_data = segments_data[-limit:]
 
         return PlaylistData(
-            filename=copy_result.playlist_filename,
-            header_lines=header_lines,
+            filename=playlist_data.filename,
+            header_lines=playlist_data.header_lines,
             segments_data=segments_data,
         )
+
+    def extend_archive(self, archive_path: Path | None, end_segment: str) -> None:
+        """Extend an existing archive with additional segments from the live stream.
+
+        Reads the existing archive playlist to find the last archived segment, then
+        copies all live stream segments that appear after it up to end_segment into
+        the archive directory and updates the archive playlist.
+
+        Args:
+            archive_path: Path to the existing archive directory to extend.
+            end_segment: Name of the last new segment to include in the extension.
+        """
+        if archive_path is None:
+            logger.error("Cannot extend archive: no archive path available")
+            return
+
+        archive_path = Path(archive_path)
+
+        # Read existing archive playlist
+        playlist_files = list(archive_path.glob("*.m3u8"))
+        if not playlist_files:
+            logger.error(f"No playlist file found in archive directory {archive_path}")
+            return
+
+        existing_playlist = self.parse_playlist(archive_path / playlist_files[0].name)
+        if not existing_playlist.segments_data:
+            logger.error(f"No segments found in archive playlist at {archive_path}")
+            return
+
+        last_archived_segment = existing_playlist.segments_data[-1].name
+
+        # Get live stream playlist
+        live_playlist_files = list(STREAM_PATH.glob("*.m3u8"))
+        if not live_playlist_files:
+            logger.error("No live stream playlist found for archive extension")
+            return
+
+        live_playlist = self.parse_playlist(STREAM_PATH / live_playlist_files[0].name)
+
+        # Find new segments: from after last_archived_segment up to end_segment (inclusive)
+        new_segments: list[SegmentData] = []
+        found_last = False
+        for segment in live_playlist.segments_data:
+            if segment.name == last_archived_segment:
+                found_last = True
+                continue
+            if found_last:
+                new_segments.append(segment)
+                if segment.name == end_segment:
+                    break
+
+        if not new_segments:
+            logger.warning(f"No new segments to extend archive at {archive_path}")
+            return
+
+        # Copy new segment files to archive directory
+        for segment in new_segments:
+            src = STREAM_PATH / segment.name
+            if src.exists():
+                shutil.copy2(src, archive_path / segment.name)
+
+        # Update archive playlist with all segments
+        updated_playlist = PlaylistData(
+            filename=existing_playlist.filename,
+            header_lines=existing_playlist.header_lines,
+            segments_data=existing_playlist.segments_data + new_segments,
+        )
+        self.clean_archive(archive_path, updated_playlist)
+
+        logger.info(f"Extended archive {archive_path} with {len(new_segments)} new segment(s)")
 
     def clean_archive(self, destination_path: str, playlist_data: PlaylistData):
         """Remove excess files from archive directory and update playlist file.

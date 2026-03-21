@@ -39,8 +39,6 @@ class BirdDetector:
     def detect_boxes(self, frame, **kwargs) -> list[DetectionBox]:
         """Return bounding boxes for detected birds in xyxy integer format."""
         params = {**DEFAULT_DETECTION_PARAMS, **kwargs}
-        logger.info(f"Model classes: {self._classes}")
-        logger.info(f"Model params: {params}")
         results = self.model(frame, classes=self._classes, verbose=False, **params)
         if not results or results[0].boxes is None:
             return []
