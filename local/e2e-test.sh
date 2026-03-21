@@ -261,8 +261,7 @@ test_pass
 
 test_start "Processor container logs show processing activity"
 PROCESSOR_LOGS_OUTPUT=$(docker logs sparrow_cam_processor 2>&1)
-# Check for either "Bird detected" or "No bird detected" in logs
-if echo "$PROCESSOR_LOGS_OUTPUT" | grep -qE "(Bird detected|No bird detected)"; then
+if echo "$PROCESSOR_LOGS_OUTPUT" | grep -q "Bird detected"; then
     test_pass
 else
     echo ""

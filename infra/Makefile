@@ -1,4 +1,4 @@
-.PHONY: help build ping setup_users setup_web setup_processor setup_storage setup_logs run_archive_stream all
+.PHONY: help build ping setup_users setup_web setup_processor setup_storage run_archive_stream all
 
 help:
 	@echo "Available infrastructure targets:"
@@ -7,7 +7,6 @@ help:
 	@echo "  make setup_users        - Setup users and groups"
 	@echo "  make setup_storage      - Mount external hard drive"
 	@echo "    DEVICE=<path>         - Override device path (default: /dev/sda1)"
-	@echo "  make setup_logs         - Setup journal log"
 	@echo "  make setup_processor    - Deploy processor service"
 	@echo "  make setup_web          - Deploy web server (nginx)"
 	@echo "  make setup_all          - Deploy all services"
@@ -26,17 +25,14 @@ setup_users:
 setup_storage:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_storage.yml $(if $(DEVICE),-e "device_to_mount=$(DEVICE)",)
 
-setup_logs:
-	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_logs.yml
-
 setup_processor:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_processor.yml
 
 setup_web:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_web.yml
 
-setup_all: setup_users setup_storage setup_logs setup_processor setup_web
-	@echo "Users, hard drive, logs, processor service, and web server deployed successfully"
+setup_all: setup_users setup_storage setup_processor setup_web
+	@echo "Users, hard drive, processor service, and web server deployed successfully"
 
 archive:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml archive.yml $(if $(LIMIT),-e "limit=$(LIMIT)",)
