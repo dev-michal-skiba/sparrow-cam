@@ -30,21 +30,34 @@ Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash the OS
 
 This creates the user and sets up SSH key access automatically.
 
-**Step 3: Add user to processor group on target device**
+**Step 3: Setup users**
+
+```bash
+# [OPTIONAL] Build infrastructure docker container
+make -C infra build
+
+# [OPTIONAL] Test connection
+make -C infra ping
+
+# Or deploy separately
+make -C infra setup_users     # Setup users and groups
+```
+
+**Step 4: Add user to processor group on target device**
 
 ```bash
 # Add the SSH user to the processor group
 sudo usermod -a -G sparrow_cam_processor sparrow_cam_infra
 ```
 
-**Step 4: Enable passwordless sudo on target device**
+**Step 5: Enable passwordless sudo on target device**
 
 ```bash
 # On target device
 echo "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/sparrow_cam_infra
 ```
 
-**Step 5: Configure Ansible variables**
+**Step 6: Configure Ansible variables**
 
 ```bash
 # Copy example vars and update with your values
@@ -55,19 +68,13 @@ cp infra/ansible/group_vars/all.yml.example infra/ansible/group_vars/all.yml
 ## Deploy
 
 ```bash
-# Build infrastructure docker container
+# [OPTIONAL]  Build infrastructure docker container
 make -C infra build
 
-# Test connection
+# [OPTIONAL]  Test connection
 make -C infra ping
 
-# Deploy web, processor, and other core services
-make -C infra setup_all
-
-# Or deploy separately
-make -C infra setup_users     # Setup users and groups
 make -C infra setup_storage   # Mount external hard drive
-make -C infra setup_logs      # Setup journal log
 make -C infra setup_processor # Processor service
 make -C infra setup_web       # Web server (port 80)
 ```
@@ -130,8 +137,6 @@ Example (1s segments at 8 FPS):
 - Web: http://192.168.1.100/
 
 ## Journal Logs
-
-Processor logs are stored persistently on the external drive at `/var/www/html/storage/journal/` (via symlink at `/var/log/journal/`) and are retained for 7 days.
 
 > **Note:** To read logs without `sudo`, add your user to the `systemd-journal` group and re-login:
 > ```bash
