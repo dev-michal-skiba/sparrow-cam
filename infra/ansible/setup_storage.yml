@@ -31,9 +31,10 @@
         partition_to_mount: "{{ device_to_mount }}"
 
     - name: Check if partition has a filesystem
-      command: "lsblk -n -o FSTYPE {{ partition_to_mount }}"
+      command: "blkid -s TYPE -o value {{ partition_to_mount }}"
       register: fstype_check
       changed_when: false
+      failed_when: false
 
     - name: Format partition with ext4 if needed
       command: "mkfs.ext4 -F {{ partition_to_mount }}"
@@ -55,10 +56,60 @@
         state: mounted
         opts: defaults
 
-    - name: Add mount to fstab for persistent mounting
+    - name: Get filesystem UUID of the partition
+      command: "blkid -s UUID -o value {{ partition_to_mount }}"
+      register: partition_uuid
+      changed_when: false
+
+    - name: Fail if UUID could not be retrieved
+      fail:
+        msg: "Failed to retrieve UUID for {{ partition_to_mount }} — blkid returned empty output"
+      when: partition_uuid.stdout | trim == ''
+
+    - name: Add mount to fstab using UUID with nofail
+      # Use UUID so the mount survives USB resets that change device path (sda -> sdb).
+      # nofail prevents boot hanging when the drive is temporarily absent.
       mount:
         path: /var/www/html/storage
-        src: "{{ partition_to_mount }}"
+        src: "UUID={{ partition_uuid.stdout | trim }}"
         fstype: ext4
         state: present
-        opts: defaults
+        opts: defaults,nofail
+
+    - name: Get USB vendor:product ID for this block device
+      # Walk sysfs to find the USB vendor and product IDs.
+      # Used to add a usb-storage quirk that disables the UAS driver, which
+      # has known stability issues on Raspberry Pi under write load.
+      shell: |
+        DEVICE=$(basename $(readlink -f {{ partition_to_mount }} | sed 's/[0-9]*$//'))
+        udevadm info --attribute-walk --name=/dev/$DEVICE \
+          | awk '/ATTRS\{idVendor\}/ { v=$0 }
+                 /ATTRS\{idProduct\}/ { if (v) {
+                   gsub(/.*=="/, "", v); gsub(/"/, "", v);
+                   gsub(/.*=="/, "", $0); gsub(/"/, "", $0);
+                   print v ":" $0; exit } }'
+      register: usb_vendor_product
+      changed_when: false
+      failed_when: false
+
+    - name: Determine cmdline.txt location
+      stat:
+        path: /boot/firmware/cmdline.txt
+      register: cmdline_firmware
+
+    - name: Set cmdline.txt path
+      set_fact:
+        cmdline_path: "{{ '/boot/firmware/cmdline.txt' if cmdline_firmware.stat.exists else '/boot/cmdline.txt' }}"
+
+    - name: Add UAS quirk to cmdline.txt
+      # Appends usb-storage.quirks=VVVV:PPPP:u to force the stable usb-storage
+      # driver instead of UAS for this specific device.
+      # Negative lookahead in regexp makes this idempotent: lineinfile only
+      # rewrites the line when the quirk for this device is not already present.
+      # Requires reboot to take effect.
+      lineinfile:
+        path: "{{ cmdline_path }}"
+        backrefs: yes
+        regexp: "^((?!.*usb-storage\\.quirks={{ usb_vendor_product.stdout | trim }}:u).*)$"
+        line: "\\1 usb-storage.quirks={{ usb_vendor_product.stdout | trim }}:u"
+      when: usb_vendor_product.stdout | trim != ''
