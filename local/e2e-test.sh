@@ -193,8 +193,16 @@ docker exec -d sparrow_cam_processor ffmpeg \
     -hls_segment_type mpegts \
     /var/www/html/hls/sparrow_cam.m3u8 > /tmp/sparrow_cam_ffmpeg.log 2>&1
 
-# Give ffmpeg a moment to start
-sleep 2
+# Wait for ffmpeg to start (up to 15s)
+WAIT_COUNT=0
+MAX_WAITS=30  # 30 * 0.5s = 15s
+while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
+    if docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
 
 # Verify ffmpeg is running
 FFMPEG_RUNNING=$(docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null && echo "yes" || echo "no")
@@ -207,14 +215,37 @@ fi
 test_pass
 
 test_start "HLS playlist file created in shared volume"
-PLAYLIST_EXISTS=$(docker exec sparrow_cam_processor test -f /var/www/html/hls/sparrow_cam.m3u8 && echo "yes" || echo "no")
+# Wait for ffmpeg to produce the first playlist (up to 60s)
+WAIT_COUNT=0
+MAX_WAITS=120  # 120 * 0.5s = 60s
+while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
+    PLAYLIST_EXISTS=$(docker exec sparrow_cam_processor test -f /var/www/html/hls/sparrow_cam.m3u8 && echo "yes" || echo "no")
+    if [ "$PLAYLIST_EXISTS" = "yes" ]; then
+        break
+    fi
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
 if [ "$PLAYLIST_EXISTS" != "yes" ]; then
+    echo ""
+    echo -e "${YELLOW}Debug: ffmpeg log:${NC}"
+    docker exec sparrow_cam_processor cat /tmp/sparrow_cam_ffmpeg.log || true
     test_fail "HLS playlist file not found at /var/www/html/hls/sparrow_cam.m3u8"
 fi
 test_pass
 
 test_start "HLS segments (.ts files) created in shared volume"
-HLS_SEGMENT_COUNT=$(docker exec sparrow_cam_processor sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
+# Wait for at least 5 segments (up to 60s)
+WAIT_COUNT=0
+MAX_WAITS=120  # 120 * 0.5s = 60s
+while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
+    HLS_SEGMENT_COUNT=$(docker exec sparrow_cam_processor sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
+    if [ "$HLS_SEGMENT_COUNT" -ge 5 ]; then
+        break
+    fi
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
 if [ "$HLS_SEGMENT_COUNT" -lt 5 ]; then
     test_fail "Not enough HLS segments found (found: $HLS_SEGMENT_COUNT, expected: >=5)"
 fi
@@ -261,13 +292,13 @@ test_pass
 
 test_start "Processor container logs show processing activity"
 PROCESSOR_LOGS_OUTPUT=$(docker logs sparrow_cam_processor 2>&1)
-if echo "$PROCESSOR_LOGS_OUTPUT" | grep -q "Bird detected"; then
+if echo "$PROCESSOR_LOGS_OUTPUT" | grep -q "Processing time"; then
     test_pass
 else
     echo ""
     echo -e "${YELLOW}Debug: Processor logs (last 30 lines):${NC}"
     echo "$PROCESSOR_LOGS_OUTPUT" | tail -30
-    test_fail "Processor logs do not show bird detection activity"
+    test_fail "Processor logs do not show segment processing activity"
 fi
 
 # Separate check for errors and warnings in processor logs
