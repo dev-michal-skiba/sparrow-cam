@@ -8,7 +8,7 @@ help:
 	@echo "  make start                 - Start the application (web on :8080)"
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make stream                - Stream sample.mp4 continuously (loops forever)"
-	@echo "  make stop                  - Stop the application"
+	@echo "  make stop                  - Stop the application and clean stream and annotation files"
 	@echo "  make format                - Format code with black and ruff"
 	@echo "  make check                 - Run lint, type and security checks (no formatting)"
 	@echo "  make test                  - Run unit tests for processor package"
@@ -42,8 +42,9 @@ stream:
 		-i /app/sample.mp4 \
 		-c:v libx264 \
 		-preset ultrafast \
-		-tune zerolatency \
-		-g 24 \
+		-g 8 \
+		-keyint_min 8 \
+		-sc_threshold 0 \
 		-pix_fmt yuv420p \
 		-an \
 		-f hls \
@@ -54,7 +55,7 @@ stream:
 		/var/www/html/hls/sparrow_cam.m3u8
 
 stop:
-	docker compose down
+	docker compose down -v
 
 format:
 	docker compose run --rm --no-deps processor bash -lc "\

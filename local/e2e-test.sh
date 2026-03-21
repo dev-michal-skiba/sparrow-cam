@@ -17,7 +17,9 @@ NC='\033[0m' # No Color
 WEB_URL="http://localhost:8080"
 HLS_URL="http://localhost:8080/hls/sparrow_cam.m3u8"
 ANNOTATIONS_URL="http://localhost:8080/annotations/bird.json"
-WAIT_FOR_PROCESSING=15  # Wait for processor to handle segments
+
+# Expected counts (based on sample.mp4 — update if sample changes)
+EXPECTED_BIRD_DETECTIONS=40  # bird_detected=true annotations in final annotations file
 
 # Exit codes
 SUCCESS=0
@@ -59,7 +61,7 @@ cleanup() {
     (cd "$LOCAL_DIR" && docker compose down > /dev/null 2>&1) || true
 
     # Clean up temp files
-    rm -f /tmp/sparrow_cam_ffmpeg.log /tmp/sparrow_cam_hls_check.txt > /dev/null 2>&1 || true
+    rm -f /tmp/sparrow_cam_ffmpeg.log > /dev/null 2>&1 || true
 
     if [ $EXIT_CODE -eq 0 ]; then
         echo -e "${GREEN}Cleanup completed${NC}"
@@ -89,14 +91,15 @@ if ! docker info > /dev/null 2>&1; then
 fi
 test_pass
 
-test_start "Creating temp HLS directory for test"
-HLS_TEMP_DIR="/tmp/sparrow_cam_hls_test"
-mkdir -p "$HLS_TEMP_DIR"
-test_pass
-
 test_start "Docker Compose configuration"
 if ! (cd "$LOCAL_DIR" && docker compose config > /dev/null 2>&1); then
     test_fail "Docker Compose configuration is invalid"
+fi
+test_pass
+
+test_start "sample.mp4 exists"
+if [ ! -f "$PROJECT_ROOT/sample.mp4" ]; then
+    test_fail "sample.mp4 not found at $PROJECT_ROOT/sample.mp4"
 fi
 test_pass
 
@@ -121,15 +124,12 @@ WAIT_COUNT=0
 MAX_WAITS=60  # 60 * 0.5s = 30s
 while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
     WEB_HEALTHY=$(docker inspect --format='{{.State.Health.Status}}' sparrow_cam_web 2>/dev/null || echo "none")
-
     if [ "$WEB_HEALTHY" = "healthy" ]; then
         break
     fi
-
     sleep 0.5
     WAIT_COUNT=$((WAIT_COUNT + 1))
 done
-
 if [ $WAIT_COUNT -ge $MAX_WAITS ]; then
     echo -e "${YELLOW}(services may not be fully healthy, continuing anyway)${NC}"
 fi
@@ -146,7 +146,7 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 test_pass
 
-test_start "Web server content (checking for index.html)"
+test_start "Web server serves Sparrow Cam page"
 if ! curl -s "$WEB_URL" | grep -q "Sparrow Cam"; then
     test_fail "Web server not serving correct content"
 fi
@@ -155,42 +155,36 @@ test_pass
 test_start "Container processes running"
 PROCESSOR_RUNNING=$(docker ps | grep -c "sparrow_cam_processor" || echo "0")
 WEB_RUNNING=$(docker ps | grep -c "sparrow_cam_web" || echo "0")
-
 if [ "$PROCESSOR_RUNNING" -ne 1 ] || [ "$WEB_RUNNING" -ne 1 ]; then
     test_fail "Not all containers are running"
 fi
 test_pass
 
 # ==============================================================================
-section_header "Phase 4: Setup Real HLS Streaming with ffmpeg"
+section_header "Phase 4: HLS Streaming (single pass of sample.mp4)"
 # ==============================================================================
 
 test_start "Copying sample.mp4 to processor container"
-if [ ! -f "$PROJECT_ROOT/sample.mp4" ]; then
-    test_fail "sample.mp4 not found at $PROJECT_ROOT/sample.mp4"
-fi
 docker cp "$PROJECT_ROOT/sample.mp4" sparrow_cam_processor:/tmp/sample.mp4
 test_pass
 
-test_start "Starting ffmpeg to stream sample.mp4 as HLS"
-# Start ffmpeg in background, streaming sample.mp4 continuously with 2-second segments
-# and a 10-segment playlist (matching README.md configuration)
+test_start "Starting ffmpeg to stream sample.mp4 once as HLS"
+# Stream sample.mp4 once (no -stream_loop) with production-matching settings
 docker exec -d sparrow_cam_processor ffmpeg \
-    -stream_loop -1 \
     -re \
     -i /tmp/sample.mp4 \
     -c:v libx264 \
     -preset ultrafast \
-    -b:v 500k \
-    -maxrate 500k \
-    -bufsize 1000k \
-    -c:a aac \
-    -b:a 128k \
+    -g 8 \
+    -keyint_min 8 \
+    -sc_threshold 0 \
+    -pix_fmt yuv420p \
+    -an \
     -f hls \
-    -hls_time 2 \
-    -hls_list_size 10 \
-    -hls_flags delete_segments \
-    -hls_segment_type mpegts \
+    -hls_time 1 \
+    -hls_list_size 60 \
+    -hls_flags delete_segments+append_list \
+    -hls_segment_filename /var/www/html/hls/sparrow_cam-%d.ts \
     /var/www/html/hls/sparrow_cam.m3u8 > /tmp/sparrow_cam_ffmpeg.log 2>&1
 
 # Wait for ffmpeg to start (up to 15s)
@@ -203,10 +197,7 @@ while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
     sleep 0.5
     WAIT_COUNT=$((WAIT_COUNT + 1))
 done
-
-# Verify ffmpeg is running
-FFMPEG_RUNNING=$(docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null && echo "yes" || echo "no")
-if [ "$FFMPEG_RUNNING" != "yes" ]; then
+if ! docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null 2>&1; then
     echo ""
     echo -e "${YELLOW}Debug: ffmpeg startup log:${NC}"
     docker exec sparrow_cam_processor cat /tmp/sparrow_cam_ffmpeg.log || true
@@ -214,96 +205,149 @@ if [ "$FFMPEG_RUNNING" != "yes" ]; then
 fi
 test_pass
 
-test_start "HLS playlist file created in shared volume"
-# Wait for ffmpeg to produce the first playlist (up to 60s)
+test_start "Waiting for ffmpeg to finish streaming sample.mp4 (up to 240s)"
 WAIT_COUNT=0
-MAX_WAITS=120  # 120 * 0.5s = 60s
+MAX_WAITS=480  # 480 * 0.5s = 240s
 while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
-    PLAYLIST_EXISTS=$(docker exec sparrow_cam_processor test -f /var/www/html/hls/sparrow_cam.m3u8 && echo "yes" || echo "no")
-    if [ "$PLAYLIST_EXISTS" = "yes" ]; then
+    if ! docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null 2>&1; then
         break
     fi
     sleep 0.5
     WAIT_COUNT=$((WAIT_COUNT + 1))
 done
-if [ "$PLAYLIST_EXISTS" != "yes" ]; then
-    echo ""
-    echo -e "${YELLOW}Debug: ffmpeg log:${NC}"
-    docker exec sparrow_cam_processor cat /tmp/sparrow_cam_ffmpeg.log || true
-    test_fail "HLS playlist file not found at /var/www/html/hls/sparrow_cam.m3u8"
+if docker exec sparrow_cam_processor pgrep -f "ffmpeg.*sparrow_cam" > /dev/null 2>&1; then
+    test_fail "ffmpeg did not finish within 240s"
 fi
 test_pass
 
 test_start "HLS segments (.ts files) created in shared volume"
-# Wait for at least 5 segments (up to 60s)
-WAIT_COUNT=0
-MAX_WAITS=120  # 120 * 0.5s = 60s
-while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
-    HLS_SEGMENT_COUNT=$(docker exec sparrow_cam_processor sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
-    if [ "$HLS_SEGMENT_COUNT" -ge 5 ]; then
-        break
-    fi
-    sleep 0.5
-    WAIT_COUNT=$((WAIT_COUNT + 1))
-done
-if [ "$HLS_SEGMENT_COUNT" -lt 5 ]; then
-    test_fail "Not enough HLS segments found (found: $HLS_SEGMENT_COUNT, expected: >=5)"
+TOTAL_SEGMENTS=$(docker exec sparrow_cam_processor sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
+if [ "$TOTAL_SEGMENTS" -lt 1 ]; then
+    echo ""
+    echo -e "${YELLOW}Debug: ffmpeg log:${NC}"
+    docker exec sparrow_cam_processor cat /tmp/sparrow_cam_ffmpeg.log || true
+    test_fail "No HLS segments found after ffmpeg completed"
 fi
+echo -ne "(${TOTAL_SEGMENTS} segments) "
 test_pass
 
-test_start "HLS playlist accessibility via HTTP"
+test_start "HLS playlist accessible via HTTP"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HLS_URL" || echo "000")
 if [ "$HTTP_CODE" != "200" ]; then
     test_fail "HLS playlist returned HTTP $HTTP_CODE"
 fi
 test_pass
 
-test_start "HLS playlist content validity"
+test_start "HLS playlist contains valid M3U8 content"
 if ! curl -s "$HLS_URL" | grep -q "EXTINF"; then
     test_fail "HLS playlist does not contain valid M3U8 format"
 fi
 test_pass
 
 # ==============================================================================
-section_header "Phase 5: Processor Service - Bird Detection & Annotations"
+section_header "Phase 5: Processor - Bird Detection & Annotations"
 # ==============================================================================
 
-echo -ne "  ${BLUE}Waiting${NC} for processor to handle segments... "
-sleep ${WAIT_FOR_PROCESSING}
+test_start "Waiting for processor to annotate all segments (up to 60s)"
+# Poll until annotation count stabilizes (no change for 3 consecutive seconds)
+PREV_COUNT=-1
+STABLE_TICKS=0
+WAIT_COUNT=0
+MAX_WAITS=120  # 120 * 0.5s = 60s
+while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
+    ANNOTATION_COUNT=$(docker exec sparrow_cam_processor cat /var/www/html/annotations/bird.json 2>/dev/null | grep -o '"bird_detected"' | wc -l || echo "0")
+    ANNOTATION_COUNT=$((ANNOTATION_COUNT + 0))  # ensure numeric
+    if [ "$ANNOTATION_COUNT" -eq "$PREV_COUNT" ] && [ "$ANNOTATION_COUNT" -gt 0 ]; then
+        STABLE_TICKS=$((STABLE_TICKS + 1))
+        if [ $STABLE_TICKS -ge 6 ]; then  # stable for 3s
+            break
+        fi
+    else
+        STABLE_TICKS=0
+        PREV_COUNT=$ANNOTATION_COUNT
+    fi
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
+if [ "$ANNOTATION_COUNT" -lt 1 ]; then
+    test_fail "No annotations produced after waiting 60s"
+fi
+echo -ne "(${ANNOTATION_COUNT} annotations) "
 test_pass
 
-test_start "Annotations file existence"
+test_start "Annotations file exists"
 ANNOTATIONS_EXISTS=$(docker exec sparrow_cam_processor test -f /var/www/html/annotations/bird.json && echo "yes" || echo "no")
 if [ "$ANNOTATIONS_EXISTS" != "yes" ]; then
-    test_fail "Annotations file not created at /var/www/html/annotations/bird.json"
+    test_fail "Annotations file not found at /var/www/html/annotations/bird.json"
 fi
 test_pass
 
-test_start "Annotations file contains segment data"
+test_start "Annotations contain bird detections (expected >= ${EXPECTED_BIRD_DETECTIONS})"
 ANNOTATIONS_CONTENT=$(docker exec sparrow_cam_processor cat /var/www/html/annotations/bird.json 2>/dev/null)
-ANNOTATION_COUNT=$(echo "$ANNOTATIONS_CONTENT" | grep -o '\"bird_detected\"' | wc -l || echo "0")
-if [ "$ANNOTATION_COUNT" -lt 1 ]; then
+BIRD_DETECTIONS=$(echo "$ANNOTATIONS_CONTENT" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(sum(1 for v in data.values() if v.get('bird_detected') is True))
+" 2>/dev/null || echo "0")
+if [ "$BIRD_DETECTIONS" -lt "$EXPECTED_BIRD_DETECTIONS" ]; then
     echo ""
     echo -e "${YELLOW}Debug: Annotations file content:${NC}"
     echo "$ANNOTATIONS_CONTENT" | head -50
-    test_fail "Annotations file does not contain bird_detected annotations (found: $ANNOTATION_COUNT entries)"
+    test_fail "Expected >= ${EXPECTED_BIRD_DETECTIONS} bird detections, got ${BIRD_DETECTIONS}"
+fi
+echo -ne "(${BIRD_DETECTIONS} bird detections) "
+test_pass
+
+# ==============================================================================
+section_header "Phase 6: Processor Logs Verification"
+# ==============================================================================
+
+PROCESSOR_LOGS=$(docker logs sparrow_cam_processor 2>&1)
+
+test_start "Processor logs show segment processing"
+if ! echo "$PROCESSOR_LOGS" | grep -q "Performance: Processing time:"; then
+    echo ""
+    echo -e "${YELLOW}Debug: Processor logs (last 30 lines):${NC}"
+    echo "$PROCESSOR_LOGS" | tail -30
+    test_fail "No 'Performance: Processing time:' in processor logs"
+fi
+PROCESSING_COUNT=$(echo "$PROCESSOR_LOGS" | grep -c "Performance: Processing time:" || echo "0")
+echo -ne "(${PROCESSING_COUNT} segments processed) "
+test_pass
+
+test_start "Processor logs show bird detections"
+if ! echo "$PROCESSOR_LOGS" | grep -q "'Bird detected'"; then
+    echo ""
+    echo -e "${YELLOW}Debug: Processor logs (last 30 lines):${NC}"
+    echo "$PROCESSOR_LOGS" | tail -30
+    test_fail "No 'Bird detected' in processor logs"
+fi
+DETECTED_LOG_COUNT=$(echo "$PROCESSOR_LOGS" | grep -c "'Bird detected'" || echo "0")
+echo -ne "(${DETECTED_LOG_COUNT} detections logged) "
+test_pass
+
+test_start "Processor logs show archive scheduling"
+if ! echo "$PROCESSOR_LOGS" | grep -q "Bird detected, archive scheduled in"; then
+    echo ""
+    echo -e "${YELLOW}Debug: Relevant processor log lines:${NC}"
+    echo "$PROCESSOR_LOGS" | grep -E "(Bird|archive|Archive)" | head -20
+    test_fail "No archive scheduling in processor logs"
 fi
 test_pass
 
-test_start "Processor container logs show processing activity"
-PROCESSOR_LOGS_OUTPUT=$(docker logs sparrow_cam_processor 2>&1)
-if echo "$PROCESSOR_LOGS_OUTPUT" | grep -q "Processing time"; then
-    test_pass
-else
+test_start "Processor logs show archive execution"
+if ! echo "$PROCESSOR_LOGS" | grep -q "Executing scheduled archive:"; then
     echo ""
-    echo -e "${YELLOW}Debug: Processor logs (last 30 lines):${NC}"
-    echo "$PROCESSOR_LOGS_OUTPUT" | tail -30
-    test_fail "Processor logs do not show segment processing activity"
+    echo -e "${YELLOW}Debug: Relevant processor log lines:${NC}"
+    echo "$PROCESSOR_LOGS" | grep -E "(archive|Archive)" | head -20
+    test_fail "No archive execution in processor logs"
 fi
+ARCHIVE_COUNT=$(echo "$PROCESSOR_LOGS" | grep -c "Executing scheduled archive:" || echo "0")
+echo -ne "(${ARCHIVE_COUNT} archives created) "
+test_pass
 
-# Separate check for errors and warnings in processor logs
-test_start "Processor logs do not contain errors or warnings"
-ERRORS_WARNINGS=$(echo "$PROCESSOR_LOGS_OUTPUT" | grep -E "(WARNING|ERROR)" | head -5)
+test_start "Processor logs contain no ERROR or WARNING"
+ERRORS_WARNINGS=$(echo "$PROCESSOR_LOGS" | grep -E "^.*(WARNING|ERROR)" | head -5)
 if [ -n "$ERRORS_WARNINGS" ]; then
     echo ""
     echo -e "${YELLOW}Debug: Errors/Warnings found in processor logs:${NC}"
@@ -313,54 +357,35 @@ fi
 test_pass
 
 # ==============================================================================
-section_header "Phase 6: Web Server - Content Delivery"
+section_header "Phase 7: Web Server & Integration"
 # ==============================================================================
 
-test_start "Annotations file accessibility via HTTP"
+test_start "Annotations file accessible via HTTP"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$ANNOTATIONS_URL" || echo "000")
 if [ "$HTTP_CODE" != "200" ]; then
     test_fail "Annotations file returned HTTP $HTTP_CODE"
 fi
 test_pass
 
-test_start "Annotations file validity via HTTP"
+test_start "Annotations file contains bird_detected via HTTP"
 if ! curl -s "$ANNOTATIONS_URL" | grep -q "bird_detected"; then
     test_fail "Annotations file does not contain expected data via HTTP"
 fi
 test_pass
 
-test_start "HLS streaming through web server"
+test_start "HLS playlist references segment files via HTTP"
 if ! curl -s "$HLS_URL" | grep -q "\.ts"; then
     test_fail "HLS playlist from web server does not reference segment files"
-fi
-test_pass
-
-# ==============================================================================
-section_header "Phase 7: Integration Verification"
-# ==============================================================================
-
-test_start "Processor has consumed HLS segments"
-CONSUMED=$(docker exec sparrow_cam_processor sh -c "cat /var/www/html/annotations/bird.json | grep -o '\"bird_detected\"' | wc -l" || echo "0")
-if [ "$CONSUMED" -lt 1 ]; then
-    test_fail "Processor has not annotated any segments"
 fi
 test_pass
 
 test_start "Web server has access to shared volumes"
 WEB_HLS_COUNT=$(docker exec sparrow_cam_web sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
 WEB_ANNO_EXISTS=$(docker exec sparrow_cam_web test -f /var/www/html/annotations/bird.json && echo "yes" || echo "no")
-if [ "$WEB_HLS_COUNT" -lt 5 ] || [ "$WEB_ANNO_EXISTS" != "yes" ]; then
-    test_fail "Web server cannot access shared volumes properly"
+if [ "$WEB_HLS_COUNT" -lt 1 ] || [ "$WEB_ANNO_EXISTS" != "yes" ]; then
+    test_fail "Web server cannot access shared volumes properly (hls_count=$WEB_HLS_COUNT, anno=$WEB_ANNO_EXISTS)"
 fi
 test_pass
-
-test_start "End-to-end pipeline is functional"
-# Verify all components have worked together
-if [ "$HLS_SEGMENT_COUNT" -ge 5 ] && [ "$ANNOTATION_COUNT" -ge 1 ] && [ "$HTTP_CODE" = "200" ]; then
-    test_pass
-else
-    test_fail "End-to-end pipeline verification failed"
-fi
 
 # ==============================================================================
 section_header "Test Summary"
@@ -372,27 +397,20 @@ echo -e "${GREEN}║            All E2E Tests Passed Successfully! ✓          
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-echo "✓ HLS Test Content:"
-echo "  - Created HLS playlist with $HLS_SEGMENT_COUNT segments"
-echo "  - Uploaded to shared volume"
+echo "✓ HLS Stream:"
+echo "  - Streamed sample.mp4 as ${TOTAL_SEGMENTS} HLS segments (1s each)"
 echo ""
 
 echo "✓ Processor Service:"
-echo "  - Monitored HLS directory for new segments"
-echo "  - Processed segments and detected birds"
-echo "  - Created annotations file with $ANNOTATION_COUNT entries"
+echo "  - Processed ${PROCESSING_COUNT} segments"
+echo "  - Detected birds in ${BIRD_DETECTIONS} segment(s)"
+echo "  - Produced ${ANNOTATION_COUNT} annotation entries"
+echo "  - Created ${ARCHIVE_COUNT} archive(s)"
 echo ""
 
 echo "✓ Web Server:"
 echo "  - Serves HLS stream via HTTP ($HLS_URL)"
 echo "  - Serves annotations file via HTTP ($ANNOTATIONS_URL)"
-echo "  - Has access to all shared volumes"
-echo ""
-
-echo -e "${YELLOW}Access points:${NC}"
-echo "  • Web interface: $WEB_URL"
-echo "  • HLS stream: $HLS_URL"
-echo "  • Annotations: $ANNOTATIONS_URL"
 echo ""
 
 exit $SUCCESS
