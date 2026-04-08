@@ -12,10 +12,10 @@
       args:
         executable: /bin/bash
       become: yes
-      become_user: sparrow_cam_processor
+      become_user: sparrow_cam_app
       environment:
-        HOME: /opt/sparrow_cam_processor
-        PYENV_ROOT: /opt/sparrow_cam_processor/.pyenv
+        HOME: /opt/sparrow_cam_app
+        PYENV_ROOT: /opt/sparrow_cam_app/.pyenv
       register: stream_archiver_result
 
     - name: Show stream archiver logs

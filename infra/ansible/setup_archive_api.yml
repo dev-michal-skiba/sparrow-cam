@@ -7,171 +7,42 @@
 
   tasks:
     - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+      include_tasks: tasks/apt_update.yml
 
-    - name: Install build dependencies for pyenv and Python packages
-      apt:
-        name:
-          - build-essential
-          - libssl-dev
-          - zlib1g-dev
-          - libbz2-dev
-          - libreadline-dev
-          - libsqlite3-dev
-          - curl
-          - git
-          - libncursesw5-dev
-          - xz-utils
-          - libffi-dev
-          - liblzma-dev
-          - acl
-        state: present
-
-    - name: Check if pyenv is already installed for sparrow_cam_archive_api
-      stat:
-        path: /opt/sparrow_cam_archive_api/.pyenv
-      register: pyenv_installed
-
-    - name: Install pyenv for sparrow_cam_archive_api user
-      shell: curl https://pyenv.run | bash
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_archive_api
-      environment:
-        HOME: /opt/sparrow_cam_archive_api
-        TMPDIR: /opt/sparrow_cam_archive_api/tmp
-      when: not pyenv_installed.stat.exists
-
-    - name: Create pyenv initialization script
-      copy:
-        content: |
-          export PYENV_ROOT="$HOME/.pyenv"
-          export PATH="$PYENV_ROOT/bin:$PATH"
-          eval "$(pyenv init -)"
-          eval "$(pyenv virtualenv-init -)"
-        dest: /opt/sparrow_cam_archive_api/.pyenvrc
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
-        mode: '0644'
-
-    - name: Setup pyenv in .bashrc for sparrow_cam_archive_api
-      blockinfile:
-        path: /opt/sparrow_cam_archive_api/.bashrc
-        block: |
-          # Load pyenv configuration
-          if [ -f "$HOME/.pyenvrc" ]; then
-            source "$HOME/.pyenvrc"
-          fi
-        marker: "# {mark} ANSIBLE MANAGED BLOCK - PYENV"
-        create: yes
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
-        mode: '0644'
-
-    - name: Check if Python {{ archive_api_python_version }} is already installed
-      stat:
-        path: /opt/sparrow_cam_archive_api/.pyenv/versions/{{ archive_api_python_version }}
-      register: python_version_installed
-
-    - name: Install Python {{ archive_api_python_version }} via pyenv
-      shell: |
-        source ~/.pyenvrc
-        pyenv install {{ archive_api_python_version }}
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_archive_api
-      environment:
-        HOME: /opt/sparrow_cam_archive_api
-        PYENV_ROOT: /opt/sparrow_cam_archive_api/.pyenv
-        TMPDIR: /opt/sparrow_cam_archive_api/tmp
-      when: not python_version_installed.stat.exists
-
-    - name: Check current Python version of sparrow_cam_archive_api virtualenv
-      shell: |
-        source ~/.pyenvrc
-        venv_path=$(find "$PYENV_ROOT/versions" -maxdepth 3 -type d -path "*/envs/sparrow_cam_archive_api" -print -quit)
-        if [ -n "$venv_path" ]; then
-          basename "$(dirname "$(dirname "$venv_path")")"
-        else
-          echo "none"
-        fi
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_archive_api
-      environment:
-        HOME: /opt/sparrow_cam_archive_api
-        PYENV_ROOT: /opt/sparrow_cam_archive_api/.pyenv
-      register: current_venv_python
-      changed_when: false
-
-    - name: Remove old sparrow_cam_archive_api virtualenv if Python version changed
-      shell: |
-        source ~/.pyenvrc
-        pyenv uninstall -f sparrow_cam_archive_api
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_archive_api
-      environment:
-        HOME: /opt/sparrow_cam_archive_api
-        PYENV_ROOT: /opt/sparrow_cam_archive_api/.pyenv
-      when:
-        - current_venv_python.stdout != "none"
-        - current_venv_python.stdout != archive_api_python_version
-
-    - name: Create sparrow_cam_archive_api virtual environment with Python {{ archive_api_python_version }}
-      shell: |
-        source ~/.pyenvrc
-        pyenv virtualenv {{ archive_api_python_version }} sparrow_cam_archive_api
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: sparrow_cam_archive_api
-      environment:
-        HOME: /opt/sparrow_cam_archive_api
-        PYENV_ROOT: /opt/sparrow_cam_archive_api/.pyenv
-      when:
-        - current_venv_python.stdout == "none" or current_venv_python.stdout != archive_api_python_version
-
-    - name: Create archive API app directory
-      file:
-        path: /opt/sparrow_cam_archive_api/apps
-        state: directory
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
-        mode: '0755'
+    - name: Setup pyenv and virtualenv for sparrow_cam_app (archive_api)
+      include_tasks: tasks/pyenv_setup.yml
+      vars:
+        python_version: "{{ archive_api_python_version }}"
+        virtualenv_name: sparrow_cam_archive_api
+        app_user: sparrow_cam_app
+        app_home: /opt/sparrow_cam_app
 
     - name: Clean archive API app directory if it exists
       file:
-        path: /opt/sparrow_cam_archive_api/apps/archive_api
+        path: /opt/sparrow_cam_app/apps/archive_api
         state: absent
 
     - name: Copy archive API application files
       copy:
         src: /app/archive_api/archive_api/
-        dest: /opt/sparrow_cam_archive_api/apps/archive_api/archive_api
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
+        dest: /opt/sparrow_cam_app/apps/archive_api/archive_api
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
         mode: '0755'
         directory_mode: '0755'
       notify: reload and restart archive_api
 
     - name: Clean __pycache__ from deployed archive_api
       file:
-        path: /opt/sparrow_cam_archive_api/apps/archive_api/archive_api/__pycache__
+        path: /opt/sparrow_cam_app/apps/archive_api/archive_api/__pycache__
         state: absent
 
     - name: Copy archive API .toml file
       copy:
         src: /app/archive_api/pyproject.toml
-        dest: /opt/sparrow_cam_archive_api/apps/archive_api/pyproject.toml
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
+        dest: /opt/sparrow_cam_app/apps/archive_api/pyproject.toml
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
         mode: '0644'
       notify: reload and restart archive_api
 
@@ -180,14 +51,14 @@
         source ~/.pyenvrc
         pyenv activate sparrow_cam_archive_api
         pip install --upgrade pip setuptools wheel
-        pip install -e /opt/sparrow_cam_archive_api/apps/archive_api
+        pip install -e /opt/sparrow_cam_app/apps/archive_api
       args:
         executable: /bin/bash
       become: yes
-      become_user: sparrow_cam_archive_api
+      become_user: sparrow_cam_app
       environment:
-        HOME: /opt/sparrow_cam_archive_api
-        PYENV_ROOT: /opt/sparrow_cam_archive_api/.pyenv
+        HOME: /opt/sparrow_cam_app
+        PYENV_ROOT: /opt/sparrow_cam_app/.pyenv
       notify: reload and restart archive_api
 
     - name: Create archive API systemd service file
@@ -200,15 +71,15 @@
 
           [Service]
           Type=simple
-          User=sparrow_cam_archive_api
-          Group=sparrow_cam_archive_api
-          WorkingDirectory=/opt/sparrow_cam_archive_api/apps/archive_api
-          Environment="PATH=/opt/sparrow_cam_archive_api/.pyenv/versions/sparrow_cam_archive_api/bin:/opt/sparrow_cam_archive_api/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-          Environment="HOME=/opt/sparrow_cam_archive_api"
-          Environment="PYENV_ROOT=/opt/sparrow_cam_archive_api/.pyenv"
+          User=sparrow_cam_app
+          Group=sparrow_cam_app
+          WorkingDirectory=/opt/sparrow_cam_app/apps/archive_api
+          Environment="PATH=/opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_archive_api/bin:/opt/sparrow_cam_app/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          Environment="HOME=/opt/sparrow_cam_app"
+          Environment="PYENV_ROOT=/opt/sparrow_cam_app/.pyenv"
           Environment="PYTHONUNBUFFERED=1"
           Environment="FLASK_HOST=127.0.0.1"
-          ExecStart=/opt/sparrow_cam_archive_api/.pyenv/versions/sparrow_cam_archive_api/bin/python -m archive_api
+          ExecStart=/opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_archive_api/bin/python -m archive_api
           Restart=always
           RestartSec=10
           StandardOutput=journal
@@ -235,37 +106,9 @@
         state: started
         daemon_reload: yes
 
-    - name: Copy nginx configuration
-      copy:
-        src: /app/nginx.conf
-        dest: /etc/nginx/nginx.conf
-        owner: root
-        group: root
-        mode: '0644'
-      notify: restart nginx
-
-    - name: Set production WEB port
-      replace:
-        path: /etc/nginx/nginx.conf
-        regexp: '\$\{WEB_PORT\}'
-        replace: "80"
-      notify: restart nginx
-
-    - name: Set archive API URL
-      replace:
-        path: /etc/nginx/nginx.conf
-        regexp: '\$\{ARCHIVE_API_URL\}'
-        replace: "http://127.0.0.1:5001"
-      notify: restart nginx
-
   handlers:
     - name: reload and restart archive_api
       systemd:
         name: sparrow-archive-api
         state: restarted
         daemon_reload: yes
-
-    - name: restart nginx
-      systemd:
-        name: nginx
-        state: restarted

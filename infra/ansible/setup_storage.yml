@@ -6,6 +6,9 @@
     device_to_mount: /dev/sda1
 
   tasks:
+    - name: Update apt cache
+      include_tasks: tasks/apt_update.yml
+
     - name: Check if any drive is already mounted at target location
       command: mountpoint -q /var/www/html/storage
       register: mount_check
@@ -44,8 +47,8 @@
       file:
         path: /var/www/html/storage
         state: directory
-        owner: sparrow_cam_processor
-        group: www-data
+        owner: sparrow_cam_app
+        group: sparrow_cam
         mode: '0755'
 
     - name: Mount the partition

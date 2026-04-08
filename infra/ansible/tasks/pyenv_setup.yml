@@ -1,0 +1,109 @@
+---
+- name: Check if pyenv is already installed for {{ app_user }}
+  stat:
+    path: "{{ app_home }}/.pyenv"
+  register: pyenv_installed
+
+- name: Install pyenv for {{ app_user }}
+  shell: curl https://pyenv.run | bash
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "{{ app_home }}"
+    TMPDIR: "{{ app_home }}/tmp"
+  when: not pyenv_installed.stat.exists
+
+- name: Create pyenv initialization script for {{ app_user }}
+  copy:
+    content: |
+      export PYENV_ROOT="$HOME/.pyenv"
+      export PATH="$PYENV_ROOT/bin:$PATH"
+      eval "$(pyenv init -)"
+      eval "$(pyenv virtualenv-init -)"
+    dest: "{{ app_home }}/.pyenvrc"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0644'
+
+- name: Setup pyenv in .bashrc for {{ app_user }}
+  blockinfile:
+    path: "{{ app_home }}/.bashrc"
+    block: |
+      # Load pyenv configuration
+      if [ -f "$HOME/.pyenvrc" ]; then
+        source "$HOME/.pyenvrc"
+      fi
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - PYENV"
+    create: yes
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0644'
+
+- name: Check if Python {{ python_version }} is already installed
+  stat:
+    path: "{{ app_home }}/.pyenv/versions/{{ python_version }}"
+  register: python_version_installed
+
+- name: Install Python {{ python_version }} via pyenv
+  shell: |
+    source ~/.pyenvrc
+    pyenv install {{ python_version }}
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "{{ app_home }}"
+    PYENV_ROOT: "{{ app_home }}/.pyenv"
+    TMPDIR: "{{ app_home }}/tmp"
+  when: not python_version_installed.stat.exists
+
+- name: Check current Python version of {{ virtualenv_name }} virtualenv
+  shell: |
+    source ~/.pyenvrc
+    venv_path=$(find "$PYENV_ROOT/versions" -maxdepth 3 -type d -path "*/envs/{{ virtualenv_name }}" -print -quit)
+    if [ -n "$venv_path" ]; then
+      basename "$(dirname "$(dirname "$venv_path")")"
+    else
+      echo "none"
+    fi
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "{{ app_home }}"
+    PYENV_ROOT: "{{ app_home }}/.pyenv"
+  register: current_venv_python
+  changed_when: false
+
+- name: Remove old {{ virtualenv_name }} virtualenv if Python version changed
+  shell: |
+    source ~/.pyenvrc
+    pyenv uninstall -f {{ virtualenv_name }}
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "{{ app_home }}"
+    PYENV_ROOT: "{{ app_home }}/.pyenv"
+  when:
+    - current_venv_python.stdout != "none"
+    - current_venv_python.stdout != python_version
+
+- name: Create {{ virtualenv_name }} virtual environment with Python {{ python_version }}
+  shell: |
+    source ~/.pyenvrc
+    pyenv virtualenv {{ python_version }} {{ virtualenv_name }}
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "{{ app_home }}"
+    PYENV_ROOT: "{{ app_home }}/.pyenv"
+  when:
+    - current_venv_python.stdout == "none" or current_venv_python.stdout != python_version

@@ -4,37 +4,19 @@
   become: yes
 
   tasks:
-    - name: Create www-data group if it doesn't exist
+    - name: Update apt cache
+      include_tasks: tasks/apt_update.yml
+
+    - name: Create sparrow_cam group
       group:
-        name: www-data
+        name: sparrow_cam
         state: present
 
-    - name: Create www-data user
+    - name: Add www-data to sparrow_cam group
       user:
         name: www-data
-        group: www-data
-        shell: /usr/sbin/nologin
-        home: /var/www
-        create_home: no
-        system: yes
-        state: present
-
-    - name: Create sparrow_cam_processor user
-      user:
-        name: sparrow_cam_processor
-        shell: /bin/bash
-        home: /opt/sparrow_cam_processor
-        create_home: yes
-        system: no
-        state: present
-
-    - name: Create temp directory for sparrow_cam_processor
-      file:
-        path: /opt/sparrow_cam_processor/tmp
-        state: directory
-        owner: sparrow_cam_processor
-        group: sparrow_cam_processor
-        mode: '0700'
+        groups: sparrow_cam
+        append: yes
 
     - name: Create sparrow_cam_stream user
       user:
@@ -42,7 +24,7 @@
         shell: /bin/bash
         home: /home/sparrow_cam_stream
         create_home: yes
-        groups: www-data,video
+        groups: sparrow_cam,video
         append: yes
         system: no
         state: present
@@ -54,21 +36,64 @@
           - ffmpeg
         state: present
 
-    - name: Create sparrow_cam_archive_api user
+    - name: Create sparrow_cam_app user
       user:
-        name: sparrow_cam_archive_api
+        name: sparrow_cam_app
         shell: /bin/bash
-        home: /opt/sparrow_cam_archive_api
+        home: /opt/sparrow_cam_app
         create_home: yes
-        groups: www-data
+        groups: sparrow_cam
         append: yes
         system: no
         state: present
 
-    - name: Create temp directory for sparrow_cam_archive_api
+    - name: Create temp directory for sparrow_cam_app
       file:
-        path: /opt/sparrow_cam_archive_api/tmp
+        path: /opt/sparrow_cam_app/tmp
         state: directory
-        owner: sparrow_cam_archive_api
-        group: sparrow_cam_archive_api
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
         mode: '0700'
+
+    - name: Create apps directory for sparrow_cam_app
+      file:
+        path: /opt/sparrow_cam_app/apps
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
+        mode: '0755'
+
+    - name: Install build dependencies
+      apt:
+        name:
+          - build-essential
+          - libssl-dev
+          - zlib1g-dev
+          - libbz2-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - curl
+          - git
+          - libncursesw5-dev
+          - xz-utils
+          - libffi-dev
+          - liblzma-dev
+          - libgl1
+          - libglib2.0-0
+          - acl
+        state: present
+
+    - name: Add sparrow_cam_infra to sparrow_cam group
+      user:
+        name: sparrow_cam_infra
+        groups: sparrow_cam
+        append: yes
+
+    - name: Enable passwordless sudo for sparrow_cam_infra
+      copy:
+        content: "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL\n"
+        dest: /etc/sudoers.d/sparrow_cam_infra
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s

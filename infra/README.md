@@ -30,34 +30,7 @@ Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash the OS
 
 This creates the user and sets up SSH key access automatically.
 
-**Step 3: Setup users**
-
-```bash
-# [OPTIONAL] Build infrastructure docker container
-make -C infra build
-
-# [OPTIONAL] Test connection
-make -C infra ping
-
-# Or deploy separately
-make -C infra setup_users     # Setup users and groups
-```
-
-**Step 4: Add user to processor group on target device**
-
-```bash
-# Add the SSH user to the processor group
-sudo usermod -a -G sparrow_cam_processor sparrow_cam_infra
-```
-
-**Step 5: Enable passwordless sudo on target device**
-
-```bash
-# On target device
-echo "sparrow_cam_infra ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/sparrow_cam_infra
-```
-
-**Step 6: Configure Ansible variables**
+**Step 3: Configure Ansible variables**
 
 ```bash
 # Copy example vars and update with your values
@@ -74,6 +47,7 @@ make -C infra build
 # [OPTIONAL]  Test connection
 make -C infra ping
 
+make -C infra setup_users       # Setup users, groups, and passwordless sudo
 make -C infra setup_storage     # Mount external hard drive
 make -C infra setup_processor   # Processor service
 make -C infra setup_archive_api # Archive API service (port 5001, proxied via nginx)

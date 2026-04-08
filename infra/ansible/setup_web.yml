@@ -5,9 +5,7 @@
 
   tasks:
     - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+      include_tasks: tasks/apt_update.yml
 
     - name: Install nginx
       apt:
@@ -39,7 +37,7 @@
         path: /var/www/html/hls
         state: directory
         owner: sparrow_cam_stream
-        group: www-data
+        group: sparrow_cam
         mode: '0775'
 
     - name: Copy nginx configuration
@@ -71,16 +69,16 @@
       copy:
         src: /app/index.html
         dest: /var/www/html/index.html
-        owner: www-data
-        group: www-data
+        owner: root
+        group: sparrow_cam
         mode: '0644'
 
     - name: Copy icon.png
       copy:
         src: /app/icon.png
         dest: /var/www/html/icon.png
-        owner: www-data
-        group: www-data
+        owner: root
+        group: sparrow_cam
         mode: '0644'
 
     - name: Validate nginx configuration
