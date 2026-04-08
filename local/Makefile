@@ -1,11 +1,11 @@
-.PHONY: help build start stream stop format check test e2e lab-build lab-run lab-format lab-check lab-test
+.PHONY: help build start stream stop format check test e2e lab-build lab-run lab-format lab-check lab-test archive_api_build archive_api_format archive_api_check archive_api_test
 
 help:
 	@echo "SparrowCam Local Development"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make build                 - Build the Docker image"
-	@echo "  make start                 - Start the application (web on :8080)"
+	@echo "  make start                 - Start the application (nginx on :8080)"
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make stream                - Stream sample.mp4 continuously (loops forever)"
 	@echo "  make stop                  - Stop the application and clean stream and annotation files"
@@ -19,6 +19,11 @@ help:
 	@echo "  make lab-format            - Format lab code with black and ruff"
 	@echo "  make lab-check             - Run lint, type and security checks for lab"
 	@echo "  make lab-test              - Run unit tests for lab package"
+	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
+	@echo "  make archive-api-build     - Build the archive API Docker image"
+	@echo "  make archive-api-format    - Format archive API code with black and ruff"
+	@echo "  make archive-api-check     - Run lint, type and security checks for archive API"
+	@echo "  make archive-api-test      - Run unit tests for archive API package"
 	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
 
 build:
@@ -104,3 +109,26 @@ lab-check:
 
 lab-test:
 	docker compose -f docker-compose.lab.yml run --rm --no-deps lab pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
+
+
+archive-api-build:
+	docker compose build archive_api
+
+archive-api-format:
+	docker compose run --rm --no-deps archive_api bash -lc "\
+		black archive_api tests && \
+		printf '\033[32mBlack formatting complete\033[0m\n' && \
+		ruff check --fix && \
+		printf '\033[32mRuff formatting complete\033[0m\n'"
+
+archive-api-check:
+	docker compose run --rm --no-deps archive_api bash -lc "\
+		ruff check && \
+		printf '\033[32mRuff check passed\033[0m\n' && \
+		PYRIGHT_PYTHON_PATH=\$(which python3) pyright && \
+		printf '\033[32mPyright check passed\033[0m\n' && \
+		bandit -r archive_api && \
+		printf '\033[32mBandit check passed\033[0m\n'"
+
+archive-api-test:
+	docker compose run --rm --no-deps archive_api pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)

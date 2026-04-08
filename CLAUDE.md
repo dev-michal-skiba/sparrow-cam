@@ -12,3 +12,4 @@ SparrowCam is a local bird feeder observation system that monitors a camera feed
 When working on a package, load the corresponding context file for architecture details:
 - **Lab** → `agent_docs/lab_package.md`
 - **Processor** → `agent_docs/processor_package.md`
+- **Archive API** → `agent_docs/archive_api.md`

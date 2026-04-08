@@ -53,3 +53,22 @@
           - tmux
           - ffmpeg
         state: present
+
+    - name: Create sparrow_cam_archive_api user
+      user:
+        name: sparrow_cam_archive_api
+        shell: /bin/bash
+        home: /opt/sparrow_cam_archive_api
+        create_home: yes
+        groups: www-data
+        append: yes
+        system: no
+        state: present
+
+    - name: Create temp directory for sparrow_cam_archive_api
+      file:
+        path: /opt/sparrow_cam_archive_api/tmp
+        state: directory
+        owner: sparrow_cam_archive_api
+        group: sparrow_cam_archive_api
+        mode: '0700'

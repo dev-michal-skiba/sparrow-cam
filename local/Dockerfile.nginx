@@ -1,0 +1,21 @@
+FROM ubuntu:25.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install nginx plus helpers for health checks/template rendering
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        nginx \
+        curl \
+        gettext-base && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Ensure content directories exist
+RUN mkdir -p /var/www/html/hls /var/www/html/annotations
+
+# Expose HTTP port
+EXPOSE 8080
+
+# Render config at startup (WEB_PORT and ARCHIVE_API_URL injected at runtime) and run nginx
+CMD ["/bin/sh", "-c", "envsubst '${WEB_PORT} ${ARCHIVE_API_URL}' < /tmp/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;' -c /etc/nginx/nginx.conf"]

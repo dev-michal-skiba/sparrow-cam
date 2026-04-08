@@ -21,19 +21,36 @@ services:
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
 
-  web:
+  archive_api:
     build:
       context: ..
-      dockerfile: local/Dockerfile.web
-      args:
-        WEB_PORT: 8080
-    container_name: sparrow_cam_web
+      dockerfile: local/Dockerfile.archive_api
+    container_name: sparrow_cam_archive_api
+    environment:
+      - FLASK_HOST=0.0.0.0
+    ports:
+      - "5001:5001"
+    volumes:
+      - ../app/archive_api:/app/archive_api
+      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive:ro
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.nginx
+    container_name: sparrow_cam_nginx
     depends_on:
       processor:
         condition: service_started
+      archive_api:
+        condition: service_started
+    environment:
+      - WEB_PORT=8080
+      - ARCHIVE_API_URL=http://archive_api:5001
     ports:
       - "8080:8080"
     volumes:
+      - ../app/nginx.conf:/tmp/nginx.conf.template
       - ../app/index.html:/var/www/html/index.html
       - ../app/icon.png:/var/www/html/icon.png
       - hls_data:/var/www/html/hls

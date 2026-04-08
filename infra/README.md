@@ -74,9 +74,10 @@ make -C infra build
 # [OPTIONAL]  Test connection
 make -C infra ping
 
-make -C infra setup_storage   # Mount external hard drive
-make -C infra setup_processor # Processor service
-make -C infra setup_web       # Web server (port 80)
+make -C infra setup_storage     # Mount external hard drive
+make -C infra setup_processor   # Processor service
+make -C infra setup_archive_api # Archive API service (port 5001, proxied via nginx)
+make -C infra setup_web         # Web server (port 80)
 ```
 
 ## Starting the Stream
@@ -166,11 +167,12 @@ journalctl --disk-usage
 
 ## Service Architecture
 
-The deployment creates two systemd services on the target device, plus a manual ffmpeg stream:
+The deployment creates three systemd services on the target device, plus a manual ffmpeg stream:
 
 1. **nginx** (port 80) - Web server
    - Serves web interface and HLS streams
    - Hosts annotation file from processor (`/var/www/html/annotations/bird.json`)
+   - Proxies `/archive` requests to the archive API service
    - Configuration: `/etc/nginx/nginx.conf`
 
 2. **sparrow-processor** - HLS segment processor
@@ -179,7 +181,12 @@ The deployment creates two systemd services on the target device, plus a manual 
    - Outputs annotations to `/var/www/html/annotations/bird.json`
    - Runs as `sparrow_cam_processor` user
 
-3. **ffmpeg stream** (tmux session) - USB camera to HLS
+3. **sparrow-archive-api** (port 5001, internal) - Archive API
+   - Serves `GET /archive` endpoint listing archived streams by date range
+   - Reads from `/var/www/html/storage/sparrow_cam/archive`
+   - Runs as `sparrow_cam_archive_api` user (member of `www-data` group for archive access)
+
+4. **ffmpeg stream** (tmux session) - USB camera to HLS
    - Runs in tmux session as `sparrow_cam_stream` user
    - Captures video from `/dev/video0` and converts to HLS segments
    - Outputs segments to `/var/www/html/hls/`

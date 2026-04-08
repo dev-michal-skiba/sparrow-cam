@@ -42,9 +42,9 @@
         group: www-data
         mode: '0775'
 
-    - name: Copy nginx web server configuration
+    - name: Copy nginx configuration
       copy:
-        src: /app/nginx-web.conf
+        src: /app/nginx.conf
         dest: /etc/nginx/nginx.conf
         owner: root
         group: root
@@ -58,6 +58,13 @@
         replace: "{{ WEB_PORT }}"
       vars:
         WEB_PORT: 80
+      notify: restart nginx
+
+    - name: Set archive API URL
+      replace:
+        path: /etc/nginx/nginx.conf
+        regexp: '\$\{ARCHIVE_API_URL\}'
+        replace: "http://127.0.0.1:5001"
       notify: restart nginx
 
     - name: Copy index.html

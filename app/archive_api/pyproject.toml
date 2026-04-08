@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archive_api"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "flask",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["archive_api*"]
+exclude = ["tests", "tests.*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+src = ["archive_api", "tests"]
+target-version = "py313"
+fix = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "TID"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["archive_api"]
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+include = "\\.pyi?$"
+
+[tool.pyright]
+pythonVersion = "3.13"
+pythonPlatform = "Linux"
+typeCheckingMode = "basic"
+include = ["archive_api", "tests"]
+extraPaths = ["."]
+executionEnvironments = [
+    { root = "." },
+]
+
+[tool.coverage.run]
+source = ["archive_api"]
+branch = true
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 90

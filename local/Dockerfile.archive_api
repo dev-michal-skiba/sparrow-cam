@@ -1,0 +1,14 @@
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app/archive_api
+
+# Install archive_api package
+COPY app/archive_api/ .
+RUN pip install --no-cache-dir -e .
+
+# Install tooling for tests, linting, formatting, etc.
+COPY local/requirements.dev.txt /tmp/requirements.dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.dev.txt
+
+CMD ["python3", "-u", "-m", "archive_api"]
