@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 WEB_URL="http://localhost:8080"
 HLS_URL="http://localhost:8080/hls/sparrow_cam.m3u8"
 ANNOTATIONS_URL="http://localhost:8080/annotations/bird.json"
+ARCHIVE_API_URL="http://localhost:8080/archive/api"
 
 # Expected counts (based on sample.mp4 — update if sample changes)
 EXPECTED_BIRD_DETECTIONS=40  # bird_detected=true annotations in final annotations file
@@ -154,7 +155,7 @@ test_pass
 
 test_start "Container processes running"
 PROCESSOR_RUNNING=$(docker ps | grep -c "sparrow_cam_processor" || echo "0")
-WEB_RUNNING=$(docker ps | grep -c "sparrow_cam_web" || echo "0")
+WEB_RUNNING=$(docker ps | grep -c "sparrow_cam_nginx" || echo "0")
 if [ "$PROCESSOR_RUNNING" -ne 1 ] || [ "$WEB_RUNNING" -ne 1 ]; then
     test_fail "Not all containers are running"
 fi
@@ -380,11 +381,54 @@ fi
 test_pass
 
 test_start "Web server has access to shared volumes"
-WEB_HLS_COUNT=$(docker exec sparrow_cam_web sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
-WEB_ANNO_EXISTS=$(docker exec sparrow_cam_web test -f /var/www/html/annotations/bird.json && echo "yes" || echo "no")
+WEB_HLS_COUNT=$(docker exec sparrow_cam_nginx sh -c "ls /var/www/html/hls/*.ts 2>/dev/null | wc -l" || echo "0")
+WEB_ANNO_EXISTS=$(docker exec sparrow_cam_nginx test -f /var/www/html/annotations/bird.json && echo "yes" || echo "no")
 if [ "$WEB_HLS_COUNT" -lt 1 ] || [ "$WEB_ANNO_EXISTS" != "yes" ]; then
     test_fail "Web server cannot access shared volumes properly (hls_count=$WEB_HLS_COUNT, anno=$WEB_ANNO_EXISTS)"
 fi
+test_pass
+
+# ==============================================================================
+section_header "Phase 8: Archive API"
+# ==============================================================================
+
+TODAY=$(date +%Y-%m-%d)
+
+test_start "Archive API container running"
+ARCHIVE_API_RUNNING=$(docker ps | grep -c "sparrow_cam_archive_api" || echo "0")
+if [ "$ARCHIVE_API_RUNNING" -ne 1 ]; then
+    test_fail "archive_api container is not running"
+fi
+test_pass
+
+test_start "Archive API accessible via HTTP"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$ARCHIVE_API_URL?from=$TODAY&to=$TODAY" || echo "000")
+if [ "$HTTP_CODE" != "200" ]; then
+    test_fail "Archive API returned HTTP $HTTP_CODE (expected 200)"
+fi
+test_pass
+
+test_start "Archive API returns valid JSON"
+ARCHIVE_RESPONSE=$(curl -s "$ARCHIVE_API_URL?from=$TODAY&to=$TODAY" || echo "")
+if ! echo "$ARCHIVE_RESPONSE" | python3 -c "import json, sys; json.load(sys.stdin)" 2>/dev/null; then
+    test_fail "Archive API response is not valid JSON"
+fi
+test_pass
+
+test_start "Archive API returns archive data for today"
+ARCHIVE_STREAM_COUNT=$(echo "$ARCHIVE_RESPONSE" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+count = sum(len(streams) for year in data.values() for month in year.values() for streams in month.values())
+print(count)
+" 2>/dev/null || echo "0")
+if [ "$ARCHIVE_STREAM_COUNT" -lt 1 ]; then
+    echo ""
+    echo -e "${YELLOW}Debug: Archive API response:${NC}"
+    echo "$ARCHIVE_RESPONSE"
+    test_fail "Archive API returned no archive streams for today"
+fi
+echo -ne "(${ARCHIVE_STREAM_COUNT} streams) "
 test_pass
 
 # ==============================================================================
@@ -411,6 +455,10 @@ echo ""
 echo "✓ Web Server:"
 echo "  - Serves HLS stream via HTTP ($HLS_URL)"
 echo "  - Serves annotations file via HTTP ($ANNOTATIONS_URL)"
+echo ""
+
+echo "✓ Archive API:"
+echo "  - Returned ${ARCHIVE_STREAM_COUNT} archive stream(s) for today ($TODAY)"
 echo ""
 
 exit $SUCCESS

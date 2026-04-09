@@ -29,6 +29,21 @@ jobs:
       - name: Test
         run: make -C local test
 
+      - name: Cleanup
+        if: always()
+        run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans
+
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install E2E Test Dependencies
         run: |
           sudo apt-get update
@@ -40,6 +55,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans
+
   lab:
     runs-on: ubuntu-latest
     permissions:

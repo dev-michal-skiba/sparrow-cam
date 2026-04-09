@@ -39,7 +39,19 @@ Test coverage organized into two test classes:
 
 ## E2E Tests
 
-Archive API package DOES NOT implement E2E tests
+Archive API is covered by the shared e2e test suite. The e2e tests verify:
+- Archive API container is running
+- Archive API is accessible via nginx at `http://localhost:8080/archive/api`
+- Archive API returns valid JSON for a date range query
+- Archive API returns archive data for archives created during the e2e test run
+
+Run e2e tests (includes archive API):
+
+```
+make -C local e2e
+```
+
+E2E tests require up to 10 minutes to complete
 
 ## Formatting
 

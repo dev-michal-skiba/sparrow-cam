@@ -79,6 +79,8 @@ make -C local test ARGS="-vv"
 make -C local e2e
 ```
 
+E2E tests require up to 10 minutes to complete
+
 ## Formatting
 
 Runs `black` and `ruff check --fix`.
