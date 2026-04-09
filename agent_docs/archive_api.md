@@ -15,7 +15,7 @@ Application entry point. Starts the Flask app listening on 0.0.0.0:5001.
 
 ### `app.py`
 Flask application with the archive API endpoint:
-- Defines `/archive` GET endpoint that lists archived HLS streams filtered by date range
+- Defines `/` GET endpoint that lists archived HLS streams filtered by date range (served at `/archive/api` by nginx with path prefix stripping)
 - Date validation — validates required query parameters `from` and `to` with YYYY-MM-DD format
 - Date range validation — enforces maximum 31-day query window (inclusive) and validates `from` date is not after `to` date
 - Archive structure discovery — walks the nested year/month/day directory structure, enumerates stream folders at each day directory, returns nested JSON object mapping year → month → day → stream names

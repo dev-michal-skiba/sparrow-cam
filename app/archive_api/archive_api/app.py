@@ -22,7 +22,7 @@ def parse_date(value: str | None, param_name: str) -> tuple[date | None, dict | 
         return None, {"error": f"Invalid date value for '{param_name}': {value}"}
 
 
-@app.get("/archive")
+@app.get("/")
 def list_archive():
     from_date, err = parse_date(request.args.get("from"), "from")
     if err:

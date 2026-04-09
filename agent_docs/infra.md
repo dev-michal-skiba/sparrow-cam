@@ -58,10 +58,20 @@ Mounts external drive at `/var/www/html/storage`. Formats with ext4 if blank. Pe
 Each includes `tasks/pyenv_setup.yml` to install the correct Python version and create the named virtualenv, copies app source, runs pip install, and installs/enables a systemd service.
 
 ### `setup_web.yml`
-Installs nginx + ufw, configures firewall (ports 22, 80), creates HLS directory, deploys `nginx.conf` with variable substitution for `WEB_PORT` and `ARCHIVE_API_URL`.
+Installs nginx + ufw, configures firewall (ports 22, 80), creates HLS directory, deploys `nginx.conf` with variable substitution for `WEB_PORT` and `ARCHIVE_API_URL`. Configures nginx to serve live HLS at `/hls/`, archived HLS at `/archive/storage/`, and proxy archive API requests to `/archive/api`.
 
 ### `archive.yml`
 Runs `processor.stream_archiver` as `sparrow_cam_app` (one-shot). Accepts optional `LIMIT` variable.
+
+## nginx Configuration
+
+The `nginx.conf` file deployed by `setup_web.yml` defines three main location blocks:
+
+- `/hls/` — serves live HLS segments and playlists from `/var/www/html/hls/`
+- `/archive/storage/` — serves archived HLS segments and playlists from `/var/www/html/storage/sparrow_cam/archive/` (using alias to strip the location prefix)
+- `/archive/api` — proxies requests to the archive API service with `proxy_pass ${ARCHIVE_API_URL}/` (the trailing slash strips the `/archive/api` path prefix before forwarding)
+
+Both HLS locations include CORS headers and cache-control directives appropriate for streaming.
 
 ## Shared Tasks
 
