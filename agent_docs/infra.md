@@ -58,7 +58,11 @@ Mounts external drive at `/var/www/html/storage`. Formats with ext4 if blank. Pe
 Each includes `tasks/pyenv_setup.yml` to install the correct Python version and create the named virtualenv, copies app source, runs pip install, and installs/enables a systemd service.
 
 ### `setup_web.yml`
-Installs nginx + ufw, configures firewall (ports 22, 80), creates HLS directory, deploys `nginx.conf` with variable substitution for `WEB_PORT` and `ARCHIVE_API_URL`. Configures nginx to serve live HLS at `/hls/`, archived HLS at `/archive/storage/`, and proxy archive API requests to `/archive/api`.
+Installs nginx + ufw, configures firewall (ports 22, 80), creates HLS directory, deploys `nginx.conf` with variable substitution for `WEB_PORT` and `ARCHIVE_API_URL`. Configures nginx to serve:
+- Static web app files from `/var/www/html/` (built output from `app/web/dist/`)
+- Live HLS at `/hls/`
+- Archived HLS at `/archive/storage/`
+- Archive API proxy at `/archive/api`
 
 ### `archive.yml`
 Runs `processor.stream_archiver` as `sparrow_cam_app` (one-shot). Accepts optional `LIMIT` variable.
@@ -91,7 +95,8 @@ make -C infra setup_users         # Users, groups, passwordless sudo
 make -C infra setup_storage       # Mount external hard drive (DEVICE=... to override /dev/sda1)
 make -C infra setup_processor     # Deploy processor service
 make -C infra setup_archive_api   # Deploy archive API service
-make -C infra setup_web           # Deploy nginx
+make -C infra web_build           # Build web app (npm ci && npm run build inside docker)
+make -C infra setup_web           # Build web app and deploy web server (nginx)
 make -C infra setup_all           # Run all of the above in order
 make -C infra archive             # Run stream archiver (LIMIT=N to cap segments)
 ```

@@ -1,0 +1,15 @@
+:root {
+  /* Palette */
+  --primary-bg: #0a0a0a;
+  --primary-color: #d3d3d3;
+  --secondary-color: #03b603;
+  --bg-gradient-start: #050505;
+  --bg-gradient-end: #022c22;
+  --accent-soft: rgba(3, 182, 3, 0.18);
+  --text-main: var(--primary-color);
+  --player-width: min(
+    960px,
+    calc(100vw - 72px),
+    calc((100vh - 220px) * 16 / 9)
+  );
+}

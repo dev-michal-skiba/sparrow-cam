@@ -65,21 +65,14 @@
         replace: "http://127.0.0.1:5001"
       notify: restart nginx
 
-    - name: Copy index.html
+    - name: Copy web app build output
       copy:
-        src: /app/index.html
-        dest: /var/www/html/index.html
+        src: /app/web/dist/
+        dest: /var/www/html/
         owner: root
         group: sparrow_cam
         mode: '0644'
-
-    - name: Copy icon.png
-      copy:
-        src: /app/icon.png
-        dest: /var/www/html/icon.png
-        owner: root
-        group: sparrow_cam
-        mode: '0644'
+        directory_mode: '0755'
 
     - name: Validate nginx configuration
       command: nginx -t

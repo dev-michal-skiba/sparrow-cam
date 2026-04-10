@@ -26,11 +26,11 @@ Flask application with the archive API endpoint:
 ## Unit Tests
 
 ```
-make -C local archive_api_test
+make -C local archive-api-test
 ```
 Pass extra pytest flags via `ARGS`:
 ```
-make -C local archive_api_test ARGS="-vv"
+make -C local archive-api-test ARGS="-vv"
 ```
 
 Test coverage organized into two test classes:
@@ -58,7 +58,7 @@ E2E tests require up to 10 minutes to complete
 Runs `black` and `ruff check --fix`.
 
 ```
-make -C local archive_api_format
+make -C local archive-api-format
 ```
 
 ## Linting & Type Checking
@@ -66,5 +66,5 @@ make -C local archive_api_format
 Runs `ruff check`, `pyright`, and `bandit -r archive_api` (security linter).
 
 ```
-make -C local archive_api_check
+make -C local archive-api-check
 ```

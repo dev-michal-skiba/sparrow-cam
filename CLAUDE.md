@@ -13,4 +13,5 @@ When working on a package, load the corresponding context file for architecture 
 - **Lab** → `agent_docs/lab.md`
 - **Processor** → `agent_docs/processor.md`
 - **Archive API** → `agent_docs/archive_api.md`
+- **Web** → `agent_docs/web.md`
 - **Infra** → `agent_docs/infra.md`

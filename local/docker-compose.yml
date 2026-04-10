@@ -34,6 +34,21 @@ services:
       - ../app/archive_api:/app/archive_api
       - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive:ro
 
+  web:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.web
+    container_name: sparrow_cam_web
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../app/web/src:/app/web/src
+      - ../app/web/public:/app/web/public
+      - ../app/web/index.html:/app/web/index.html
+      - ../app/web/vite.config.ts:/app/web/vite.config.ts
+      - ../app/web/tsconfig.json:/app/web/tsconfig.json
+      - ../app/web/tsconfig.app.json:/app/web/tsconfig.app.json
+
   nginx:
     build:
       context: ..
@@ -44,15 +59,16 @@ services:
         condition: service_started
       archive_api:
         condition: service_started
+      web:
+        condition: service_started
     environment:
       - WEB_PORT=8080
+      - WEB_URL=http://web:5173
       - ARCHIVE_API_URL=http://archive_api:5001
     ports:
       - "8080:8080"
     volumes:
-      - ../app/nginx.conf:/tmp/nginx.conf.template
-      - ../app/index.html:/var/www/html/index.html
-      - ../app/icon.png:/var/www/html/icon.png
+      - ./nginx.conf:/tmp/nginx.conf.template
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
     healthcheck:
