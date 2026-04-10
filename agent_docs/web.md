@@ -7,22 +7,49 @@
     - Source code: `app/web/src/`
         - `components/` — Vue components
         - `composables/` — Vue composables (reusable logic)
+        - `views/` — Full-page Vue views (routed)
+        - `types/` — TypeScript type definitions
         - `styles/` — global CSS
     - Build output: `app/web/dist/` (production only, not used locally)
 
+## Views
+
+### `LiveView.vue`
+Main page showing the live HLS stream with bird detection annotations in real-time.
+
+### `ArchiveView.vue`
+Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
+
+### `ArchivePlaybackView.vue`
+Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream and renders the `ArchivePlayer` component.
+
 ## Components
 
-### `AppHeader.vue`
+### Live Feed
+#### `AppHeader.vue`
 Main application header displaying title and navigation.
 
-### `VideoPlayer.vue`
+#### `VideoPlayer.vue`
 HLS video player component. Uses the `useHlsPlayer` composable to manage playback. Displays the live stream and responds to stream status changes.
 
-### `StreamStatus.vue`
+#### `StreamStatus.vue`
 Displays current stream status. Shows whether the stream is active or stopped.
 
-### `BirdStatus.vue`
+#### `BirdStatus.vue`
 Shows bird detection status for the currently displayed segment. Uses the `useAnnotations` composable to access bird detection data.
+
+### Archive
+#### `ArchiveCalendar.vue`
+Calendar widget for browsing archived streams. Features month navigation (with future month restriction), day grid with stream count badges, and today highlighting. Clicking a day shows `ArchiveDayModal`.
+
+#### `ArchiveCalendarDay.vue`
+Single day cell in the calendar. Displays the day number, a badge with stream count if available, and visual states for today and future days (disabled).
+
+#### `ArchiveDayModal.vue`
+Modal overlay showing all archived streams for a selected day. Displays streams as clickable links that navigate to `ArchivePlaybackView` using the archive-playback route.
+
+#### `ArchivePlayer.vue`
+HLS video player for archive streams. Wraps `useHlsPlayer` composable with a `playlistUrl` prop. Reusable for both live and archive playback.
 
 ## Composables
 
@@ -36,6 +63,27 @@ Manages hls.js lifecycle and stream playback:
 Fetches bird detection annotations from the server:
 - Polls `/annotations/bird.json` every 500ms to fetch latest bird detections
 - Exposes reactive bird detection data keyed by segment name
+
+### `useArchive.ts`
+Fetches and caches archive metadata from the archive API:
+- Accepts year and month refs, queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD`
+- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month for memory efficiency
+- Supports reactive month/year changes with cached results
+
+## Types
+
+### `archive.ts`
+TypeScript interfaces for archive API responses:
+- `ArchiveApiResponse` — Nested Record structure keyed by year → month → day → stream ID
+- `DayArchive` — Represents a single day with day number and list of stream IDs
+- `MonthArchive` — Map from day numbers to `DayArchive` objects
+
+## Routing
+
+Router supports:
+- `/` → `LiveView` (live stream)
+- `/archive` → `ArchiveView` (calendar browse)
+- `/archive/:year/:month/:day/:stream` → `ArchivePlaybackView` (playback a specific archived stream)
 
 ## Development Workflow
 

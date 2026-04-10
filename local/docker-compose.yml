@@ -71,6 +71,7 @@ services:
       - ./nginx.conf:/tmp/nginx.conf.template
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
+      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:$$WEB_PORT >/dev/null"]
       interval: 5s
