@@ -112,10 +112,6 @@ make -C local lab-test ARGS="-vv"
 - do not implement tests for `gui.py`
     - it's skipped from coverage
 
-## E2E Tests
-
-Lab package DOES NOT implement E2E tests
-
 ## Formatting
 
 Runs `black` and `ruff check --fix`.

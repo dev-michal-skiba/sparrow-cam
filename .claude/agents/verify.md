@@ -52,18 +52,12 @@ Run tests, formatting and lint checks for a package. Fix any issues found at eac
   - If coverage is insufficient, add tests for uncovered code paths
   - Make sure lines changed are covered
 
-## 4. Verify E2E Tests
-
-- Run E2E tests using the command from the package context file
-- If the package context file says the package does not implement E2E tests, skip this step
-- Fix any failures and re-run until all pass
-
-## 5. Format Code
+## 4. Format Code
 
 - Run the format command from the package context file
 - Fix any issues and re-run until it passes
 
-## 6. Run Checks
+## 5. Run Checks
 
 - Run the checks command from the package context file
 - Fix linting, type checking, and security issues

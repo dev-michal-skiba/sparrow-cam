@@ -7,3 +7,4 @@ class DetectionBox(NamedTuple):
     x2: int
     y2: int
     class_id: int
+    confidence: float

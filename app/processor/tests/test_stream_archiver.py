@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 
 import pytest
@@ -771,6 +772,172 @@ class TestStreamArchiver:
 
             # Should schedule new archive, not extension
             assert archiver._pending_archive_is_extension is False
+
+
+class TestPruneDetections:
+    """Test suite for prune_detections method."""
+
+    def test_removes_stale_detections(self):
+        """Test that detections for segments no longer in valid_segments are removed."""
+        archiver = StreamArchiver()
+        archiver._segment_detections = {
+            "segment-1.ts": [{"class": "Pigeon"}],
+            "segment-2.ts": [{"class": "Great tit"}],
+            "segment-3.ts": [{"class": "Pigeon"}],
+        }
+
+        archiver.prune_detections({"segment-2.ts", "segment-3.ts"})
+
+        assert "segment-1.ts" not in archiver._segment_detections
+        assert "segment-2.ts" in archiver._segment_detections
+        assert "segment-3.ts" in archiver._segment_detections
+
+    def test_no_op_when_all_segments_valid(self):
+        """Test that nothing is removed when all stored segments are still valid."""
+        archiver = StreamArchiver()
+        archiver._segment_detections = {"segment-1.ts": [{"class": "Pigeon"}]}
+
+        archiver.prune_detections({"segment-1.ts", "segment-2.ts"})
+
+        assert "segment-1.ts" in archiver._segment_detections
+
+    def test_clears_all_when_valid_set_empty(self):
+        """Test that all detections are removed when valid_segments is empty."""
+        archiver = StreamArchiver()
+        archiver._segment_detections = {"segment-1.ts": [{"class": "Pigeon"}]}
+
+        archiver.prune_detections(set())
+
+        assert archiver._segment_detections == {}
+
+
+class TestRecordDetections:
+    """Test suite for record_detections method."""
+
+    def test_stores_non_empty_detections(self):
+        """Test that non-empty detections are stored keyed by segment name."""
+        archiver = StreamArchiver()
+        detections = [{"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}]
+
+        archiver.record_detections("segment-1.ts", detections)
+
+        assert archiver._segment_detections["segment-1.ts"] == detections
+
+    def test_ignores_empty_detections(self):
+        """Test that empty detection lists are not stored."""
+        archiver = StreamArchiver()
+
+        archiver.record_detections("segment-1.ts", [])
+
+        assert "segment-1.ts" not in archiver._segment_detections
+
+
+class TestWriteMeta:
+    """Test suite for write_meta method."""
+
+    def test_write_meta_creates_json_with_matching_segments(self, archive_path):
+        """Test that meta.json is created with only detections for archived segments."""
+        archiver = StreamArchiver()
+        detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+        archiver._segment_detections = {
+            "segment-1.ts": [detection],
+            "segment-9.ts": [detection],  # not in playlist
+        }
+        playlist_data = PlaylistData(
+            filename="playlist.m3u8",
+            header_lines=[],
+            segments_data=[SegmentData(metadata=[], name="segment-1.ts")],
+        )
+
+        archiver.write_meta(archive_path / "test", playlist_data)
+
+        meta = json.loads((archive_path / "test" / "meta.json").read_text())
+        assert meta["version"] == 1
+        assert meta["detections"] == {"segment-1.ts": [detection]}
+
+    def test_write_meta_creates_empty_detections_when_no_match(self, archive_path):
+        """Test that meta.json has empty detections when no recorded segments are in the archive."""
+        archiver = StreamArchiver()
+        playlist_data = PlaylistData(
+            filename="playlist.m3u8",
+            header_lines=[],
+            segments_data=[SegmentData(metadata=[], name="segment-1.ts")],
+        )
+
+        archiver.write_meta(archive_path / "test", playlist_data)
+
+        meta = json.loads((archive_path / "test" / "meta.json").read_text())
+        assert meta == {"version": 1, "detections": {}}
+
+
+class TestArchiveMeta:
+    """Test suite for meta.json creation during archive."""
+
+    @pytest.mark.usefixtures("stream_path")
+    @freeze_time("2024-12-21T15:30:45")
+    def test_archive_creates_meta_json(self, archive_path):
+        """Test that archive() creates a meta.json file with detection info."""
+        archiver = StreamArchiver()
+        detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+        archiver.record_detections("segment-2.ts", [detection])
+
+        archiver.archive(prefix="manual")
+
+        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
+        assert (destination_path / "meta.json").exists() is True
+        meta = json.loads((destination_path / "meta.json").read_text())
+        assert meta["version"] == 1
+        assert "segment-2.ts" in meta["detections"]
+
+    @pytest.mark.usefixtures("stream_path")
+    @freeze_time("2024-12-21T15:30:45")
+    def test_archive_meta_json_excludes_non_archived_segments(self, archive_path):
+        """Test that meta.json only includes segments present in the archive."""
+        archiver = StreamArchiver()
+        detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+        archiver.record_detections("segment-3.ts", [detection])  # Will be in archive (last segment)
+        archiver.record_detections("segment-2.ts", [detection])  # Will NOT be in archive (limit=1 takes last)
+
+        archiver.archive(prefix="manual", limit=1)
+
+        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
+        meta = json.loads((destination_path / "meta.json").read_text())
+        assert "segment-3.ts" in meta["detections"]
+        assert "segment-2.ts" not in meta["detections"]
+
+    @pytest.mark.usefixtures("stream_path")
+    @freeze_time("2024-12-21T15:30:45")
+    def test_archive_meta_json_empty_when_no_detections(self, archive_path):
+        """Test that meta.json has empty detections when no birds were detected."""
+        archiver = StreamArchiver()
+
+        archiver.archive(prefix="manual")
+
+        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
+        meta = json.loads((destination_path / "meta.json").read_text())
+        assert meta == {"version": 1, "detections": {}}
+
+    def test_extend_archive_updates_meta_json(self, stream_path, archive_path):
+        """Test that extend_archive() updates meta.json with detections from new segments."""
+        archiver = StreamArchiver()
+        initial_result = archiver.archive(prefix="test", limit=2)
+
+        # Add new segments to stream
+        for i in range(4, 6):
+            (stream_path / f"segment-{i}.ts").write_text(f"Dummy segment data: {i}\n")
+        original_content = (stream_path / "playlist.m3u8").read_text()
+        (stream_path / "playlist.m3u8").write_text(
+            original_content + "#EXTINF:1.5,\nsegment-4.ts\n#EXTINF:1.5,\nsegment-5.ts\n"
+        )
+
+        detection = {"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 0, "y1": 0, "x2": 10, "y2": 10}}
+        archiver.record_detections("segment-5.ts", [detection])
+
+        archiver.extend_archive(archive_path=initial_result, end_segment="segment-5.ts")
+
+        meta = json.loads((initial_result / "meta.json").read_text())
+        assert meta["version"] == 1
+        assert "segment-5.ts" in meta["detections"]
 
 
 class TestParseLimit:

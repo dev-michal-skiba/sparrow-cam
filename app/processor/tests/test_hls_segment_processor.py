@@ -6,6 +6,9 @@ from processor.hls_segment_processor import (
     HLSSegmentProcessor,
     _get_detection_frame_indices,
 )
+from processor.types import DetectionBox
+
+_MOCK_BOX = DetectionBox(10, 20, 100, 200, 0, 0.9)
 
 
 def _calc_segments_before(n: int) -> int:
@@ -91,7 +94,8 @@ def setup_video_capture(monkeypatch):
 @pytest.fixture
 def mock_bird_detector(monkeypatch):
     mock_detector = MagicMock()
-    mock_detector.detect.return_value = False
+    mock_detector.detect_boxes.return_value = []
+    mock_detector.class_name.return_value = "MockBird"
     monkeypatch.setattr("processor.hls_segment_processor.BirdDetector", lambda: mock_detector)
     return mock_detector
 
@@ -201,14 +205,14 @@ class TestHLSSegmentProcessor:
             detection_frame_config,
         ):
             """Test that process_segment detects birds and annotates correctly."""
-            mock_bird_detector.detect.return_value = detect_return_value
+            mock_bird_detector.detect_boxes.return_value = [_MOCK_BOX] if detect_return_value else []
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
             result = processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
             # Detection is called based on DETECTION_FRAME_COUNT and detection_regions
-            assert mock_bird_detector.detect.call_count > 0
+            assert mock_bird_detector.detect_boxes.call_count > 0
             mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", annotate_call_value)
             assert result == detect_return_value
             assert capture.release_called is True
@@ -263,12 +267,12 @@ class TestHLSSegmentProcessor:
             """Test that detection stops once a bird is detected in an earlier frame."""
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             # Bird detected on first frame (frame 0)
-            mock_bird_detector.detect.side_effect = [True]
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]]
 
             result = hls_processor.process_segment("/tmp/segment_005.ts", "segment_005.ts")
 
-            # Should only call detect once (early exit after finding bird)
-            assert mock_bird_detector.detect.call_count == 1
+            # Should only call detect_boxes once (early exit after finding bird)
+            assert mock_bird_detector.detect_boxes.call_count == 1
             mock_bird_annotator.annotate.assert_called_once_with("segment_005.ts", True)
             assert result is True
             assert capture.release_called is True
@@ -286,16 +290,52 @@ class TestHLSSegmentProcessor:
             frame_count = detection_frame_config["frame_count"]
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             # No bird detected in any frame
-            mock_bird_detector.detect.return_value = False
+            mock_bird_detector.detect_boxes.return_value = []
             processor = HLSSegmentProcessor()
 
             result = processor.process_segment("/tmp/segment_006.ts", "segment_006.ts")
 
-            # Detection is called frame_count times (1 region per frame)
-            assert mock_bird_detector.detect.call_count == frame_count
+            # detect_boxes is called frame_count times (1 region per frame)
+            assert mock_bird_detector.detect_boxes.call_count == frame_count
             mock_bird_annotator.annotate.assert_called_once_with("segment_006.ts", False)
             assert result is False
             assert capture.release_called is True
+
+        def test_process_segment_records_detections_when_bird_detected(
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            setup_video_capture,
+            no_bird_frame,
+        ):
+            """Test that process_segment passes detection details to the archiver."""
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]]
+            mock_bird_detector.class_name.return_value = "Pigeon"
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
+            processor = HLSSegmentProcessor()
+
+            processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
+
+            mock_stream_archiver.record_detections.assert_called_once_with(
+                "segment_001.ts",
+                [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+            )
+
+        def test_process_segment_records_empty_detections_when_no_bird(
+            self,
+            hls_processor,
+            mock_stream_archiver,
+            mock_bird_annotator,
+            setup_video_capture,
+            no_bird_frame,
+        ):
+            """Test that process_segment passes empty detections to the archiver when no bird found."""
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
+
+            hls_processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
+
+            mock_stream_archiver.record_detections.assert_called_once_with("segment_001.ts", [])
 
     class TestDelayedArchive:
         """Tests for delayed archive behavior (archive triggers segments_after segments after detection)."""
@@ -321,9 +361,9 @@ class TestHLSSegmentProcessor:
             watchtower = make_watchtower(segment_names)
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
 
-            # Bird detected on first segment (early exit after first True), rest are False
-            # Each segment calls detect() frame_count times (frame_count frames * 1 region)
-            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            # Bird detected on first segment (early exit after first non-empty boxes), rest are empty
+            # Each segment calls detect_boxes() frame_count times (frame_count frames * 1 region)
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]] + [[]] * (num_segments * frame_count)
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -358,8 +398,8 @@ class TestHLSSegmentProcessor:
             watchtower = make_watchtower(segment_names)
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
 
-            # Bird detected on segment 0 (early exit after first True)
-            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            # Bird detected on segment 0 (early exit after first non-empty boxes)
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]] + [[]] * (num_segments * frame_count)
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -393,14 +433,14 @@ class TestHLSSegmentProcessor:
             watchtower = make_watchtower(segment_names)
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
 
-            # Birds detected on segments 0, 1, 2 (early exit after first True per segment)
-            # Each segment calls detect() frame_count times
-            # segment 0: [True, False...], segment 1: [True], segment 2: [True], rest all False
-            detect_results = [True] + [False] * (frame_count - 1)  # segment 0: early exit
-            detect_results += [True]  # segment 1: early exit
-            detect_results += [True]  # segment 2: early exit
-            detect_results += [False] * (num_segments * frame_count)  # rest
-            mock_bird_detector.detect.side_effect = detect_results
+            # Birds detected on segments 0, 1, 2 (early exit after first non-empty boxes per segment)
+            # Each segment calls detect_boxes() frame_count times
+            # segment 0: [[box], []...], segment 1: [[box]], segment 2: [[box]], rest all []
+            detect_results = [[_MOCK_BOX]] + [[]] * (frame_count - 1)  # segment 0: early exit
+            detect_results += [[_MOCK_BOX]]  # segment 1: early exit
+            detect_results += [[_MOCK_BOX]]  # segment 2: early exit
+            detect_results += [[]] * (num_segments * frame_count)  # rest
+            mock_bird_detector.detect_boxes.side_effect = detect_results
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -452,17 +492,17 @@ class TestHLSSegmentProcessor:
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
 
             # Build detect results:
-            # - Detection on segment 0 (early exit after first True)
+            # - Detection on segment 0 (early exit after first non-empty boxes)
             # - No detection until second_detection
-            # - Detection on second_detection (early exit after first True)
+            # - Detection on second_detection (early exit after first non-empty boxes)
             # - No detection for rest
-            detect_results = [True] + [False] * (frame_count - 1)  # segment 0: early exit
+            detect_results = [[_MOCK_BOX]] + [[]] * (frame_count - 1)  # segment 0: early exit
             # Segments 1 to second_detection-1: no detection (frame_count calls each)
-            detect_results += [False] * ((second_detection - 1) * frame_count)
-            detect_results += [True] + [False] * (frame_count - 1)  # second_detection: early exit
+            detect_results += [[]] * ((second_detection - 1) * frame_count)
+            detect_results += [[_MOCK_BOX]] + [[]] * (frame_count - 1)  # second_detection: early exit
             # Remaining segments
-            detect_results += [False] * (num_segments * frame_count)
-            mock_bird_detector.detect.side_effect = detect_results
+            detect_results += [[]] * (num_segments * frame_count)
+            mock_bird_detector.detect_boxes.side_effect = detect_results
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -507,17 +547,17 @@ class TestHLSSegmentProcessor:
             monkeypatch.setattr("processor.hls_segment_processor.HLSWatchtower", lambda: watchtower)
 
             # Build detect results:
-            # - Detection on segment 0 (early exit after first True)
+            # - Detection on segment 0 (early exit after first non-empty boxes)
             # - No detection until second_detection
-            # - Detection on second_detection (early exit after first True)
+            # - Detection on second_detection (early exit after first non-empty boxes)
             # - No detection for rest
-            detect_results = [True] + [False] * (frame_count - 1)  # segment 0: early exit
+            detect_results = [[_MOCK_BOX]] + [[]] * (frame_count - 1)  # segment 0: early exit
             # Segments 1 to second_detection-1: no detection (frame_count calls each)
-            detect_results += [False] * ((second_detection - 1) * frame_count)
-            detect_results += [True] + [False] * (frame_count - 1)  # second_detection: early exit
+            detect_results += [[]] * ((second_detection - 1) * frame_count)
+            detect_results += [[_MOCK_BOX]] + [[]] * (frame_count - 1)  # second_detection: early exit
             # Remaining segments
-            detect_results += [False] * (num_segments * frame_count)
-            mock_bird_detector.detect.side_effect = detect_results
+            detect_results += [[]] * (num_segments * frame_count)
+            mock_bird_detector.detect_boxes.side_effect = detect_results
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -556,14 +596,14 @@ class TestHLSSegmentProcessor:
 
             frame_count = detection_frame_config["frame_count"]
             # Bird detected on first segment
-            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]] + [[]] * (num_segments * frame_count)
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
             processor.run()
 
             # Detection and annotation still happen
-            assert mock_bird_detector.detect.call_count > 0
+            assert mock_bird_detector.detect_boxes.call_count > 0
             assert mock_bird_annotator.annotate.call_count == num_segments
             mock_bird_annotator.annotate.assert_any_call("segment_000.ts", True)
 
@@ -592,14 +632,14 @@ class TestHLSSegmentProcessor:
 
             frame_count = detection_frame_config["frame_count"]
             # Bird detected on first segment
-            mock_bird_detector.detect.side_effect = [True] + [False] * (num_segments * frame_count)
+            mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]] + [[]] * (num_segments * frame_count)
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
             processor.run()
 
             # Detection and annotation still happen
-            assert mock_bird_detector.detect.call_count > 0
+            assert mock_bird_detector.detect_boxes.call_count > 0
             assert mock_bird_annotator.annotate.call_count == num_segments
 
             # on_segment is called for each segment
@@ -620,3 +660,12 @@ class TestHLSSegmentProcessor:
             hls_processor.process_segment.assert_has_calls(expected_segment_calls)
             expected_prune_calls = [call(dummy_watchtower.seen_segments) for _ in dummy_watchtower.segments]
             mock_bird_annotator.prune.assert_has_calls(expected_prune_calls)
+
+        def test_run_prunes_archiver_detections(self, hls_processor, mock_stream_archiver, dummy_watchtower):
+            """Test that run() prunes archiver detections after each segment."""
+            hls_processor.process_segment = MagicMock(return_value=False)
+
+            hls_processor.run()
+
+            expected_prune_calls = [call(dummy_watchtower.seen_segments) for _ in dummy_watchtower.segments]
+            mock_stream_archiver.prune_detections.assert_has_calls(expected_prune_calls)

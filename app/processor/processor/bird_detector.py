@@ -44,6 +44,10 @@ class BirdDetector:
             return []
 
         return [
-            DetectionBox(int(box[0]), int(box[1]), int(box[2]), int(box[3]), int(cls))
-            for box, cls in zip(results[0].boxes.xyxy, results[0].boxes.cls)
+            DetectionBox(int(box[0]), int(box[1]), int(box[2]), int(box[3]), int(cls), float(conf))
+            for box, cls, conf in zip(results[0].boxes.xyxy, results[0].boxes.cls, results[0].boxes.conf)
         ]
+
+    def class_name(self, class_id: int) -> str:
+        """Return the human-readable class name for a given class ID."""
+        return str(self.model.names.get(class_id, class_id))

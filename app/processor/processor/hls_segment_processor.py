@@ -66,6 +66,7 @@ class HLSSegmentProcessor:
             bool: True if bird was detected in any frame/region, False otherwise.
         """
         bird_detected = False
+        detections: list[dict] = []
         cap = None
 
         try:
@@ -90,8 +91,17 @@ class HLSSegmentProcessor:
 
                 for x1, y1, x2, y2 in self.detection_regions:
                     cropped = frame[y1:y2, x1:x2]
-                    if self.bird_detector.detect(cropped, **self.detection_params):
+                    boxes = self.bird_detector.detect_boxes(cropped, **self.detection_params)
+                    if boxes:
                         bird_detected = True
+                        for box in boxes:
+                            detections.append(
+                                {
+                                    "class": self.bird_detector.class_name(box.class_id),
+                                    "confidence": round(box.confidence, 4),
+                                    "roi": {"x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2},
+                                }
+                            )
                         # Early exit once bird is detected
                         break
 
@@ -99,6 +109,7 @@ class HLSSegmentProcessor:
                     break
 
             self.bird_annotator.annotate(segment_name, bird_detected)
+            self.stream_archiver.record_detections(segment_name, detections)
             if bird_detected:
                 logger.info(f"{segment_name}: 'Bird detected'")
         except Exception as e:
@@ -120,5 +131,6 @@ class HLSSegmentProcessor:
             self.stream_archiver.on_segment(segment_name, bird_detected)
 
             self.bird_annotator.prune(hls_watchtower.seen_segments)
+            self.stream_archiver.prune_detections(hls_watchtower.seen_segments)
             processing_time = time.time() - start_time
             logger.info(f"{segment_name}: Performance: Processing time: {processing_time:.2f}s")

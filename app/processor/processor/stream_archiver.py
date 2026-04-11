@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import shutil
 from dataclasses import dataclass
@@ -67,6 +68,8 @@ class StreamArchiver:
         self._last_archive_path: Path | None = None
         self._pending_archive_countdown: int | None = None
         self._pending_archive_is_extension = False
+        # Per-segment detection data for meta.json
+        self._segment_detections: dict[str, list[dict]] = {}
 
     def on_segment(self, segment_name: str, bird_detected: bool) -> None:
         """Process a segment for archive scheduling and execution.
@@ -153,6 +156,26 @@ class StreamArchiver:
             self._pending_archive_countdown = None
             self._pending_archive_is_extension = False
 
+    def record_detections(self, segment_name: str, detections: list[dict]) -> None:
+        """Store detection data for a segment to be included in meta.json on archiving.
+
+        Args:
+            segment_name: Name of the segment.
+            detections: List of detection dicts with class, confidence, and roi fields.
+        """
+        if detections:
+            self._segment_detections[segment_name] = detections
+
+    def prune_detections(self, valid_segments: set[str]) -> None:
+        """Remove stored detections for segments no longer in the live HLS playlist.
+
+        Args:
+            valid_segments: Set of segment names currently tracked by the HLS watchtower.
+        """
+        for segment in list(self._segment_detections):
+            if segment not in valid_segments:
+                del self._segment_detections[segment]
+
     def archive(self, prefix: str, limit: int | None = None, end_segment: str | None = None) -> Path | None:
         """Copy playlist file and its referenced segment files to a timestamped UUID directory.
 
@@ -178,6 +201,7 @@ class StreamArchiver:
         playlist_data = self.get_playlist_data(copy_result, limit, end_segment)
         # Clean archive directory
         self.clean_archive(copy_result.destination_path, playlist_data)
+        self.write_meta(copy_result.destination_path, playlist_data)
 
         logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
         return copy_result.destination_path
@@ -396,8 +420,22 @@ class StreamArchiver:
             segments_data=existing_playlist.segments_data + new_segments,
         )
         self.clean_archive(archive_path, updated_playlist)
+        self.write_meta(archive_path, updated_playlist)
 
         logger.info(f"Extended archive {archive_path} with {len(new_segments)} new segment(s)")
+
+    def write_meta(self, destination_path: str | Path, playlist_data: PlaylistData) -> None:
+        """Write meta.json alongside archive files with detection info for each segment.
+
+        Args:
+            destination_path: Path to the archive directory.
+            playlist_data: PlaylistData object describing the archived segments.
+        """
+        segment_names = {s.name for s in playlist_data.segments_data}
+        detections = {name: dets for name, dets in self._segment_detections.items() if name in segment_names}
+        meta = {"version": 1, "detections": detections}
+        with open(Path(destination_path) / "meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
 
     def clean_archive(self, destination_path: str, playlist_data: PlaylistData):
         """Remove excess files from archive directory and update playlist file.
