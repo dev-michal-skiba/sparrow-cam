@@ -12,3 +12,4 @@ segment-2.ts
 #EXT-X-DISCONTINUITY
 #EXTINF:1.668,
 segment-3.ts
+#EXT-X-ENDLIST

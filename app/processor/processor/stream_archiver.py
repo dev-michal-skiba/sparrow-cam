@@ -458,6 +458,7 @@ class StreamArchiver:
             for metadata in segment_data.metadata:
                 playlist_lines.append(metadata)
             playlist_lines.append(segment_data.name)
+        playlist_lines.append("#EXT-X-ENDLIST")
         playlist_lines.append("")
         with open(destination_path / playlist_data.filename, "w") as f:
             f.write("\n".join(playlist_lines))

@@ -146,6 +146,7 @@ class TestStreamArchiver:
                 "#EXT-X-DISCONTINUITY",
                 "#EXTINF:1.668,",
                 "segment-3.ts",
+                "#EXT-X-ENDLIST",
             ]
             assert (destination_path / "segment-0.ts").exists() is False
             assert (destination_path / "segment-1.ts").exists() is False
@@ -186,6 +187,7 @@ class TestStreamArchiver:
                 "segment-1.ts",
                 "#EXTINF:0.667,",
                 "segment-2.ts",
+                "#EXT-X-ENDLIST",
             ]
             assert (destination_path / "segment-0.ts").exists() is False
             assert (destination_path / "segment-1.ts").exists() is True
@@ -536,6 +538,7 @@ class TestStreamArchiver:
                 "#EXT-X-DISCONTINUITY",
                 "#EXTINF:1.668,",
                 "segment-3.ts",
+                "#EXT-X-ENDLIST",
             ]
 
     class TestParsePlaylist:
