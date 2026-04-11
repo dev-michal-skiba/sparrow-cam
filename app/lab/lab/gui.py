@@ -930,7 +930,6 @@ class LabGUI:
 
         self.import_btn = tk.Button(self.params_frame, text="Import", command=self.import_settings)
 
-
         # Recording info header (hidden until recording is loaded)
         self.__recording_info_text = tk.StringVar(value="")
         self.recording_info_label = tk.Label(

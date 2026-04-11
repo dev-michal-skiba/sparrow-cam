@@ -101,6 +101,7 @@ def get_annotated_image_bytes(
                     box[2] + region.x1,
                     box[3] + region.y1,
                     getattr(box, "class_id", 0),
+                    getattr(box, "confidence", 0.0),
                 )
                 for box in region_boxes
             )
