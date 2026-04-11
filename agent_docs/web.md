@@ -21,7 +21,7 @@ Main page showing the live HLS stream with bird detection annotations in real-ti
 Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
 
 ### `ArchivePlaybackView.vue`
-Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream and renders the `ArchivePlayer` component.
+Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player.
 
 ## Components
 
@@ -49,7 +49,10 @@ Single day cell in the calendar. Displays the day number, a badge with stream co
 Modal overlay showing all archived streams for a selected day. Displays streams as clickable links that navigate to `ArchivePlaybackView` using the archive-playback route.
 
 #### `ArchivePlayer.vue`
-HLS video player for archive streams. Wraps `useHlsPlayer` composable with a `playlistUrl` prop. Reusable for both live and archive playback.
+HLS video player for archive streams. Wraps hls.js with a `playlistUrl` prop. Emits `segmentChange` event when the currently displayed segment changes (based on hls.js FRAG_CHANGED event). Reusable for both live and archive playback.
+
+#### `ArchiveBirdStatus.vue`
+Displays bird detection information for the currently displayed archive segment. Shows species and confidence for each detection, or displays status messages (loading, unavailable, or no detections). Accepts `currentDetections` and `metaAvailable` props from the parent view.
 
 ## Composables
 
@@ -69,6 +72,12 @@ Fetches and caches archive metadata from the archive API:
 - Accepts year and month refs, queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD`
 - Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month for memory efficiency
 - Supports reactive month/year changes with cached results
+
+### `useArchiveMeta.ts`
+Fetches bird detection metadata (`meta.json`) for an archived stream:
+- Accepts a `metaUrl` (archive stream metadata endpoint) and reactive `currentSegment` ref
+- Exposes `currentDetections` (computed list of detections for the current segment) and `metaAvailable` (loading/available/unavailable state)
+- Handles missing or unreachable metadata gracefully
 
 ## Types
 

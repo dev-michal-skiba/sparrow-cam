@@ -6,21 +6,28 @@
     </div>
     <main class="main-content">
       <section>
-        <ArchivePlayer :playlist-url="playlistUrl" />
+        <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
+        <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" />
       </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import ArchivePlayer from '../components/ArchivePlayer.vue'
+import ArchiveBirdStatus from '../components/ArchiveBirdStatus.vue'
+import { useArchiveMeta } from '../composables/useArchiveMeta'
 
 const route = useRoute()
 const { year, month, day, stream } = route.params as Record<string, string>
 
 const playlistUrl = `/archive/storage/${year}/${month}/${day}/${stream}/sparrow_cam.m3u8`
+const metaUrl = `/archive/storage/${year}/${month}/${day}/${stream}/meta.json`
+
+const currentSegment = ref<string | null>(null)
+const { currentDetections, metaAvailable } = useArchiveMeta(metaUrl, currentSegment)
 
 const formattedTitle = computed(() => {
   const d = new Date(Number(year), Number(month) - 1, Number(day))
@@ -67,5 +74,11 @@ const formattedTitle = computed(() => {
 
 .main-content {
   width: 100%;
+}
+
+section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 </style>

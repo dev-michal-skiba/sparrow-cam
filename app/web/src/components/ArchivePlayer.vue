@@ -10,6 +10,10 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{ playlistUrl: string }>()
 
+const emit = defineEmits<{
+  segmentChange: [segment: string | null]
+}>()
+
 const videoRef = ref<HTMLVideoElement | null>(null)
 let hls: Hls | null = null
 
@@ -24,6 +28,12 @@ onMounted(() => {
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       video.currentTime = 0
       video.pause()
+    })
+    hls.on(Hls.Events.FRAG_CHANGED, (_event, data) => {
+      if (data.frag && data.frag.url) {
+        const url = data.frag.url
+        emit('segmentChange', url.substring(url.lastIndexOf('/') + 1))
+      }
     })
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = props.playlistUrl
