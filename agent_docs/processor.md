@@ -46,7 +46,9 @@
 - Archive scheduling driven per-segment by HLSSegmentProcessor calling on_segment()
   - When bird detected in overlap zone (region near previous archive), extends the previous archive with additional segments instead of creating a new archive
 - Records per-segment detection metadata (class, confidence, region of interest) in memory with automatic pruning of stale entries when segments expire from the live playlist
-- Writes detection metadata to `meta.json` alongside archive files after archival or extension, including only segments with at least one detection
+- Writes detection metadata to `meta.json` alongside archive files after archival or extension
+  - When extending an existing archive, preserves detections from the existing `meta.json` file and merges them with current in-memory detections, ensuring data for segments pruned from the live playlist is not lost
+  - Includes only segments with at least one detection in the merged result
 - Creates new timestamped archives of current stream segments and extends existing archives with additional segments
 - Validates inputs, filters playlist to configurable segment window
 - Cleans up excess files

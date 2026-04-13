@@ -872,6 +872,62 @@ class TestWriteMeta:
         meta = json.loads((archive_path / "test" / "meta.json").read_text())
         assert meta == {"version": 1, "detections": {}}
 
+    def test_write_meta_merges_existing_detections_on_extension(self, archive_path):
+        """Test that write_meta preserves and merges existing detections from meta.json.
+
+        This simulates archive extension where segment-1.ts was pruned from the live
+        playlist (no longer in _segment_detections), but we want to keep its detection
+        data from the existing meta.json.
+        """
+        archiver = StreamArchiver()
+
+        # Create initial meta.json with detections for segments 1 and 2
+        old_detection = {"class": "Great tit", "confidence": 0.85, "roi": {"x1": 5, "y1": 5, "x2": 50, "y2": 50}}
+        initial_meta = {
+            "version": 1,
+            "detections": {
+                "segment-1.ts": [old_detection],
+                "segment-2.ts": [old_detection],
+            },
+        }
+        meta_path = archive_path / "test" / "meta.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(meta_path, "w") as f:
+            json.dump(initial_meta, f)
+
+        # Simulate archive extension: segment-1 is pruned from live playlist,
+        # but segment-3 is newly added and has a detection in memory
+        new_detection = {"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 10, "x2": 100, "y2": 100}}
+        archiver._segment_detections = {
+            "segment-2.ts": [old_detection],  # Still in live playlist
+            "segment-3.ts": [new_detection],  # New segment
+            # segment-1.ts not in _segment_detections (pruned from live playlist)
+        }
+
+        # Archive now contains segments 1, 2, 3
+        playlist_data = PlaylistData(
+            filename="playlist.m3u8",
+            header_lines=[],
+            segments_data=[
+                SegmentData(metadata=[], name="segment-1.ts"),
+                SegmentData(metadata=[], name="segment-2.ts"),
+                SegmentData(metadata=[], name="segment-3.ts"),
+            ],
+        )
+
+        archiver.write_meta(archive_path / "test", playlist_data)
+
+        # Verify merged result
+        meta = json.loads((archive_path / "test" / "meta.json").read_text())
+        assert meta["version"] == 1
+        # segment-1.ts detection should be preserved from existing meta.json
+        assert meta["detections"]["segment-1.ts"] == [old_detection]
+        # segment-2.ts detection should come from in-memory (takes priority)
+        assert meta["detections"]["segment-2.ts"] == [old_detection]
+        # segment-3.ts detection should be the new one
+        assert meta["detections"]["segment-3.ts"] == [new_detection]
+        assert len(meta["detections"]) == 3
+
 
 class TestArchiveMeta:
     """Test suite for meta.json creation during archive."""

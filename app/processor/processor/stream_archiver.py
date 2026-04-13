@@ -427,14 +427,31 @@ class StreamArchiver:
     def write_meta(self, destination_path: str | Path, playlist_data: PlaylistData) -> None:
         """Write meta.json alongside archive files with detection info for each segment.
 
+        When meta.json already exists (e.g. on archive extension), existing detections
+        are preserved and merged with current in-memory detections so that data for
+        segments pruned from the live playlist is not lost.
+
         Args:
             destination_path: Path to the archive directory.
             playlist_data: PlaylistData object describing the archived segments.
         """
         segment_names = {s.name for s in playlist_data.segments_data}
-        detections = {name: dets for name, dets in self._segment_detections.items() if name in segment_names}
+
+        # Preserve detections from existing meta.json (segments pruned from live playlist)
+        existing_detections: dict[str, list[dict]] = {}
+        meta_path = Path(destination_path) / "meta.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                existing_meta = json.load(f)
+            existing_detections = existing_meta.get("detections", {})
+
+        # Merge: existing data as base, current in-memory data takes priority
+        merged = {**existing_detections}
+        merged.update({name: dets for name, dets in self._segment_detections.items() if name in segment_names})
+
+        detections = {name: dets for name, dets in merged.items() if name in segment_names}
         meta = {"version": 1, "detections": detections}
-        with open(Path(destination_path) / "meta.json", "w") as f:
+        with open(meta_path, "w") as f:
             json.dump(meta, f, indent=2)
 
     def clean_archive(self, destination_path: str, playlist_data: PlaylistData):
