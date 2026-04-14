@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="top-bar">
-      <RouterLink to="/archive" class="back-link">&#8592; Archive</RouterLink>
+      <RouterLink :to="`/archive?year=${year}&month=${month}`" class="back-link">&#8592; Back</RouterLink>
       <span class="stream-title">{{ formattedTitle }}</span>
     </div>
     <main class="main-content">

@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useArchive } from '../composables/useArchive'
 import ArchiveCalendarDay from './ArchiveCalendarDay.vue'
 import ArchiveDayModal from './ArchiveDayModal.vue'
@@ -40,8 +41,13 @@ import ArchiveDayModal from './ArchiveDayModal.vue'
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const now = new Date()
-const currentYear = ref(now.getFullYear())
-const currentMonth = ref(now.getMonth()) // 0-indexed
+const route = useRoute()
+const queryYear = Number(route.query.year)
+const queryMonth = Number(route.query.month)
+const initialYear = queryYear || now.getFullYear()
+const initialMonth = queryMonth ? queryMonth - 1 : now.getMonth() // query month is 1-indexed, store 0-indexed
+const currentYear = ref(initialYear)
+const currentMonth = ref(initialMonth) // 0-indexed
 const selectedDay = ref<number | null>(null)
 
 const { archive } = useArchive(currentYear, currentMonth)

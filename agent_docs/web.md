@@ -128,4 +128,4 @@ This target automatically:
 4. nginx serves the SPA at `/` on port 80
 
 ## No Tests
-Web package has no automated tests. Tests to be added later.
+Web package has no automated tests, formatting or linting. Just skip it
