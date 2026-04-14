@@ -65,6 +65,11 @@
 ### `utils.py`
 - Utility functions for loading detection preset configuration
 
+### `scripts/meta.py`
+- CLI tool for analyzing and managing archived detection metadata
+- Summarize command: Generates detection reports grouped by bird class and confidence, with sampling of example archive links
+- Delete command: Filters out detections below a confidence threshold for a specified bird class, with dry-run capability
+
 ## Archive Metadata Format
 
 When archives are created or extended, a `meta.json` file is written alongside the archive files containing detection metadata for each segment. The file structure is:
