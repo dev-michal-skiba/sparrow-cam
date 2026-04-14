@@ -14,14 +14,24 @@
 Application entry point. Starts the Flask app listening on 0.0.0.0:5001.
 
 ### `app.py`
-Flask application with the archive API endpoint:
-- Defines `/` GET endpoint that lists archived HLS streams filtered by date range (served at `/archive/api` by nginx with path prefix stripping)
+Flask application with two archive API endpoints:
+
+#### GET `/` — List archive by date range
+- Lists archived HLS streams filtered by date range (served at `/archive/api` by nginx with path prefix stripping)
 - Date validation — validates required query parameters `from` and `to` with YYYY-MM-DD format
 - Date range validation — enforces maximum 31-day query window (inclusive) and validates `from` date is not after `to` date
 - Archive structure discovery — walks the nested year/month/day directory structure, enumerates stream folders at each day directory, returns nested JSON object mapping year → month → day → stream names
 - Returns empty object if no streams exist in the queried range
 - Stream names are sorted alphabetically within each day
 - Stream metadata (nested under stream name) is currently empty
+
+#### GET `/adjacent` — Navigate adjacent recordings
+- Accepts required query parameters: year, month, day, stream
+- Enumerates all recordings in the archive in chronological and alphabetical order (year/month/day/stream)
+- Finds the current recording by matching all four parameters
+- Returns JSON object with `previous` and `next` fields, each containing year/month/day/stream fields or null if no adjacent recording exists
+- Returns 400 if any required parameter is missing
+- Returns 404 if the specified recording is not found
 
 ## Unit Tests
 

@@ -2,7 +2,7 @@
   <div class="layout">
     <AppHeader />
     <main class="content">
-      <RouterView />
+      <RouterView :key="$route.fullPath" />
     </main>
   </div>
 </template>
