@@ -44,9 +44,10 @@ const formattedDate = computed(() => {
 
 function formatStreamName(name: string): string {
   // stream names follow: auto_YYYY-MM-DDTHHMMSSZZ_id
-  const match = name.match(/(\d{4}-\d{2}-\d{2}T(\d{2})(\d{2})(\d{2})Z)/)
+  const match = name.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})(\d{2})Z/)
   if (match) {
-    return `${match[2]}:${match[3]}:${match[4]} UTC`
+    const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])))
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
   }
   return name
 }

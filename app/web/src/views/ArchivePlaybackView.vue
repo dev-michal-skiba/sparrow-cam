@@ -33,7 +33,13 @@ const formattedTitle = computed(() => {
   const d = new Date(Number(year), Number(month) - 1, Number(day))
   const dateStr = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   const match = (stream as string).match(/T(\d{2})(\d{2})(\d{2})Z/)
-  const timeStr = match ? `${match[1]}:${match[2]}:${match[3]} UTC` : stream
+  let timeStr: string
+  if (match) {
+    const utcDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(match[1]), Number(match[2]), Number(match[3])))
+    timeStr = utcDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  } else {
+    timeStr = stream
+  }
   return `${dateStr} — ${timeStr}`
 })
 </script>
@@ -70,6 +76,7 @@ const formattedTitle = computed(() => {
   color: var(--primary-color);
   font-size: 0.9rem;
   opacity: 0.9;
+  margin-left: auto;
 }
 
 .main-content {
