@@ -10,7 +10,6 @@
       <p class="status-text status-none">No birds detected in this segment.</p>
     </template>
     <template v-else>
-      <p class="status-text status-detected">Birds detected:</p>
       <ul class="detection-list">
         <li v-for="(detection, index) in currentDetections" :key="index" class="detection-item">
           <span class="detection-class">{{ detection.class }}</span>

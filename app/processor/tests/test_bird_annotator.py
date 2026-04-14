@@ -13,33 +13,50 @@ def annotations_path(tmp_path, monkeypatch):
 class TestBirdAnnotator:
     def test_annotate(self):
         annotator = bird_annotator.BirdAnnotator()
-        assert annotator._load() == {}
-        annotator.annotate("segment-001.ts", True)
-        annotator.annotate("segment-002.ts", False)
+        assert annotator._load() == {"version": 1, "detections": {}}
+        detections_1 = [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}]
+        detections_2 = []
+        annotator.annotate("segment-001.ts", detections_1)
+        annotator.annotate("segment-002.ts", detections_2)
 
         annotations = annotator._load()
 
         assert annotations == {
-            "segment-001.ts": {"bird_detected": True},
-            "segment-002.ts": {"bird_detected": False},
+            "version": 1,
+            "detections": {
+                "segment-001.ts": detections_1,
+            },
         }
 
     def test_prune(self):
         annotator = bird_annotator.BirdAnnotator()
-        assert annotator._load() == {}
+        assert annotator._load() == {"version": 1, "detections": {}}
         annotator._write(
             {
-                "keep.ts": {"bird_detected": True},
-                "drop.ts": {"bird_detected": False},
+                "version": 1,
+                "detections": {
+                    "keep.ts": [
+                        {"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+                    ],
+                    "drop.ts": [
+                        {"class": "Pigeon", "confidence": 0.8, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+                    ],
+                },
             }
         )
         assert annotator._load() == {
-            "keep.ts": {"bird_detected": True},
-            "drop.ts": {"bird_detected": False},
+            "version": 1,
+            "detections": {
+                "keep.ts": [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+                "drop.ts": [{"class": "Pigeon", "confidence": 0.8, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+            },
         }
 
-        annotator.prune(["keep.ts"])
+        annotator.prune({"keep.ts"})
 
         assert annotator._load() == {
-            "keep.ts": {"bird_detected": True},
+            "version": 1,
+            "detections": {
+                "keep.ts": [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+            },
         }

@@ -1,25 +1,32 @@
 import { ref, computed, onMounted, onUnmounted, type Ref } from 'vue'
+import type { Detection } from './useArchiveMeta'
 
-interface Annotation {
-  bird_detected: boolean
+interface AnnotationsFile {
+  version: number
+  detections: Record<string, Detection[]>
 }
 
 export function useAnnotations(currentSegment: Ref<string | null>) {
-  const annotations = ref<Record<string, Annotation>>({})
+  const annotations = ref<AnnotationsFile | null>(null)
+  const metaAvailable = ref<boolean | null>(null)
 
-  const isBirdDetected = computed(() => {
-    if (!currentSegment.value) return false
-    return annotations.value[currentSegment.value]?.bird_detected ?? false
+  const currentDetections = computed<Detection[]>(() => {
+    if (!annotations.value || !currentSegment.value) return []
+    return annotations.value.detections[currentSegment.value] ?? []
   })
 
   async function fetchAnnotations() {
     try {
       const response = await fetch('/annotations/bird.json', { cache: 'no-store' })
-      if (!response.ok) return
-      const data: Record<string, Annotation> = await response.json()
-      annotations.value = data ?? {}
-    } catch (error) {
-      console.error('Error fetching annotations:', error)
+      if (!response.ok) {
+        metaAvailable.value = false
+        return
+      }
+      const data: AnnotationsFile = await response.json()
+      annotations.value = data ?? null
+      metaAvailable.value = true
+    } catch {
+      metaAvailable.value = false
     }
   }
 
@@ -34,5 +41,5 @@ export function useAnnotations(currentSegment: Ref<string | null>) {
     clearInterval(intervalId)
   })
 
-  return { isBirdDetected }
+  return { currentDetections, metaAvailable }
 }

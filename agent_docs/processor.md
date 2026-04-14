@@ -41,8 +41,10 @@
 
 ### `bird_annotator.py`
 - Detection result persistence
-- Manages JSON sidecar file mapping segments to detection results
+- Manages JSON sidecar file mapping segments to detection results with full detection details
+- Accepts detection results as list of detection dicts (class, confidence, region of interest)
 - Recording new annotations and pruning stale entries
+- Annotations file uses same format as archive meta.json (see Archive Metadata Format below)
 
 ### `stream_archiver.py`
 - HLS segment archival, extension, and archive scheduling orchestration
@@ -83,9 +85,9 @@ The detection preset is loaded from a JSON file (`detection_preset.json`) contai
 
 The per-class thresholds allow fine-tuning detection sensitivity per species independently. When provided, the minimum threshold value is used as the confidence parameter for the initial YOLO model call, then results are filtered per-class afterward to include only detections meeting their specific class thresholds.
 
-## Archive Metadata Format
+## Detection Metadata Format
 
-When archives are created or extended, a `meta.json` file is written alongside the archive files containing detection metadata for each segment. The file structure is:
+Detection metadata is stored in a standardized JSON format used by both the live annotations file and archive metadata files. The file structure is:
 
 ```json
 {
@@ -98,7 +100,7 @@ When archives are created or extended, a `meta.json` file is written alongside t
 }
 ```
 
-The `detections` dict includes only segments with at least one detection. The file is always created even if no detections occurred in any segment.
+The `detections` dict includes only segments with at least one detection. When archives are created or extended, a `meta.json` file is written alongside the archive files with this format. The live annotations file (`/var/www/html/annotations/bird.json`) also uses this same format.
 
 ## Related Files
 - Processor Dockerfile: `local/Dockerfile`

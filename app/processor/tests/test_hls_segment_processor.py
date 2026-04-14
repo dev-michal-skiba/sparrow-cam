@@ -193,7 +193,7 @@ class TestHLSSegmentProcessor:
     class TestProcessSegment:
         """Tests for process_segment method."""
 
-        @pytest.mark.parametrize("detect_return_value, annotate_call_value", [(True, True), (False, False)])
+        @pytest.mark.parametrize("detect_return_value, annotate_detections", [(True, [_MOCK_BOX]), (False, [])])
         def test_process_segment_detects_and_annotates(
             self,
             mock_bird_detector,
@@ -202,11 +202,17 @@ class TestHLSSegmentProcessor:
             setup_video_capture,
             no_bird_frame,
             detect_return_value,
-            annotate_call_value,
+            annotate_detections,
             detection_frame_config,
         ):
             """Test that process_segment detects birds and annotates correctly."""
-            mock_bird_detector.detect_boxes.return_value = [_MOCK_BOX] if detect_return_value else []
+            expected_detections = (
+                [{"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}]
+                if detect_return_value
+                else []
+            )
+            mock_bird_detector.detect_boxes.return_value = annotate_detections
+            mock_bird_detector.class_name.return_value = "MockBird"
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -214,7 +220,7 @@ class TestHLSSegmentProcessor:
 
             # Detection is called based on DETECTION_FRAME_COUNT and detection_regions
             assert mock_bird_detector.detect_boxes.call_count > 0
-            mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", annotate_call_value)
+            mock_bird_annotator.annotate.assert_called_once_with("segment_001.ts", expected_detections)
             assert result == detect_return_value
             assert capture.release_called is True
 
@@ -238,9 +244,9 @@ class TestHLSSegmentProcessor:
 
             result = hls_processor.process_segment("/tmp/segment_003.ts", "segment_003.ts")
 
-            # When frame reads fail, detect is not called, but annotation still happens with False
+            # When frame reads fail, detect is not called, but annotation still happens with empty detections
             mock_bird_detector.detect.assert_not_called()
-            mock_bird_annotator.annotate.assert_called_once_with("segment_003.ts", False)
+            mock_bird_annotator.annotate.assert_called_once_with("segment_003.ts", [])
             assert result is False
             assert capture.release_called is True
 
@@ -269,12 +275,16 @@ class TestHLSSegmentProcessor:
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             # Bird detected on first frame (frame 0)
             mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]]
+            mock_bird_detector.class_name.return_value = "MockBird"
 
             result = hls_processor.process_segment("/tmp/segment_005.ts", "segment_005.ts")
 
             # Should only call detect_boxes once (early exit after finding bird)
             assert mock_bird_detector.detect_boxes.call_count == 1
-            mock_bird_annotator.annotate.assert_called_once_with("segment_005.ts", True)
+            expected_detections = [
+                {"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+            ]
+            mock_bird_annotator.annotate.assert_called_once_with("segment_005.ts", expected_detections)
             assert result is True
             assert capture.release_called is True
 
@@ -298,7 +308,7 @@ class TestHLSSegmentProcessor:
 
             # detect_boxes is called frame_count times (1 region per frame)
             assert mock_bird_detector.detect_boxes.call_count == frame_count
-            mock_bird_annotator.annotate.assert_called_once_with("segment_006.ts", False)
+            mock_bird_annotator.annotate.assert_called_once_with("segment_006.ts", [])
             assert result is False
             assert capture.release_called is True
 
@@ -623,7 +633,10 @@ class TestHLSSegmentProcessor:
             # Detection and annotation still happen
             assert mock_bird_detector.detect_boxes.call_count > 0
             assert mock_bird_annotator.annotate.call_count == num_segments
-            mock_bird_annotator.annotate.assert_any_call("segment_000.ts", True)
+            expected_detections = [
+                {"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+            ]
+            mock_bird_annotator.annotate.assert_any_call("segment_000.ts", expected_detections)
 
             # But archiving is never triggered
             mock_stream_archiver.archive.assert_not_called()

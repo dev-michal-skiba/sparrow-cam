@@ -114,7 +114,7 @@ class HLSSegmentProcessor:
                 if bird_detected:
                     break
 
-            self.bird_annotator.annotate(segment_name, bird_detected)
+            self.bird_annotator.annotate(segment_name, detections)
             self.stream_archiver.record_detections(segment_name, detections)
             if bird_detected:
                 logger.info(f"{segment_name}: 'Bird detected'")

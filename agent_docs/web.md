@@ -15,7 +15,7 @@
 ## Views
 
 ### `LiveView.vue`
-Main page showing the live HLS stream with bird detection annotations in real-time.
+Main page showing the live HLS stream with bird detection annotations in real-time. Displays the video player and renders `ArchiveBirdStatus` below it to show detection details (species and confidence) for the currently displayed segment.
 
 ### `ArchiveView.vue`
 Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
@@ -36,7 +36,7 @@ HLS video player component. Uses the `useHlsPlayer` composable to manage playbac
 Displays current stream status. Shows whether the stream is active or stopped.
 
 #### `BirdStatus.vue`
-Shows bird detection status for the currently displayed segment. Uses the `useAnnotations` composable to access bird detection data.
+(Deprecated — no longer used in LiveView.)
 
 ### Archive
 #### `ArchiveCalendar.vue`
@@ -64,8 +64,9 @@ Manages hls.js lifecycle and stream playback:
 
 ### `useAnnotations.ts`
 Fetches bird detection annotations from the server:
-- Polls `/annotations/bird.json` every 500ms to fetch latest bird detections
-- Exposes reactive bird detection data keyed by segment name
+- Polls `/annotations/bird.json` every 500ms to fetch the latest annotations file (format: `{version, detections}`)
+- Parses the structured annotations and extracts detections for the current segment
+- Exposes `currentDetections` (list of detections for the current segment) and `metaAvailable` (loading/available/unavailable state)
 
 ### `useArchive.ts`
 Fetches and caches archive metadata from the archive API:

@@ -1,38 +1,36 @@
 import json
 import logging
 import os
-from typing import TypeAlias, TypedDict, cast
+from typing import TypedDict
 
 logger = logging.getLogger(__name__)
 
 ANNOTATIONS_PATH = "/var/www/html/annotations/bird.json"
 
 
-class BirdAnnotation(TypedDict):
-    bird_detected: bool
-
-
-BirdAnnotations: TypeAlias = dict[str, BirdAnnotation]
+class BirdAnnotations(TypedDict):
+    version: int
+    detections: dict[str, list[dict]]
 
 
 class BirdAnnotator:
     """Persist bird detection annotations to a JSON sidecar file."""
 
-    def annotate(self, segment_name: str, bird_detected: bool) -> None:
+    def annotate(self, segment_name: str, detections: list[dict]) -> None:
         """Update the annotation store for a given segment."""
         annotations = self._load()
-        annotations[segment_name] = {"bird_detected": bird_detected}
+        if detections:
+            annotations["detections"][segment_name] = detections
         self._write(annotations)
 
-    def prune(self, valid_segments: list[str]) -> None:
+    def prune(self, valid_segments: set[str]) -> None:
         """Remove annotations for segments that are no longer relevant."""
         annotations = self._load()
-        valid_set = set(valid_segments)
         removed = False
 
-        for segment in list(annotations.keys()):
-            if segment not in valid_set:
-                annotations.pop(segment, None)
+        for segment in list(annotations["detections"].keys()):
+            if segment not in valid_segments:
+                annotations["detections"].pop(segment, None)
                 removed = True
 
         if removed:
@@ -41,12 +39,14 @@ class BirdAnnotator:
     def _load(self) -> BirdAnnotations:
         try:
             with open(ANNOTATIONS_PATH) as f:
-                return cast(BirdAnnotations, json.load(f))
+                data = json.load(f)
+            if isinstance(data, dict) and "version" in data and "detections" in data:
+                return data
         except FileNotFoundError:
             logger.info("Annotations file missing; recreating.")
         except json.JSONDecodeError:
             logger.warning("Annotations file corrupt; resetting.")
-        return {}
+        return {"version": 1, "detections": {}}
 
     def _write(self, annotations: BirdAnnotations) -> None:
         with open(ANNOTATIONS_PATH, "w") as f:
