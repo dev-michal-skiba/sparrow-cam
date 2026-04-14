@@ -139,29 +139,3 @@ journalctl -u sparrow-processor --no-pager | grep "Bird detected"
 journalctl --disk-usage
 ```
 
-## Service Architecture
-
-The deployment creates three systemd services on the target device, plus a manual ffmpeg stream:
-
-1. **nginx** (port 80) - Web server
-   - Serves web interface and HLS streams
-   - Hosts annotation file from processor (`/var/www/html/annotations/bird.json`)
-   - Proxies `/archive` requests to the archive API service
-   - Configuration: `/etc/nginx/nginx.conf`
-
-2. **sparrow-processor** - HLS segment processor
-   - Monitors `/var/www/html/hls` for new segments
-   - Processes each frame and detects birds
-   - Outputs annotations to `/var/www/html/annotations/bird.json`
-   - Runs as `sparrow_cam_processor` user
-
-3. **sparrow-archive-api** (port 5001, internal) - Archive API
-   - Serves `GET /archive` endpoint listing archived streams by date range
-   - Reads from `/var/www/html/storage/sparrow_cam/archive`
-   - Runs as `sparrow_cam_archive_api` user (member of `www-data` group for archive access)
-
-4. **ffmpeg stream** (tmux session) - USB camera to HLS
-   - Runs in tmux session as `sparrow_cam_stream` user
-   - Captures video from `/dev/video0` and converts to HLS segments
-   - Outputs segments to `/var/www/html/hls/`
-   - Started manually in tmux on the target device

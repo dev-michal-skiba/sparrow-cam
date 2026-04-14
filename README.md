@@ -1,6 +1,6 @@
 # SparrowCam
 
-Local bird feeder observation system. Monitors camera feed, automatically detects birds, and streams HLS video. Runs entirely on your home network.
+Local bird feeder observation system. Monitors camera feed, automatically detects birds, archives and streams video. Runs entirely on your home network.
 
 ## Features
 
@@ -12,9 +12,10 @@ Local bird feeder observation system. Monitors camera feed, automatically detect
 
 ## Project Structure
 
-- **`local/`** - Local development environment
+- **`agent_docs/`** - Documentation for AI agents
+- **`app/`** - Apps source code
 - **`infra/`** - Infrastructure deployment to Raspberry Pi
-- **`app/`** - nginx configurations and web interface
+- **`local/`** - Local development environment
 
 See individual README files for details.
 
@@ -28,47 +29,10 @@ make -C local start
 make -C local stop
 
 # Access: http://localhost:8080
-
-# Format code (black and ruff)
-make -C local format
-
-# Code quality checks (linting, type, security)
-make -C local check
-
-# Run tests
-make -C local test
 ```
 
 See [local/README.md](local/README.md)
 
 ### Deploy to Raspberry Pi
 
-```bash
-# Setup (one-time)
-make -C infra build
-make -C infra ping
-
-# Deploy
-make -C infra setup_all
-
-# Access: http://<pi-ip>/
-```
-
 See [infra/README.md](infra/README.md)
-
-## Architecture
-
-Three components (two services plus external stream):
-- **Web Server** - Serves interface, HLS streams, and bird detection annotations
-- **Processor** - Detects birds in HLS segments, outputs real-time annotations
-- **Stream** - Captures USB camera feed and generates HLS segments using ffmpeg
-
-**Local dev**: Two Docker containers (port 8080, plus shared volumes for HLS/annotations)
-
-**Production**: Two systemd services on Raspberry Pi (nginx, sparrow-processor) plus ffmpeg stream running in tmux
-
-## Requirements
-
-**Development**: Docker, Docker Compose, ffmpeg
-
-**Target Device**: Raspberry Pi with Ubuntu Server 25.04, SSH access, USB webcam
