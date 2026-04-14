@@ -12,17 +12,17 @@ Implement a feature based on a Notion task page.
 ### 1. Load Task
 
 - Use the Notion MCP tool to retrieve the page content from the provided URL
-- Parse the package name, task title, optional description and acceptance criteria from the page
-  - The page title follows the format `Package name: Task title`
-    - Extract the package name as the prefix before the colon
+- Parse the package names, task title, optional description and acceptance criteria from the page
+  - The page title follows the format `Package name: Task title` or `Package1|Package2: Task title` for multiple packages
+    - Extract package names as the prefix before the colon, splitting on `|` if multiple are present
     - Extract the task title as the suffix after the colon
   - The page content contains optional description and acceptance criteria
 
 ### 2. Understand the Task
 
-- Check `## Package Context Files` section of `CLAUDE.md` file for the package context file
-  - **BLOCKING**: If the package is not listed in `CLAUDE.md`, stop immediately and report: `Package '<name>' is not listed in CLAUDE.md`
-- Read the package context file to understand architecture and existing patterns
+- Check `## Package Context Files` section of `CLAUDE.md` file for each package's context file
+  - **BLOCKING**: If any package is not listed in `CLAUDE.md`, stop immediately and report: `Package '<name>' is not listed in CLAUDE.md`
+- Read all package context files to understand architecture and existing patterns
 
 ### 3. [Optional] Plan Changes
 
@@ -40,6 +40,6 @@ Implement a feature based on a Notion task page.
 
 ### 5. Verify & Update Documentation
 
-Use the Agent tool to run these two subagents **in parallel**:
-- `verify` subagent for the target package
-- `update-docs` subagent for the target package
+Use the Agent tool to run subagents **in parallel** — one `verify` and one `update-docs` per package:
+- For each package: a `verify` subagent targeting that package
+- For each package: an `update-docs` subagent targeting that package
