@@ -10,18 +10,16 @@ import { useHlsPlayer } from '../composables/useHlsPlayer'
 
 const emit = defineEmits<{
   segmentChange: [segment: string | null]
-  streamStatusChange: [isActive: boolean]
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
-const { currentSegment, isStreamActive, setup } = useHlsPlayer(videoRef, '/hls/sparrow_cam.m3u8')
+const { currentSegment, setup } = useHlsPlayer(videoRef, '/hls/sparrow_cam.m3u8')
 
 onMounted(() => {
   setup()
 })
 
 watch(currentSegment, (val) => emit('segmentChange', val))
-watch(isStreamActive, (val) => emit('streamStatusChange', val))
 </script>
 
 <style scoped>

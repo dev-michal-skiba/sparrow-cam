@@ -3,7 +3,6 @@ import { ref, onUnmounted, type Ref } from 'vue'
 
 export function useHlsPlayer(videoRef: Ref<HTMLVideoElement | null>, playlistUrl: string) {
   const currentSegment = ref<string | null>(null)
-  const isStreamActive = ref(false)
 
   let hls: Hls | null = null
 
@@ -20,7 +19,6 @@ export function useHlsPlayer(videoRef: Ref<HTMLVideoElement | null>, playlistUrl
       hls.attachMedia(video)
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        isStreamActive.value = true
         const playPromise = video.play()
         if (playPromise && typeof playPromise.catch === 'function') {
           playPromise.catch((err: unknown) => {
@@ -38,9 +36,8 @@ export function useHlsPlayer(videoRef: Ref<HTMLVideoElement | null>, playlistUrl
       })
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.error('HLS Error:', data)
         if (data.fatal) {
-          isStreamActive.value = false
+          console.error('HLS Fatal Error:', data)
         }
       })
 
@@ -50,7 +47,6 @@ export function useHlsPlayer(videoRef: Ref<HTMLVideoElement | null>, playlistUrl
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = playlistUrl
       video.addEventListener('loadedmetadata', () => {
-        isStreamActive.value = true
         const playPromise = video.play()
         if (playPromise && typeof playPromise.catch === 'function') {
           playPromise.catch((err: unknown) => {
@@ -69,5 +65,5 @@ export function useHlsPlayer(videoRef: Ref<HTMLVideoElement | null>, playlistUrl
     hls = null
   })
 
-  return { currentSegment, isStreamActive, setup }
+  return { currentSegment, setup }
 }

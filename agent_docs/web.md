@@ -1,6 +1,6 @@
 # Overview
 - Software: Vue 3 + Vite + TypeScript single-page application (SPA)
-- Responsibility: Frontend UI that displays the live HLS video stream, detects bird activity in the current segment, and provides stream status information.
+- Responsibility: Frontend UI that displays the live HLS video stream and detects bird activity in the current segment.
 
 ## Package Layout
 - Package location: `app/web/`
@@ -30,10 +30,7 @@ Full-page archive playback view. Reads route parameters to construct a playlist 
 Main application header displaying title and navigation.
 
 #### `VideoPlayer.vue`
-HLS video player component. Uses the `useHlsPlayer` composable to manage playback. Displays the live stream and responds to stream status changes.
-
-#### `StreamStatus.vue`
-Displays current stream status. Shows whether the stream is active or stopped.
+HLS video player component. Uses the `useHlsPlayer` composable to manage playback. Displays the live stream.
 
 #### `BirdStatus.vue`
 (Deprecated — no longer used in LiveView.)
@@ -59,8 +56,8 @@ Displays bird detection information for the currently displayed archive segment.
 ### `useHlsPlayer.ts`
 Manages hls.js lifecycle and stream playback:
 - Initializes and attaches hls.js to the video element
-- Handles manifest/segment loading and error recovery
-- Exposes reactive state: `currentSegment` (currently displayed segment), `isStreamActive` (stream connection status)
+- Handles manifest and segment loading
+- Exposes reactive state: `currentSegment` (currently displayed segment)
 
 ### `useAnnotations.ts`
 Fetches bird detection annotations from the server:
