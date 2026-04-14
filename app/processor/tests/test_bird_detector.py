@@ -232,3 +232,58 @@ class TestBirdDetector:
 
             mock_yolo.assert_called_once_with("/path/to/model.pt")
             assert detector._classes == custom_classes
+
+    def test_detect_boxes_with_class_thresholds_uses_min_conf(self, mock_detector):
+        """Test that detect_boxes uses min(class_thresholds) as conf when class_thresholds is provided."""
+        detector, mock_model = mock_detector
+        frame = MagicMock()
+        class_thresholds = {GREAT_TIT_CLASS_ID: 0.8, PIGEON_CLASS_ID: 0.9}
+
+        detector.detect_boxes(frame, class_thresholds=class_thresholds, imgsz=480, iou=0.5)
+
+        mock_model.assert_called_once_with(
+            frame,
+            classes=[GREAT_TIT_CLASS_ID, PIGEON_CLASS_ID],
+            verbose=False,
+            conf=0.8,  # min(0.8, 0.9)
+            imgsz=480,
+            iou=0.5,
+        )
+
+    def test_detect_boxes_with_class_thresholds_filters_box_below_threshold(self):
+        """Test that detect_boxes filters out boxes below their per-class threshold."""
+        with patch("processor.bird_detector.YOLO") as mock_yolo:
+            mock_model = MagicMock()
+            mock_yolo.return_value = mock_model
+            mock_result = MagicMock()
+            # Pigeon box with confidence 0.85, below the pigeon threshold of 0.9
+            mock_result.boxes.xyxy = [[10, 20, 100, 200]]
+            mock_result.boxes.cls = [PIGEON_CLASS_ID]
+            mock_result.boxes.conf = [0.85]
+            mock_model.return_value = [mock_result]
+            detector = BirdDetector()
+            frame = MagicMock()
+
+            result = detector.detect_boxes(frame, class_thresholds={GREAT_TIT_CLASS_ID: 0.8, PIGEON_CLASS_ID: 0.9})
+
+            assert result == []
+
+    def test_detect_boxes_with_class_thresholds_keeps_box_above_threshold(self):
+        """Test that detect_boxes keeps boxes at or above their per-class threshold."""
+        with patch("processor.bird_detector.YOLO") as mock_yolo:
+            mock_model = MagicMock()
+            mock_yolo.return_value = mock_model
+            mock_result = MagicMock()
+            # Pigeon box with confidence 0.95, above the pigeon threshold of 0.9
+            mock_result.boxes.xyxy = [[10, 20, 100, 200]]
+            mock_result.boxes.cls = [PIGEON_CLASS_ID]
+            mock_result.boxes.conf = [0.95]
+            mock_model.return_value = [mock_result]
+            detector = BirdDetector()
+            frame = MagicMock()
+
+            result = detector.detect_boxes(frame, class_thresholds={GREAT_TIT_CLASS_ID: 0.8, PIGEON_CLASS_ID: 0.9})
+
+            assert len(result) == 1
+            assert result[0].class_id == PIGEON_CLASS_ID
+            assert result[0].confidence == 0.95

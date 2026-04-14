@@ -54,7 +54,11 @@ class HLSSegmentProcessor:
         preset = load_detection_preset()
         self.detection_params = preset["params"]
         self.detection_regions = preset["regions"]
-        logger.info(f"Loaded preset: {len(self.detection_regions)} regions, params={self.detection_params}")
+        self.class_thresholds: dict[int, float] = {int(k): v for k, v in preset.get("class_thresholds", {}).items()}
+        logger.info(
+            f"Loaded preset: {len(self.detection_regions)} regions, "
+            f"params={self.detection_params}, class_thresholds={self.class_thresholds}"
+        )
 
     def process_segment(self, input_segment_path, segment_name):
         """Process a single segment: detect bird across multiple frames and log result.
@@ -91,7 +95,9 @@ class HLSSegmentProcessor:
 
                 for x1, y1, x2, y2 in self.detection_regions:
                     cropped = frame[y1:y2, x1:x2]
-                    boxes = self.bird_detector.detect_boxes(cropped, **self.detection_params)
+                    boxes = self.bird_detector.detect_boxes(
+                        cropped, class_thresholds=self.class_thresholds, **self.detection_params
+                    )
                     if boxes:
                         bird_detected = True
                         for box in boxes:

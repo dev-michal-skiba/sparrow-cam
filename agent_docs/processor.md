@@ -17,7 +17,9 @@
 ### `hls_segment_processor.py`
 - Central orchestrator
 - Main event loop that consumes new HLS segments
+- Loads detection preset from JSON configuration (detection parameters, regions, and per-class confidence thresholds)
 - Per-segment bird detection — samples evenly distributed frames, crops each to configured detection regions, collects detection details (class name, confidence, region of interest)
+  - Applies per-class confidence thresholds loaded from preset during detection
 - Records detection metadata via StreamArchiver after each segment
 - Delegates archive scheduling to StreamArchiver with detection results
 - Annotation pruning after each segment
@@ -32,6 +34,8 @@
 - Fine-tuned YOLOv8 model wrapper for bird detection
 - Loads and fuses a custom model trained to detect specific bird species (Great Tit, Pigeon)
 - Methods to detect bird presence in frames and retrieve bounding boxes with associated class IDs and confidence scores
+- Supports per-class confidence thresholds: accepts optional class-specific thresholds that override default confidence filtering
+  - Uses the minimum threshold value for the YOLO model call, then filters detected boxes per-class after detection
 - Resolves class IDs to human-readable species names via the YOLO model's names dictionary
 - Defaults to bundled fine-tuned model but supports custom model paths
 
@@ -69,6 +73,15 @@
 - CLI tool for analyzing and managing archived detection metadata
 - Summarize command: Generates detection reports grouped by bird class and confidence, with sampling of example archive links
 - Delete command: Filters out detections below a confidence threshold for a specified bird class, with dry-run capability
+
+## Detection Preset Configuration
+
+The detection preset is loaded from a JSON file (`detection_preset.json`) containing:
+- `params`: YOLO model parameters (imgsz, iou)
+- `regions`: Array of detection regions defined as [x1, y1, x2, y2] crop coordinates
+- `class_thresholds`: Optional object mapping class IDs (as string keys) to per-class confidence thresholds
+
+The per-class thresholds allow fine-tuning detection sensitivity per species independently. When provided, the minimum threshold value is used as the confidence parameter for the initial YOLO model call, then results are filtered per-class afterward to include only detections meeting their specific class thresholds.
 
 ## Archive Metadata Format
 

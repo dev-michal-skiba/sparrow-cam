@@ -36,17 +36,29 @@ class BirdDetector:
         """Return True if at least one bird is detected in the frame."""
         return bool(self.detect_boxes(frame, **kwargs))
 
-    def detect_boxes(self, frame, **kwargs) -> list[DetectionBox]:
-        """Return bounding boxes for detected birds in xyxy integer format."""
+    def detect_boxes(self, frame, class_thresholds: dict[int, float] | None = None, **kwargs) -> list[DetectionBox]:
+        """Return bounding boxes for detected birds in xyxy integer format.
+
+        Args:
+            class_thresholds: Optional per-class confidence thresholds. When provided, the minimum
+                threshold is used for the YOLO model call, and results are filtered per-class after.
+        """
         params = {**DEFAULT_DETECTION_PARAMS, **kwargs}
+        if class_thresholds:
+            params["conf"] = min(class_thresholds.values())
         results = self.model(frame, classes=self._classes, verbose=False, **params)
         if not results or results[0].boxes is None:
             return []
 
-        return [
+        boxes = [
             DetectionBox(int(box[0]), int(box[1]), int(box[2]), int(box[3]), int(cls), float(conf))
             for box, cls, conf in zip(results[0].boxes.xyxy, results[0].boxes.cls, results[0].boxes.conf)
         ]
+
+        if class_thresholds:
+            boxes = [b for b in boxes if b.confidence >= class_thresholds.get(b.class_id, 0.0)]
+
+        return boxes
 
     def class_name(self, class_id: int) -> str:
         """Return the human-readable class name for a given class ID."""

@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from processor.bird_detector import GREAT_TIT_CLASS_ID, PIGEON_CLASS_ID
 from processor.hls_segment_processor import (
     HLSSegmentProcessor,
     _get_detection_frame_indices,
@@ -336,6 +337,23 @@ class TestHLSSegmentProcessor:
             hls_processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
             mock_stream_archiver.record_detections.assert_called_once_with("segment_001.ts", [])
+
+        def test_process_segment_passes_class_thresholds_to_detector(
+            self,
+            mock_bird_detector,
+            mock_bird_annotator,
+            mock_stream_archiver,
+            setup_video_capture,
+            no_bird_frame,
+        ):
+            """Test that process_segment passes class_thresholds loaded from preset to detect_boxes."""
+            setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
+            processor = HLSSegmentProcessor()
+
+            processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
+
+            call_kwargs = mock_bird_detector.detect_boxes.call_args
+            assert call_kwargs.kwargs["class_thresholds"] == {GREAT_TIT_CLASS_ID: 0.8, PIGEON_CLASS_ID: 0.9}
 
     class TestDelayedArchive:
         """Tests for delayed archive behavior (archive triggers segments_after segments after detection)."""

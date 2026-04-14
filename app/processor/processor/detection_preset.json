@@ -1,8 +1,11 @@
 {
   "params": {
-    "conf": 0.8,
     "imgsz": 480,
     "iou": 0.5
+  },
+  "class_thresholds": {
+    "0": 0.8,
+    "2": 0.9
   },
   "regions": [
     [
