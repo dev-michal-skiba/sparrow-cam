@@ -25,7 +25,7 @@
       :year="currentYear"
       :month="currentMonth + 1"
       :day="selectedDay"
-      :streams="archive.get(selectedDay)?.streams ?? []"
+      :streams="archive.get(selectedDay!)?.streams ?? []"
       @close="selectedDay = null"
     />
   </div>
@@ -35,6 +35,7 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useArchive } from '../composables/useArchive'
+import { useBirdFilter } from '../composables/useBirdFilter'
 import ArchiveCalendarDay from './ArchiveCalendarDay.vue'
 import ArchiveDayModal from './ArchiveDayModal.vue'
 
@@ -50,7 +51,8 @@ const currentYear = ref(initialYear)
 const currentMonth = ref(initialMonth) // 0-indexed
 const selectedDay = ref<number | null>(null)
 
-const { archive } = useArchive(currentYear, currentMonth)
+const { birdsParam } = useBirdFilter()
+const { archive } = useArchive(currentYear, currentMonth, birdsParam)
 
 const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate())
 

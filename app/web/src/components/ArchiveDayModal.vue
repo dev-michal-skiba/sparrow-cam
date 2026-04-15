@@ -8,12 +8,15 @@
       <div class="stream-list">
         <RouterLink
           v-for="stream in streams"
-          :key="stream"
+          :key="stream.name"
           class="stream-item"
-          :to="{ name: 'archive-playback', params: { year, month: paddedMonth, day: paddedDay, stream } }"
+          :to="{ name: 'archive-playback', params: { year, month: paddedMonth, day: paddedDay, stream: stream.name } }"
           @click="$emit('close')"
         >
-          {{ formatStreamName(stream) }}
+          <span class="stream-time">{{ formatStreamName(stream.name) }}</span>
+          <span v-if="stream.birds.length > 0" class="stream-birds">
+            <span v-for="bird in stream.birds" :key="bird" class="bird-tag">{{ bird }}</span>
+          </span>
         </RouterLink>
         <p v-if="streams.length === 0" class="empty">No streams for this day.</p>
       </div>
@@ -24,12 +27,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import type { StreamInfo } from '../types/archive'
 
 const props = defineProps<{
   year: number
   month: number
   day: number
-  streams: string[]
+  streams: StreamInfo[]
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -117,7 +121,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeyDown))
 }
 
 .stream-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 20px;
   color: var(--primary-color);
   text-decoration: none;
@@ -128,6 +135,26 @@ onUnmounted(() => document.removeEventListener('keydown', onKeyDown))
 .stream-item:hover {
   background: var(--accent-soft);
   color: var(--secondary-color);
+}
+
+.stream-time {
+  flex-shrink: 0;
+}
+
+.stream-birds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.bird-tag {
+  background: rgba(3, 182, 3, 0.12);
+  border: 1px solid rgba(3, 182, 3, 0.3);
+  border-radius: 10px;
+  color: var(--secondary-color);
+  font-size: 0.75rem;
+  padding: 2px 8px;
 }
 
 .empty {

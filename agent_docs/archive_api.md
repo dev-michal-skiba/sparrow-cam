@@ -14,7 +14,12 @@
 Application entry point. Starts the Flask app listening on 0.0.0.0:5001.
 
 ### `app.py`
-Flask application with two archive API endpoints:
+Flask application with two archive API endpoints and bird filtering support.
+
+Helper functions:
+- `get_stream_birds()` — reads `meta.json` from a stream directory and extracts sorted list of unique detected bird species (classes) from all detections
+- `parse_bird_filter()` — parses comma-separated bird species string from query parameter
+- `stream_matches_filter()` — determines if a stream contains any of the requested bird species (or all streams if filter is empty)
 
 #### GET `/` — List archive by date range
 - Lists archived HLS streams filtered by date range (served at `/archive/api` by nginx with path prefix stripping)
@@ -23,7 +28,8 @@ Flask application with two archive API endpoints:
 - Archive structure discovery — walks the nested year/month/day directory structure, enumerates stream folders at each day directory, returns nested JSON object mapping year → month → day → stream names
 - Returns empty object if no streams exist in the queried range
 - Stream names are sorted alphabetically within each day
-- Stream metadata (nested under stream name) is currently empty
+- Stream metadata — includes `birds` array with species detected in each stream
+- Optional bird filtering — supports `birds` query parameter (comma-separated species names) to filter results to only streams containing those species
 
 #### GET `/adjacent` — Navigate adjacent recordings
 - Accepts required query parameters: year, month, day, stream
@@ -32,6 +38,7 @@ Flask application with two archive API endpoints:
 - Returns JSON object with `previous` and `next` fields, each containing year/month/day/stream fields or null if no adjacent recording exists
 - Returns 400 if any required parameter is missing
 - Returns 404 if the specified recording is not found
+- Optional bird filtering — supports `birds` query parameter to filter the list of adjacent recordings to only those containing specified species
 
 ## Unit Tests
 

@@ -1,8 +1,17 @@
-export type ArchiveApiResponse = Record<string, Record<string, Record<string, Record<string, object>>>>
+export interface StreamMeta {
+  birds: string[]
+}
+
+export type ArchiveApiResponse = Record<string, Record<string, Record<string, Record<string, StreamMeta>>>>
+
+export interface StreamInfo {
+  name: string
+  birds: string[]
+}
 
 export interface DayArchive {
   day: number
-  streams: string[]
+  streams: StreamInfo[]
 }
 
 export type MonthArchive = Map<number, DayArchive>

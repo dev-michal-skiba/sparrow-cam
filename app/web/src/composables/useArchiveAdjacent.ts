@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref, watchEffect, type Ref } from 'vue'
 
 interface AdjacentRecording {
   year: string
@@ -12,15 +12,27 @@ interface AdjacentResult {
   next: AdjacentRecording | null
 }
 
-export function useArchiveAdjacent(year: string, month: string, day: string, stream: string) {
+export function useArchiveAdjacent(
+  year: string,
+  month: string,
+  day: string,
+  stream: string,
+  birdsParam?: Ref<string>,
+) {
   const previous = ref<AdjacentRecording | null>(null)
   const next = ref<AdjacentRecording | null>(null)
 
-  onMounted(async () => {
+  watchEffect(async () => {
+    const birds = birdsParam?.value ?? ''
     try {
       const params = new URLSearchParams({ year, month, day, stream })
+      if (birds) params.set('birds', birds)
       const response = await fetch(`/archive/api/adjacent?${params}`)
-      if (!response.ok) return
+      if (!response.ok) {
+        previous.value = null
+        next.value = null
+        return
+      }
       const data: AdjacentResult = await response.json()
       previous.value = data.previous
       next.value = data.next

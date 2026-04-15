@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 
@@ -6,6 +8,16 @@ def make_stream(archive_root, year, month, day, stream_name):
     path = archive_root / year / month / day / stream_name
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def make_stream_with_birds(archive_root, year, month, day, stream_name, birds):
+    """Create a stream directory with bird detection metadata."""
+    stream_path = make_stream(archive_root, year, month, day, stream_name)
+    meta = {"detections": {"segment1.ts": [{"class": bird} for bird in birds]}}
+    meta_file = stream_path / "meta.json"
+    with meta_file.open("w") as f:
+        json.dump(meta, f)
+    return stream_path
 
 
 class TestDateValidation:
@@ -77,7 +89,7 @@ class TestArchiveListing:
         resp = c.get("/?from=2025-01-01&to=2025-01-31")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data == {"2025": {"01": {"15": {"auto_2025-01-15T120000Z_abc": {}}}}}
+        assert data == {"2025": {"01": {"15": {"auto_2025-01-15T120000Z_abc": {"birds": []}}}}}
 
     def test_multiple_streams_same_day(self, client):
         c, archive_root = client
@@ -92,7 +104,7 @@ class TestArchiveListing:
             "auto_2025-01-15T110000Z_bbb",
         }
         for stream_meta in data["2025"]["01"]["15"].values():
-            assert stream_meta == {}
+            assert stream_meta == {"birds": []}
 
     def test_streams_across_months(self, client):
         c, archive_root = client
@@ -146,7 +158,56 @@ class TestArchiveListing:
 
         resp = c.get("/?from=2025-01-15&to=2025-01-15")
         assert resp.status_code == 200
-        assert resp.get_json()["2025"]["01"]["15"]["auto_stream"] == {}
+        assert resp.get_json()["2025"]["01"]["15"]["auto_stream"] == {"birds": []}
+
+    def test_stream_with_birds_metadata(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_with_birds", ["sparrow", "cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["2025"]["01"]["15"]["stream_with_birds"] == {"birds": ["cardinal", "sparrow"]}
+
+    def test_bird_filter_single_match(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_with_sparrow", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_with_cardinal", ["cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&birds=sparrow")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_with_sparrow" in data["2025"]["01"]["15"]
+        assert "stream_with_cardinal" not in data["2025"]["01"]["15"]
+
+    def test_bird_filter_multiple_birds(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_sparrow_cardinal", ["sparrow", "cardinal"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_only_jay", ["jay"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&birds=sparrow,cardinal")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_sparrow_cardinal" in data["2025"]["01"]["15"]
+        assert "stream_only_jay" not in data["2025"]["01"]["15"]
+
+    def test_bird_filter_no_matches(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_with_sparrow", ["sparrow"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&birds=cardinal")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == {}
+
+    def test_bird_filter_empty_parameter(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_with_birds", ["sparrow"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&birds=")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_with_birds" in data["2025"]["01"]["15"]
 
 
 class TestAdjacentEndpoint:
@@ -183,12 +244,12 @@ class TestAdjacentEndpoint:
     @pytest.mark.parametrize(
         "year,month,day",
         [
-            ("25", "01", "15"),      # year not 4 digits
-            ("2025", "1", "15"),     # month not 2 digits
-            ("2025", "01", "5"),     # day not 2 digits
-            ("2025", "13", "01"),    # month out of range
-            ("2025", "01", "32"),    # day out of range
-            ("2025", "02", "30"),    # day invalid for month
+            ("25", "01", "15"),  # year not 4 digits
+            ("2025", "1", "15"),  # month not 2 digits
+            ("2025", "01", "5"),  # day not 2 digits
+            ("2025", "13", "01"),  # month out of range
+            ("2025", "01", "32"),  # day out of range
+            ("2025", "02", "30"),  # day invalid for month
         ],
     )
     def test_invalid_date(self, client, year, month, day):
@@ -366,3 +427,40 @@ class TestAdjacentEndpoint:
             "day": "15",
             "stream": "zebra",
         }
+
+    def test_adjacent_with_bird_filter(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_sparrow", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_cardinal", ["cardinal"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_jay", ["jay"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_cardinal&birds=cardinal")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] is None
+        assert data["next"] is None
+
+    def test_adjacent_with_bird_filter_multiple_birds(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "14", "stream1", ["jay"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream2", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "16", "stream3", ["cardinal"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream2&birds=sparrow,jay")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "14",
+            "stream": "stream1",
+        }
+        assert data["next"] is None
+
+    def test_adjacent_with_bird_filter_not_found(self, client):
+        c, archive_root = client
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_sparrow", ["sparrow"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_sparrow&birds=cardinal")
+        assert resp.status_code == 404
+        assert "Recording not found" in resp.get_json()["error"]

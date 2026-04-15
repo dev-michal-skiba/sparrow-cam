@@ -6,26 +6,32 @@
     <template v-else-if="metaAvailable === false">
       <p class="status-text status-unavailable">Bird detection data not available for this stream.</p>
     </template>
-    <template v-else-if="currentDetections.length === 0">
-      <p class="status-text status-none">No birds detected in this segment.</p>
-    </template>
     <template v-else>
-      <ul class="detection-list">
-        <li v-for="(detection, index) in currentDetections" :key="index" class="detection-item">
-          <span class="detection-class">{{ detection.class }}</span>
-          <span class="detection-confidence">{{ (detection.confidence * 100).toFixed(1) }}%</span>
-        </li>
-      </ul>
+      <div v-if="streamBirds !== undefined" class="info-row">
+        <span class="info-label">In recording:</span>
+        <span class="info-value" :class="streamBirds.length > 0 ? 'info-value--birds' : 'info-value--none'">
+          {{ streamBirds.length > 0 ? streamBirds.map(unslugBird).join(', ') : 'None' }}
+        </span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">On screen:</span>
+        <span v-if="currentDetections.length === 0" class="info-value info-value--none">None</span>
+        <span v-else class="info-value info-value--birds">
+          {{ currentDetections.map(d => `${unslugBird(d.class)} (${(d.confidence * 100).toFixed(1)}%)`).join(', ') }}
+        </span>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Detection } from '../composables/useArchiveMeta'
+import { unslugBird } from '../composables/useBirdFilter'
 
 defineProps<{
   currentDetections: Detection[]
   metaAvailable: boolean | null
+  streamBirds?: string[]
 }>()
 </script>
 
@@ -39,7 +45,7 @@ defineProps<{
   display: flex;
   align-items: flex-start;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .status-text {
@@ -49,38 +55,32 @@ defineProps<{
 }
 
 .status-loading,
-.status-unavailable,
-.status-none {
+.status-unavailable {
   color: rgba(255, 255, 255, 0.5);
 }
 
-.status-detected {
-  color: var(--secondary-color);
-}
-
-.detection-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.info-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.detection-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.detection-class {
+  align-items: baseline;
+  gap: 8px;
   font-size: 14px;
+}
+
+.info-label {
+  color: rgba(255, 255, 255, 0.5);
   font-weight: 500;
+  white-space: nowrap;
+}
+
+.info-value {
+  font-weight: 500;
+}
+
+.info-value--birds {
   color: var(--secondary-color);
 }
 
-.detection-confidence {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
+.info-value--none {
+  color: rgba(255, 255, 255, 0.5);
 }
 </style>

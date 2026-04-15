@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ArchiveBirdFilter />
     <div class="top-bar">
       <RouterLink :to="`/archive?year=${year}&month=${month}`" class="back-link">&#8592; Back</RouterLink>
       <span class="stream-title">{{ formattedTitle }}</span>
@@ -23,7 +24,7 @@
     <main class="main-content">
       <section>
         <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
-        <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" />
+        <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" />
       </section>
     </main>
   </div>
@@ -34,8 +35,10 @@ import { ref, computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import ArchivePlayer from '../components/ArchivePlayer.vue'
 import ArchiveBirdStatus from '../components/ArchiveBirdStatus.vue'
+import ArchiveBirdFilter from '../components/ArchiveBirdFilter.vue'
 import { useArchiveMeta } from '../composables/useArchiveMeta'
 import { useArchiveAdjacent } from '../composables/useArchiveAdjacent'
+import { useBirdFilter } from '../composables/useBirdFilter'
 
 const route = useRoute()
 const { year, month, day, stream } = route.params as Record<string, string>
@@ -44,8 +47,10 @@ const playlistUrl = `/archive/storage/${year}/${month}/${day}/${stream}/sparrow_
 const metaUrl = `/archive/storage/${year}/${month}/${day}/${stream}/meta.json`
 
 const currentSegment = ref<string | null>(null)
-const { currentDetections, metaAvailable } = useArchiveMeta(metaUrl, currentSegment)
-const { previous, next } = useArchiveAdjacent(year, month, day, stream)
+const { currentDetections, metaAvailable, streamBirds } = useArchiveMeta(metaUrl, currentSegment)
+
+const { birdsParam } = useBirdFilter()
+const { previous, next } = useArchiveAdjacent(year, month, day, stream, birdsParam)
 
 const formattedTitle = computed(() => {
   const d = new Date(Number(year), Number(month) - 1, Number(day))
@@ -139,4 +144,5 @@ section {
   flex-direction: column;
   gap: 12px;
 }
+
 </style>

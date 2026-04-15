@@ -1,11 +1,13 @@
 <template>
   <div class="page">
+    <ArchiveBirdFilter />
     <ArchiveCalendar />
   </div>
 </template>
 
 <script setup lang="ts">
 import ArchiveCalendar from '../components/ArchiveCalendar.vue'
+import ArchiveBirdFilter from '../components/ArchiveBirdFilter.vue'
 </script>
 
 <style scoped>

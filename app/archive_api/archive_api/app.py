@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,34 @@ def parse_date(value: str | None, param_name: str) -> tuple[date | None, dict | 
         return None, {"error": f"Invalid date value for '{param_name}': {value}"}
 
 
+def get_stream_birds(stream_path: Path) -> list[str]:
+    meta_path = stream_path / "meta.json"
+    try:
+        with meta_path.open() as f:
+            meta = json.load(f)
+        birds: set[str] = set()
+        for detections in meta.get("detections", {}).values():
+            for det in detections:
+                if "class" in det:
+                    birds.add(det["class"])
+        return sorted(birds)
+    except (OSError, json.JSONDecodeError, KeyError):
+        return []
+
+
+def parse_bird_filter(birds_param: str | None) -> list[str]:
+    if not birds_param:
+        return []
+    return [b.strip() for b in birds_param.split(",") if b.strip()]
+
+
+def stream_matches_filter(stream_path: Path, bird_filter: list[str]) -> bool:
+    if not bird_filter:
+        return True
+    birds = get_stream_birds(stream_path)
+    return any(b in bird_filter for b in birds)
+
+
 @app.get("/adjacent")
 def get_adjacent():
     year = request.args.get("year")
@@ -36,6 +65,8 @@ def get_adjacent():
     if err:
         return jsonify(err), 400
 
+    bird_filter = parse_bird_filter(request.args.get("birds"))
+
     all_streams = []
     if ARCHIVE_PATH.is_dir():
         for year_dir in sorted(ARCHIVE_PATH.iterdir()):
@@ -48,7 +79,7 @@ def get_adjacent():
                     if not day_dir.is_dir():
                         continue
                     for stream_dir in sorted(day_dir.iterdir()):
-                        if stream_dir.is_dir():
+                        if stream_dir.is_dir() and stream_matches_filter(stream_dir, bird_filter):
                             all_streams.append(
                                 {
                                     "year": year_dir.name,
@@ -86,6 +117,8 @@ def list_archive():
     if (to_date - from_date).days + 1 > MAX_RANGE_DAYS:
         return jsonify({"error": f"Date range must not exceed {MAX_RANGE_DAYS} days"}), 400
 
+    bird_filter = parse_bird_filter(request.args.get("birds"))
+
     result: dict = {}
     current = from_date
     while current <= to_date:
@@ -95,7 +128,11 @@ def list_archive():
 
         day_path = ARCHIVE_PATH / year_str / month_str / day_str
         if day_path.is_dir():
-            streams = {d.name: {} for d in sorted(day_path.iterdir()) if d.is_dir()}
+            streams = {
+                d.name: {"birds": get_stream_birds(d)}
+                for d in sorted(day_path.iterdir())
+                if d.is_dir() and stream_matches_filter(d, bird_filter)
+            }
             if streams:
                 if year_str not in result:
                     result[year_str] = {}

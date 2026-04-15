@@ -36,5 +36,16 @@ export function useArchiveMeta(metaUrl: string, currentSegment: Ref<string | nul
     return meta.value.detections[currentSegment.value] ?? []
   })
 
-  return { currentDetections, metaAvailable }
+  const streamBirds = computed<string[]>(() => {
+    if (!meta.value) return []
+    const birds = new Set<string>()
+    for (const detections of Object.values(meta.value.detections)) {
+      for (const det of detections) {
+        birds.add(det.class)
+      }
+    }
+    return [...birds].sort()
+  })
+
+  return { currentDetections, metaAvailable, streamBirds }
 }

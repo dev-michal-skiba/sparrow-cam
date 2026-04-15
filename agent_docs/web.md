@@ -37,7 +37,7 @@ HLS video player component. Uses the `useHlsPlayer` composable to manage playbac
 
 ### Archive
 #### `ArchiveCalendar.vue`
-Calendar widget for browsing archived streams. Features month navigation (with future month restriction), day grid with stream count badges, and today highlighting. Clicking a day shows `ArchiveDayModal`.
+Calendar widget for browsing archived streams. Features month navigation (with future month restriction), day grid with stream count badges, and today highlighting. Clicking a day shows `ArchiveDayModal`. Accepts `birdsParam` prop to filter streams by selected bird types.
 
 #### `ArchiveCalendarDay.vue`
 Single day cell in the calendar. Displays the day number, a badge with stream count if available, and visual states for today and future days (disabled).
@@ -49,7 +49,10 @@ Modal overlay showing all archived streams for a selected day. Displays streams 
 HLS video player for archive streams. Wraps hls.js with a `playlistUrl` prop. Emits `segmentChange` event when the currently displayed segment changes (based on hls.js FRAG_CHANGED event). Reusable for both live and archive playback.
 
 #### `ArchiveBirdStatus.vue`
-Displays bird detection information for the currently displayed archive segment. Shows species and confidence for each detection, or displays status messages (loading, unavailable, or no detections). Accepts `currentDetections` and `metaAvailable` props from the parent view.
+Displays bird detection information for the currently displayed archive segment. Shows two labeled rows: "Birds detected in this stream:" (displays all unique species found in the entire stream) and "Birds detected in this segment:" (displays species with confidence for the current segment). Optionally accepts `streamBirds` prop to show stream-level bird summary (archive view only); segment row always displays. Accepts `currentDetections` and `metaAvailable` props from the parent view.
+
+#### `ArchiveBirdFilter.vue`
+UI component for filtering archive streams by bird type. Renders toggle buttons for each bird species. Uses the `useBirdFilter` composable to track selected birds and expose them as a query parameter.
 
 ## Composables
 
@@ -67,22 +70,41 @@ Fetches bird detection annotations from the server:
 
 ### `useArchive.ts`
 Fetches and caches archive metadata from the archive API:
-- Accepts year and month refs, queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD`
-- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month for memory efficiency
-- Supports reactive month/year changes with cached results
+- Accepts year and month refs, and optional `birdsParam` ref for filtering by bird types
+- Queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD&birds=...` (birds param is optional)
+- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month-birds for memory efficiency
+- Each stream in the result now includes metadata (bird species detected in that stream)
+- Supports reactive month/year/birds changes with cached results
 
 ### `useArchiveMeta.ts`
 Fetches bird detection metadata (`meta.json`) for an archived stream:
 - Accepts a `metaUrl` (archive stream metadata endpoint) and reactive `currentSegment` ref
-- Exposes `currentDetections` (computed list of detections for the current segment) and `metaAvailable` (loading/available/unavailable state)
+- Exposes `currentDetections` (computed list of detections for the current segment), `metaAvailable` (loading/available/unavailable state), and `streamBirds` (list of all unique bird species in the stream)
 - Handles missing or unreachable metadata gracefully
+
+### `useArchiveAdjacent.ts`
+Fetches previous and next archived streams for navigation:
+- Accepts year, month, day, stream identifiers and optional `birdsParam` ref for filtering
+- Queries `/archive/api/adjacent?year=...&month=...&day=...&stream=...&birds=...` (birds param is optional)
+- Exposes `previous` and `next` refs to navigate between adjacent filtered streams
+- Automatically updates when year, month, day, stream, or bird filters change
+
+### `useBirdFilter.ts`
+Global reactive state for bird filter selection and bird name utilities:
+- Manages a set of selected bird types
+- Provides `toggleBird()` function to add/remove bird types from selection
+- Exposes `selectedBirds`, `selectedBirdsArray`, and `birdsParam` (comma-separated bird slugs for API queries)
+- Exports `unslugBird(slug)` utility function to convert bird name slugs (e.g., "house_sparrow") to human-readable names (e.g., "House sparrow")
+- Uses shared state so selection is consistent across all views
 
 ## Types
 
 ### `archive.ts`
-TypeScript interfaces for archive API responses:
-- `ArchiveApiResponse` — Nested Record structure keyed by year → month → day → stream ID
-- `DayArchive` — Represents a single day with day number and list of stream IDs
+TypeScript interfaces for archive API responses and stream metadata:
+- `StreamMeta` — Metadata for a single archived stream, contains list of detected bird species
+- `ArchiveApiResponse` — Nested Record structure keyed by year → month → day → stream ID → `StreamMeta`
+- `StreamInfo` — Runtime representation of a stream in the archive browse UI with name and detected birds list
+- `DayArchive` — Represents a single day with day number and list of `StreamInfo` objects
 - `MonthArchive` — Map from day numbers to `DayArchive` objects
 
 ## Routing
