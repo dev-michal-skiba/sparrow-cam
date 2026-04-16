@@ -41,9 +41,11 @@ watch(
 <style scoped>
 .bird-filter {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
   padding: 8px 15px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .filter-btn {
@@ -52,11 +54,13 @@ watch(
   border-radius: 20px;
   color: var(--primary-color);
   cursor: pointer;
+  flex-shrink: 0;
   font-family: inherit;
   font-size: 0.8rem;
   opacity: 0.6;
   padding: 4px 12px;
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  white-space: nowrap;
 }
 
 .filter-btn:hover {
