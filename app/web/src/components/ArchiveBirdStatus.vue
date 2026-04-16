@@ -1,5 +1,6 @@
 <template>
   <div class="archive-bird-status">
+    <span v-if="title" class="status-title">{{ title }}</span>
     <template v-if="metaAvailable === null">
       <p class="status-text status-loading">Loading detection data…</p>
     </template>
@@ -32,6 +33,7 @@ defineProps<{
   currentDetections: Detection[]
   metaAvailable: boolean | null
   streamBirds?: string[]
+  title?: string
 }>()
 </script>
 
@@ -46,6 +48,15 @@ defineProps<{
   align-items: flex-start;
   flex-direction: column;
   gap: 8px;
+}
+
+.status-title {
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  opacity: 0.75;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
 }
 
 .status-text {

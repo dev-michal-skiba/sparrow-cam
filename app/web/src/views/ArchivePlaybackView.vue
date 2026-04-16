@@ -1,32 +1,34 @@
 <template>
   <div class="page">
-    <ArchiveBirdFilter />
-    <div class="top-bar">
+    <div class="nav-bar">
       <RouterLink :to="`/archive?year=${year}&month=${month}`" class="back-link">&#8592; Back</RouterLink>
-      <span class="stream-title">{{ formattedTitle }}</span>
       <div class="adj-nav">
         <RouterLink
           v-if="previous"
           :to="`/archive/${previous.year}/${previous.month}/${previous.day}/${previous.stream}`"
           class="adj-link"
           title="Previous recording"
-        >&#8592;</RouterLink>
+        >&#8592; Previous</RouterLink>
         <span v-else class="adj-link adj-link--disabled" title="No previous recording">&#8592;</span>
         <RouterLink
           v-if="next"
           :to="`/archive/${next.year}/${next.month}/${next.day}/${next.stream}`"
           class="adj-link"
           title="Next recording"
-        >&#8594;</RouterLink>
+        >Next &#8594;</RouterLink>
         <span v-else class="adj-link adj-link--disabled" title="No next recording">&#8594;</span>
       </div>
     </div>
-    <main class="main-content">
-      <section>
-        <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
-        <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" />
-      </section>
-    </main>
+    <div class="divider" />
+    <div class="filter-col">
+      <ArchiveBirdFilter />
+    </div>
+    <div class="player-col">
+      <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
+    </div>
+    <div class="status-col">
+      <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" :title="formattedTitle" />
+    </div>
   </div>
 </template>
 
@@ -75,12 +77,18 @@ const formattedTitle = computed(() => {
   gap: 16px;
 }
 
-.top-bar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+.nav-bar {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 15px;
   gap: 8px;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0 15px;
 }
 
 .back-link {
@@ -96,19 +104,8 @@ const formattedTitle = computed(() => {
   opacity: 1;
 }
 
-.stream-title {
-  color: var(--primary-color);
-  font-size: 0.9rem;
-  opacity: 0.9;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .adj-nav {
   display: flex;
-  justify-content: flex-end;
   gap: 4px;
 }
 
@@ -116,7 +113,7 @@ const formattedTitle = computed(() => {
   color: var(--primary-color);
   text-decoration: none;
   opacity: 0.7;
-  font-size: 1.1rem;
+  font-size: 0.9rem;
   line-height: 1;
   padding: 4px 8px;
   border-radius: 6px;
@@ -135,14 +132,51 @@ const formattedTitle = computed(() => {
   cursor: default;
 }
 
-.main-content {
+.player-col {
   width: 100%;
 }
 
-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* Landscape mobile: side-by-side layout — controls left, player right */
+@media (orientation: landscape) and (max-height: 500px) {
+  .page {
+    display: grid;
+    grid-template-columns: 40% 1fr;
+    grid-template-areas:
+      "nav    player"
+      "sep    player"
+      "filter player"
+      "status player";
+    align-items: start;
+    gap: 0;
+    background: linear-gradient(to right, rgba(15, 23, 42, 0.25) 40%, transparent 40%);
+  }
 
+  .nav-bar {
+    grid-area: nav;
+    padding: 6px 14px 4px;
+  }
+
+  .divider {
+    grid-area: sep;
+    margin: 2px 14px;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .filter-col {
+    grid-area: filter;
+    padding: 4px 14px 2px;
+  }
+
+  .player-col {
+    grid-area: player;
+    border-left: 1px solid rgba(3, 182, 3, 0.2);
+    padding-left: 14px;
+    align-self: start;
+  }
+
+  .status-col {
+    grid-area: status;
+    padding: 2px 14px 4px;
+  }
+}
 </style>

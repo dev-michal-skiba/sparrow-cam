@@ -113,7 +113,7 @@ function isFuture(day: number): boolean {
 
 <style scoped>
 .calendar {
-  width: var(--player-width);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -177,15 +177,4 @@ function isFuture(day: number): boolean {
   min-height: 60px;
 }
 
-@media (max-width: 900px) and (orientation: landscape) {
-  .calendar {
-    width: 100%;
-  }
-}
-
-@media (max-width: 640px) {
-  .calendar {
-    width: 100%;
-  }
-}
 </style>

@@ -23,6 +23,12 @@ import { RouterLink } from 'vue-router'
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+@media (orientation: landscape) and (max-height: 500px) {
+  .page-header {
+    padding: 7px 20px;
+  }
+}
+
 .header-link {
   display: flex;
   align-items: center;
