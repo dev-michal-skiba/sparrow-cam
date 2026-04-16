@@ -1,7 +1,7 @@
 <template>
   <div class="bird-filter">
     <button
-      v-for="bird in BIRD_TYPES"
+      v-for="bird in visibleBirdTypes"
       :key="bird"
       class="filter-btn"
       :class="{ active: selectedBirds.has(bird) }"
@@ -13,9 +13,29 @@
 </template>
 
 <script setup lang="ts">
-import { BIRD_TYPES, useBirdFilter } from '../composables/useBirdFilter'
+import { computed, watch } from 'vue'
+import { BIRD_TYPES, BIRD_SLUGS, useBirdFilter } from '../composables/useBirdFilter'
+
+const props = defineProps<{ availableBirds?: string[] }>()
 
 const { selectedBirds, toggleBird } = useBirdFilter()
+
+const visibleBirdTypes = computed(() => {
+  if (!props.availableBirds) return BIRD_TYPES
+  return BIRD_TYPES.filter((bird) => props.availableBirds!.includes(BIRD_SLUGS[bird]))
+})
+
+watch(
+  () => props.availableBirds,
+  (slugs) => {
+    if (!slugs) return
+    for (const bird of [...selectedBirds.value]) {
+      if (!slugs.includes(BIRD_SLUGS[bird])) {
+        toggleBird(bird)
+      }
+    }
+  },
+)
 </script>
 
 <style scoped>

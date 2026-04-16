@@ -9,19 +9,19 @@
           class="adj-link"
           title="Previous recording"
         >&#8592; Previous</RouterLink>
-        <span v-else class="adj-link adj-link--disabled" title="No previous recording">&#8592;</span>
+        <span v-else class="adj-link adj-link--disabled" title="No previous recording">&#8592; Previous</span>
         <RouterLink
           v-if="next"
           :to="`/archive/${next.year}/${next.month}/${next.day}/${next.stream}`"
           class="adj-link"
           title="Next recording"
         >Next &#8594;</RouterLink>
-        <span v-else class="adj-link adj-link--disabled" title="No next recording">&#8594;</span>
+        <span v-else class="adj-link adj-link--disabled" title="No next recording">Next &#8594;</span>
       </div>
     </div>
     <div class="divider" />
     <div class="filter-col">
-      <ArchiveBirdFilter />
+      <ArchiveBirdFilter :available-birds="streamBirds" />
     </div>
     <div class="player-col">
       <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />

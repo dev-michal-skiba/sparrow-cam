@@ -21,7 +21,7 @@ Main page showing the live HLS stream with bird detection annotations in real-ti
 Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
 
 ### `ArchivePlaybackView.vue`
-Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player.
+Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player. Passes the detected birds from the stream to `ArchiveBirdFilter`, constraining the filter to only show species actually detected in the current recording.
 
 ## Components
 
@@ -52,7 +52,7 @@ HLS video player for archive streams. Wraps hls.js with a `playlistUrl` prop. Em
 Displays bird detection information for the currently displayed archive segment. Shows two labeled rows: "Birds detected in this stream:" (displays all unique species found in the entire stream) and "Birds detected in this segment:" (displays species with confidence for the current segment). Optionally accepts `streamBirds` prop to show stream-level bird summary (archive view only); segment row always displays. Accepts `currentDetections` and `metaAvailable` props from the parent view.
 
 #### `ArchiveBirdFilter.vue`
-UI component for filtering archive streams by bird type. Renders toggle buttons for each bird species. Uses the `useBirdFilter` composable to track selected birds and expose them as a query parameter.
+UI component for filtering archive streams by bird type. Renders toggle buttons for each bird species. Uses the `useBirdFilter` composable to track selected birds and expose them as a query parameter. Accepts an optional `availableBirds` prop (list of bird slugs). When provided, only birds in the available list are shown as toggles. Watches the `availableBirds` prop and automatically deselects any currently selected birds not in the updated available list.
 
 ## Composables
 
@@ -94,6 +94,7 @@ Global reactive state for bird filter selection and bird name utilities:
 - Manages a set of selected bird types
 - Provides `toggleBird()` function to add/remove bird types from selection
 - Exposes `selectedBirds`, `selectedBirdsArray`, and `birdsParam` (comma-separated bird slugs for API queries)
+- Exports `BIRD_SLUGS` mapping (human-readable bird names to slugs for use by components)
 - Exports `unslugBird(slug)` utility function to convert bird name slugs (e.g., "house_sparrow") to human-readable names (e.g., "House sparrow")
 - Uses shared state so selection is consistent across all views
 

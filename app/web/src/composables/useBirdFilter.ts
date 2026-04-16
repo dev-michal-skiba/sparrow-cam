@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 export const BIRD_TYPES = ['Great tit', 'Pigeon', 'House sparrow'] as const
 export type BirdType = (typeof BIRD_TYPES)[number]
 
-const BIRD_SLUGS: Record<BirdType, string> = {
+export const BIRD_SLUGS: Record<BirdType, string> = {
   'Great tit': 'great_tit',
   'Pigeon': 'pigeon',
   'House sparrow': 'house_sparrow',
