@@ -15,3 +15,4 @@ When working on a package, load the corresponding context file for architecture 
 - **Archive API** → `agent_docs/archive_api.md`
 - **Web** → `agent_docs/web.md`
 - **Infra** → `agent_docs/infra.md`
+- **Stream** → `agent_docs/stream.md`

@@ -51,44 +51,20 @@ make -C infra setup_users       # Setup users, groups, and passwordless sudo
 make -C infra setup_storage     # Mount external hard drive
 make -C infra setup_processor   # Processor service
 make -C infra setup_archive_api # Archive API service (port 5001, proxied via nginx)
+make -C infra setup_stream      # Stream service (ffmpeg HLS stream)
 make -C infra setup_web         # Web server (port 80)
 ```
 
-## Starting the Stream
+## Stream Service
 
-After deploying with `make -C infra setup_all`, start the ffmpeg stream on the target device.
-
-**Important:** Run ffmpeg as the `sparrow_cam_stream` user to ensure proper write permissions to the HLS directory.
+The stream is managed by the `sparrow-stream` systemd service, deployed via `make -C infra setup_stream`. It starts automatically on boot and restarts ffmpeg on failure with a backoff retry (10s → 30s → 60s+).
 
 ```bash
-# Switch to the stream user
-sudo -u sparrow_cam_stream -i
+# Check stream service status
+sudo systemctl status sparrow-stream
 
-# Start tmux session
-tmux
-# Or attach to existing one
-tmux attach
-
-# Run ffmpeg
-ffmpeg \
-   -f v4l2 \
-   -input_format mjpeg \
-   -video_size 1920x1080 \
-   -i /dev/video0 \
-   -vf "fps=8,crop=iw/2:ih/2:(iw-iw/2)/2:(ih-ih/2)/2" \
-   -c:v libx264 \
-   -preset ultrafast \
-   -tune zerolatency \
-   -g 8 \
-   -keyint_min 8 \
-   -sc_threshold 0 \
-   -pix_fmt yuv420p \
-   -an \
-   -f hls \
-   -hls_time 1 \
-   -hls_list_size 60 \
-   -hls_flags delete_segments+append_list \
-   -hls_segment_filename "/var/www/html/hls/sparrow_cam-%d.ts" /var/www/html/hls/sparrow_cam.m3u8
+# View stream logs
+journalctl -u sparrow-stream -f
 ```
 
 ### Changing frames per segment
@@ -106,6 +82,8 @@ Example (1s segments at 8 FPS):
 - `-g 8`
 - `-keyint_min 8`
 
+Update `app/stream/stream.sh` then re-run `make -C infra setup_stream` to deploy changes.
+
 ## Usage
 
 **Access** (replace with your Pi's IP):
@@ -121,6 +99,9 @@ Example (1s segments at 8 FPS):
 ```bash
 # Live tail processor logs
 journalctl -u sparrow-processor -f
+
+# Live tail stream logs
+journalctl -u sparrow-stream -f
 
 # Show last 100 lines
 journalctl -u sparrow-processor -n 100

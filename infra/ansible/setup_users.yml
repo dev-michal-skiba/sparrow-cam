@@ -18,24 +18,6 @@
         groups: sparrow_cam
         append: yes
 
-    - name: Create sparrow_cam_stream user
-      user:
-        name: sparrow_cam_stream
-        shell: /bin/bash
-        home: /home/sparrow_cam_stream
-        create_home: yes
-        groups: sparrow_cam,video
-        append: yes
-        system: no
-        state: present
-
-    - name: Install packages for sparrow_cam_stream
-      apt:
-        name:
-          - tmux
-          - ffmpeg
-        state: present
-
     - name: Create sparrow_cam_app user
       user:
         name: sparrow_cam_app

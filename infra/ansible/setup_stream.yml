@@ -1,0 +1,98 @@
+---
+- name: Deploy Stream Service
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      include_tasks: tasks/apt_update.yml
+
+    - name: Install ffmpeg
+      apt:
+        name: ffmpeg
+        state: present
+
+    - name: Add sparrow_cam_app to video group
+      user:
+        name: sparrow_cam_app
+        groups: video
+        append: yes
+
+    - name: Clone sparrow_cam repo with sparse checkout for app/stream
+      shell: |
+        if [ ! -d /opt/sparrow_cam_app/apps/sparrow_cam_repo/.git ]; then
+          git clone --no-checkout --filter=blob:none https://github.com/dev-michal-skiba/sparrow-cam.git /opt/sparrow_cam_app/apps/sparrow_cam_repo
+        fi
+        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo sparse-checkout init --cone
+        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo sparse-checkout set app/stream
+        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo pull origin master
+      args:
+        executable: /bin/bash
+      become_user: sparrow_cam_app
+      environment:
+        HOME: /opt/sparrow_cam_app
+      notify: reload and restart stream
+
+    - name: Create symlink for stream app directory
+      file:
+        src: /opt/sparrow_cam_app/apps/sparrow_cam_repo/app/stream
+        dest: /opt/sparrow_cam_app/apps/stream
+        state: link
+
+    - name: Make stream.sh executable
+      file:
+        path: /opt/sparrow_cam_app/apps/stream/stream.sh
+        mode: '0755'
+
+    - name: Update HLS directory owner to sparrow_cam_app
+      file:
+        path: /var/www/html/hls
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam
+        mode: '0775'
+
+    - name: Create stream systemd service file
+      copy:
+        content: |
+          [Unit]
+          Description=SparrowCam HLS Stream
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=sparrow_cam_app
+          Group=sparrow_cam_app
+          ExecStart=/opt/sparrow_cam_app/apps/stream/stream.sh
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=sparrow-stream
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/sparrow-stream.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload and restart stream
+
+    - name: Enable stream service to start on boot
+      systemd:
+        name: sparrow-stream
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Start stream service
+      systemd:
+        name: sparrow-stream
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload and restart stream
+      systemd:
+        name: sparrow-stream
+        state: restarted
+        daemon_reload: yes

@@ -36,7 +36,7 @@
       file:
         path: /var/www/html/hls
         state: directory
-        owner: sparrow_cam_stream
+        owner: sparrow_cam_app
         group: sparrow_cam
         mode: '0775'
 
