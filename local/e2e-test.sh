@@ -20,7 +20,7 @@ ANNOTATIONS_URL="http://localhost:8080/annotations/bird.json"
 ARCHIVE_API_URL="http://localhost:8080/archive/api"
 
 # Expected counts (based on sample.mp4 — update if sample changes)
-EXPECTED_BIRD_DETECTIONS=40  # bird_detected=true annotations in final annotations file
+EXPECTED_BIRD_DETECTIONS=20  # segments with detections in final annotations file
 
 # Exit codes
 SUCCESS=0
@@ -256,7 +256,15 @@ STABLE_TICKS=0
 WAIT_COUNT=0
 MAX_WAITS=120  # 120 * 0.5s = 60s
 while [ $WAIT_COUNT -lt $MAX_WAITS ]; do
-    ANNOTATION_COUNT=$(docker exec sparrow_cam_processor cat /var/www/html/annotations/bird.json 2>/dev/null | grep -o '"bird_detected"' | wc -l || echo "0")
+    ANNOTATION_COUNT=$(docker exec sparrow_cam_processor python3 -c "
+import json
+try:
+    with open('/var/www/html/annotations/bird.json') as f:
+        data = json.load(f)
+    print(len(data.get('detections', {})))
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0")
     ANNOTATION_COUNT=$((ANNOTATION_COUNT + 0))  # ensure numeric
     if [ "$ANNOTATION_COUNT" -eq "$PREV_COUNT" ] && [ "$ANNOTATION_COUNT" -gt 0 ]; then
         STABLE_TICKS=$((STABLE_TICKS + 1))
@@ -288,7 +296,7 @@ ANNOTATIONS_CONTENT=$(docker exec sparrow_cam_processor cat /var/www/html/annota
 BIRD_DETECTIONS=$(echo "$ANNOTATIONS_CONTENT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-print(sum(1 for v in data.values() if v.get('bird_detected') is True))
+print(len(data.get('detections', {})))
 " 2>/dev/null || echo "0")
 if [ "$BIRD_DETECTIONS" -lt "$EXPECTED_BIRD_DETECTIONS" ]; then
     echo ""
@@ -369,7 +377,7 @@ fi
 test_pass
 
 test_start "Annotations file contains bird_detected via HTTP"
-if ! curl -s "$ANNOTATIONS_URL" | grep -q "bird_detected"; then
+if ! curl -s "$ANNOTATIONS_URL" | grep -q "detections"; then
     test_fail "Annotations file does not contain expected data via HTTP"
 fi
 test_pass
