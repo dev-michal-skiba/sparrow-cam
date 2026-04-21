@@ -38,8 +38,9 @@ Implement a feature based on a Notion task page.
 - Keep changes minimal and focused on the task
 - DO NOT implement or fix any tests, lint and formatting issues
 
-### 5. Verify & Update Documentation
+### 5. Verify, Update Documentation & E2E
 
-Use the Agent tool to run subagents **in parallel** — one `verify` and one `update-docs` per package:
+Use the Agent tool to run subagents **in parallel** — one `verify`, one `update-docs`, and one `e2e` per package:
 - For each package: a `verify` subagent targeting that package
 - For each package: an `update-docs` subagent targeting that package
+- One `e2e` subagent (run once, not per package)

@@ -16,3 +16,4 @@ When working on a package, load the corresponding context file for architecture 
 - **Web** → `agent_docs/web.md`
 - **Infra** → `agent_docs/infra.md`
 - **Stream** → `agent_docs/stream.md`
+- **AI** → `agent_docs/ai.md`
