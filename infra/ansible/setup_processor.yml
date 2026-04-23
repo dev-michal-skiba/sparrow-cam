@@ -33,36 +33,20 @@
         group: sparrow_cam
         mode: '0775'
 
-    - name: Clean processor app directory if it exists
-      file:
-        path: /opt/sparrow_cam_app/apps/processor
-        state: absent
-
-    - name: Copy processor application files
-      copy:
-        src: /app/processor/processor/
-        dest: /opt/sparrow_cam_app/apps/processor/processor
-        owner: sparrow_cam_app
-        group: sparrow_cam_app
-        mode: '0755'
-        directory_mode: '0755'
-      notify: reload and restart processor
-
-    - name: Clean __pycache__ from deployed processor
-      file:
-        path: "{{ item }}"
-        state: absent
-      with_items:
-        - /opt/sparrow_cam_app/apps/processor/processor/__pycache__
-        - /opt/sparrow_cam_app/apps/processor/tests/__pycache__
-
-    - name: Copy processor .toml file
-      copy:
-        src: /app/processor/pyproject.toml
-        dest: /opt/sparrow_cam_app/apps/processor/pyproject.toml
-        owner: sparrow_cam_app
-        group: sparrow_cam_app
-        mode: '0644'
+    - name: Clone sparrow_cam repo with sparse checkout for app/processor
+      shell: |
+        if [ ! -d /opt/sparrow_cam_app/source/.git ]; then
+          git clone --no-checkout --filter=blob:none https://github.com/dev-michal-skiba/sparrow-cam.git /opt/sparrow_cam_app/source
+        fi
+        git -C /opt/sparrow_cam_app/source sparse-checkout init --cone
+        git -C /opt/sparrow_cam_app/source sparse-checkout add app/processor
+        git -C /opt/sparrow_cam_app/source pull origin master
+        git -C /opt/sparrow_cam_app/source checkout master
+      args:
+        executable: /bin/bash
+      become_user: sparrow_cam_app
+      environment:
+        HOME: /opt/sparrow_cam_app
       notify: reload and restart processor
 
     - name: Install processor app with dependencies
@@ -70,7 +54,7 @@
         source ~/.pyenvrc
         pyenv activate sparrow_cam_processor
         pip install --upgrade pip setuptools wheel
-        pip install -e /opt/sparrow_cam_app/apps/processor
+        pip install -e /opt/sparrow_cam_app/source/app/processor
       args:
         executable: /bin/bash
       become: yes
@@ -92,7 +76,7 @@
           Type=simple
           User=sparrow_cam_app
           Group=sparrow_cam_app
-          WorkingDirectory=/opt/sparrow_cam_app/apps/processor
+          WorkingDirectory=/opt/sparrow_cam_app/source/app/processor
           Environment="PATH=/opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_processor/bin:/opt/sparrow_cam_app/.pyenv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           Environment="HOME=/opt/sparrow_cam_app"
           Environment="PYENV_ROOT=/opt/sparrow_cam_app/.pyenv"

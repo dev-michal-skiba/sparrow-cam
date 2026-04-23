@@ -36,10 +36,11 @@ Shared group `sparrow_cam` (mode `0775`) grants cross-service file access withou
   .pyenv/                          # single pyenv install
   .pyenvrc / .bashrc               # pyenv init
   tmp/
-  apps/
-    processor/                     # Python 3.11.13, venv "sparrow_cam_processor"
-    archive_api/                   # Python 3.13.3, venv "sparrow_cam_archive_api"
-    stream/                        # symlink to sparse clone of app/stream
+  source/                          # sparse git clone with shallow history
+    app/
+      processor/                   # cloned with sparse-checkout
+      archive_api/                 # cloned with sparse-checkout
+      stream/                      # cloned with sparse-checkout
 
 /var/www/html/
   hls/                             # owner: sparrow_cam_app, group: sparrow_cam
@@ -56,10 +57,10 @@ Creates `sparrow_cam` group, creates `sparrow_cam_app` user, installs build depe
 Mounts external drive at `/var/www/html/storage`. Formats with ext4 if blank. Persists via fstab using UUID (survives USB resets). Adds UAS quirk to `cmdline.txt` to force stable `usb-storage` driver on Raspberry Pi.
 
 ### `setup_processor.yml` / `setup_archive_api.yml`
-Each includes `tasks/pyenv_setup.yml` to install the correct Python version and create the named virtualenv, copies app source, runs pip install, and installs/enables a systemd service.
+Each includes `tasks/pyenv_setup.yml` to install the correct Python version and create the named virtualenv, clones the GitHub repo with sparse checkout (only the respective `app/processor` or `app/archive_api` directory to `/opt/sparrow_cam_app/source/`), runs pip install, and installs/enables a systemd service.
 
 ### `setup_stream.yml`
-Installs ffmpeg, adds `sparrow_cam_app` to the `video` group (for camera access), clones the repo with sparse checkout (only `app/stream/`), creates a symlink to the cloned directory, makes `stream.sh` executable, changes HLS directory owner from `sparrow_cam_stream` to `sparrow_cam_app`, and deploys/enables the `sparrow-stream` systemd service (runs `stream.sh` as `sparrow_cam_app`).
+Installs ffmpeg, adds `sparrow_cam_app` to the `video` group (for camera access), clones the repo with sparse checkout (only `app/stream/` to `/opt/sparrow_cam_app/source/`), makes `stream.sh` executable, changes HLS directory owner to `sparrow_cam_app`, and deploys/enables the `sparrow-stream` systemd service (runs `stream.sh` directly from the sparse clone as `sparrow_cam_app`).
 
 ### `setup_web.yml`
 Installs nginx + ufw, configures firewall (ports 22, 80), creates HLS directory, deploys `nginx.conf` with variable substitution for `WEB_PORT` and `ARCHIVE_API_URL`. Configures nginx to serve:

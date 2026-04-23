@@ -20,12 +20,13 @@
 
     - name: Clone sparrow_cam repo with sparse checkout for app/stream
       shell: |
-        if [ ! -d /opt/sparrow_cam_app/apps/sparrow_cam_repo/.git ]; then
-          git clone --no-checkout --filter=blob:none https://github.com/dev-michal-skiba/sparrow-cam.git /opt/sparrow_cam_app/apps/sparrow_cam_repo
+        if [ ! -d /opt/sparrow_cam_app/source/.git ]; then
+          git clone --no-checkout --filter=blob:none https://github.com/dev-michal-skiba/sparrow-cam.git /opt/sparrow_cam_app/source
         fi
-        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo sparse-checkout init --cone
-        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo sparse-checkout set app/stream
-        git -C /opt/sparrow_cam_app/apps/sparrow_cam_repo pull origin master
+        git -C /opt/sparrow_cam_app/source sparse-checkout init --cone
+        git -C /opt/sparrow_cam_app/source sparse-checkout add app/stream
+        git -C /opt/sparrow_cam_app/source pull origin master
+        git -C /opt/sparrow_cam_app/source checkout master
       args:
         executable: /bin/bash
       become_user: sparrow_cam_app
@@ -33,15 +34,9 @@
         HOME: /opt/sparrow_cam_app
       notify: reload and restart stream
 
-    - name: Create symlink for stream app directory
-      file:
-        src: /opt/sparrow_cam_app/apps/sparrow_cam_repo/app/stream
-        dest: /opt/sparrow_cam_app/apps/stream
-        state: link
-
     - name: Make stream.sh executable
       file:
-        path: /opt/sparrow_cam_app/apps/stream/stream.sh
+        path: /opt/sparrow_cam_app/source/app/stream/stream.sh
         mode: '0755'
 
     - name: Update HLS directory owner to sparrow_cam_app
@@ -63,7 +58,7 @@
           Type=simple
           User=sparrow_cam_app
           Group=sparrow_cam_app
-          ExecStart=/opt/sparrow_cam_app/apps/stream/stream.sh
+          ExecStart=/opt/sparrow_cam_app/source/app/stream/stream.sh
           Restart=always
           RestartSec=5
           StandardOutput=journal
