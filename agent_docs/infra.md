@@ -101,8 +101,9 @@ make -C infra setup_storage       # Mount external hard drive (DEVICE=... to ove
 make -C infra setup_processor     # Deploy processor service
 make -C infra setup_archive_api   # Deploy archive API service
 make -C infra setup_stream        # Deploy stream service
+make -C infra check_git_state     # Verify master branch, no uncommitted changes, up-to-date with origin/master
 make -C infra web_build           # Build web app (npm ci && npm run build inside docker)
-make -C infra setup_web           # Build web app and deploy web server (nginx)
+make -C infra setup_web           # Run check_git_state, build web app, and deploy web server (nginx)
 make -C infra setup_all           # Run all of the above in order
 make -C infra archive             # Run stream archiver (LIMIT=N to cap segments)
 ```

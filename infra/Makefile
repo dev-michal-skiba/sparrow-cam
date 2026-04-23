@@ -1,4 +1,4 @@
-.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream run_archive_stream all web_build
+.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream run_archive_stream all web_build check_git_state
 
 help:
 	@echo "Available infrastructure targets:"
@@ -36,6 +36,24 @@ setup_archive_api:
 setup_stream:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_stream.yml
 
+check_git_state:
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" != "master" ]; then \
+		echo "ERROR: Not on master branch (currently on '$$branch'). Switch to master before deploying."; \
+		exit 1; \
+	fi
+	@if ! git diff --quiet HEAD; then \
+		echo "ERROR: Working tree has uncommitted changes. Commit or stash them before deploying."; \
+		exit 1; \
+	fi
+	@git fetch origin
+	@local=$$(git rev-parse HEAD); \
+	remote=$$(git rev-parse origin/master); \
+	if [ "$$local" != "$$remote" ]; then \
+		echo "ERROR: Local master is not in sync with origin/master. Push or pull before deploying."; \
+		exit 1; \
+	fi
+
 web_build:
 	docker run --rm \
 		-v $(shell pwd)/../app/web:/app/web \
@@ -43,7 +61,7 @@ web_build:
 		node:20-alpine \
 		sh -c "npm install && npm run build"
 
-setup_web: web_build
+setup_web: check_git_state web_build
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_web.yml
 
 setup_all: setup_users setup_storage setup_processor setup_archive_api setup_stream setup_web
