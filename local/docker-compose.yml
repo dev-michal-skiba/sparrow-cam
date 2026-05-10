@@ -32,7 +32,7 @@ services:
       - "5001:5001"
     volumes:
       - ../app/archive_api:/app/archive_api
-      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive:ro
+      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
 
   web:
     build:
