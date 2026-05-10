@@ -38,7 +38,14 @@ Implement a feature based on a Notion task page.
 - Keep changes minimal and focused on the task
 - DO NOT implement or fix any tests, lint and formatting issues
 
-### 5. Verify, Update Documentation & E2E
+### 5. Human Review
+
+- Stop and present a summary of all changes made, organized by acceptance criterion
+- Ask the user to review the implementation and provide feedback or approval
+- If the user requests changes, implement them and return to the top of this step
+- Only proceed to the next step once the user explicitly approves
+
+### 6. Verify, Update Documentation & E2E
 
 Use the Agent tool to run subagents **in parallel** — one `verify`, one `update-docs`, and one `e2e` per package:
 - For each package: a `verify` subagent targeting that package

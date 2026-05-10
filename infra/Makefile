@@ -12,7 +12,7 @@ help:
 	@echo "  make setup_stream         - Deploy stream service"
 	@echo "  make setup_web            - Build web app and deploy web server (nginx)"
 	@echo "  make setup_all            - Deploy all services"
-	@echo "  make run_archive_stream   - Run archive stream script"
+	@echo "  make archive              - Run archive stream script"
 	@echo "    LIMIT=<number>          - Limit the number of segments to archive (default: 15)"
 
 build:

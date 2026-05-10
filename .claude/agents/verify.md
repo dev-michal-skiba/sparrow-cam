@@ -46,7 +46,10 @@ Run tests, formatting and lint checks for a package. Fix any issues found at eac
 ## 3. Implement Tests for New Features
 
 - Identify new functions/methods/features from the changes in step 1
-- Write tests for new features following existing test patterns
+- Write direct, comprehensive unit tests for every new function or method — do not rely on indirect coverage through callers, integration tests, or other modules
+  - Each new function must have its own dedicated test(s) covering all code paths and edge cases
+  - Utility and helper functions are not exempt — they require direct tests regardless of whether they are exercised indirectly
+- Write tests following existing test patterns
 - Run tests again and fix failures until all pass
 - Verify test coverage: both overall and per-file coverage must be ≥90%
   - If coverage is insufficient, add tests for uncovered code paths
