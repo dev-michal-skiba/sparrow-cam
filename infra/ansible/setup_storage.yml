@@ -39,8 +39,12 @@
       changed_when: false
       failed_when: false
 
-    - name: Format partition with ext4 if needed
-      command: "mkfs.ext4 -F {{ partition_to_mount }}"
+    - name: Fail if partition has no filesystem
+      fail:
+        msg: >-
+          {{ partition_to_mount }} has no filesystem.
+          If this is a new drive that needs formatting, run manually:
+          mkfs.ext4 {{ partition_to_mount }}
       when: fstype_check.stdout | trim == ''
 
     - name: Create storage mount point

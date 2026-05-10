@@ -54,7 +54,7 @@ Shared group `sparrow_cam` (mode `0775`) grants cross-service file access withou
 Creates `sparrow_cam` group, creates `sparrow_cam_app` user, installs build dependencies (for Python apps), enables passwordless sudo for `sparrow_cam_infra`.
 
 ### `setup_storage.yml`
-Mounts external drive at `/var/www/html/storage`. Formats with ext4 if blank. Persists via fstab using UUID (survives USB resets). Adds UAS quirk to `cmdline.txt` to force stable `usb-storage` driver on Raspberry Pi.
+Mounts external drive at `/var/www/html/storage`. Requires the partition to already have an ext4 filesystem; if the partition is blank, the playbook fails with a message instructing the user to format manually using `mkfs.ext4`. Persists via fstab using UUID (survives USB resets). Adds UAS quirk to `cmdline.txt` to force stable `usb-storage` driver on Raspberry Pi.
 
 ### `setup_processor.yml` / `setup_archive_api.yml`
 Each includes `tasks/pyenv_setup.yml` to install the correct Python version and create the named virtualenv, clones the GitHub repo with sparse checkout (only the respective `app/processor` or `app/archive_api` directory to `/opt/sparrow_cam_app/source/`), runs pip install, and installs/enables a systemd service.
