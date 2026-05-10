@@ -28,6 +28,11 @@
     </div>
     <div class="status-col">
       <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" :title="formattedTitle" />
+      <RouterLink
+        :to="`/archive/${year}/${month}/${day}/${stream}/annotate`"
+        class="adj-link annotate-link"
+        title="Manually annotate this recording"
+      >Manual annotations</RouterLink>
     </div>
   </div>
 </template>
@@ -132,8 +137,18 @@ const formattedTitle = computed(() => {
   cursor: default;
 }
 
+.annotate-link {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
 .player-col {
   width: 100%;
+}
+
+.status-col {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Landscape mobile: side-by-side layout — controls left, player right */

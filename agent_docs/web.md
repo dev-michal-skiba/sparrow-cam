@@ -21,7 +21,10 @@ Main page showing the live HLS stream with bird detection annotations in real-ti
 Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
 
 ### `ArchivePlaybackView.vue`
-Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player. Passes the detected birds from the stream to `ArchiveBirdFilter`, constraining the filter to only show species actually detected in the current recording.
+Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player. Passes the detected birds from the stream to `ArchiveBirdFilter`, constraining the filter to only show species actually detected in the current recording. Includes a "Manual annotations" link that navigates to `ManualAnnotationsView`.
+
+### `ManualAnnotationsView.vue`
+Full-page view for manual annotation of archived streams. Allows users to step through the first frame of each HLS segment using Previous/Next buttons or arrow keys. Users draw region-of-interest bounding boxes on a canvas overlay positioned over the paused video, label each box with a bird species, and submit all annotations via the Archive API. Loads existing manual annotations from `meta.json` on mount to show prior work. Navigates back to `ArchivePlaybackView` on successful submission and warns users before leaving with unsaved changes.
 
 ## Components
 
@@ -53,6 +56,9 @@ Displays bird detection information for the currently displayed archive segment.
 
 #### `ArchiveBirdFilter.vue`
 UI component for filtering archive streams by bird type. Renders toggle buttons for each bird species. Uses the `useBirdFilter` composable to track selected birds and expose them as a query parameter. Accepts an optional `availableBirds` prop (list of bird slugs). When provided, only birds in the available list are shown as toggles. Watches the `availableBirds` prop and automatically deselects any currently selected birds not in the updated available list.
+
+#### `AnnotationCanvas.vue`
+Absolutely-positioned overlay canvas positioned over the paused video in `ManualAnnotationsView`. Handles pointer events (mouse and touch) to let users draw region-of-interest bounding boxes on the frame. When a box is drawn, a species-picker popover appears to assign a bird label. Renders existing ROI annotations as green rectangles with labels and × buttons for removal. Enforces a minimum box size (~1% of frame) to meet backend validation requirements. Emits `add` (ROIAnnotation) and `remove` (index) events to the parent view.
 
 ## Composables
 
@@ -98,6 +104,13 @@ Global reactive state for bird filter selection and bird name utilities:
 - Exports `unslugBird(slug)` utility function to convert bird name slugs (e.g., "house_sparrow") to human-readable names (e.g., "House sparrow")
 - Uses shared state so selection is consistent across all views
 
+### `useManualAnnotations.ts`
+Manages in-memory state for manual bounding box annotations keyed by segment filename:
+- `load(metaUrl)`: Fetches `meta.json` and seeds annotations from the `manual_annotations` field
+- `addRoi` / `removeRoi`: Mutate per-segment annotation lists in memory
+- `submit({year, month, day, stream})`: PATCHes `/archive/api/meta?…` with the full annotations payload, omitting empty segments
+- Exposes reactive state: `annotations`, `isDirty` (changes since last load/submit), `submitting`, `error`, `lastSubmitOk`
+
 ## Types
 
 ### `archive.ts`
@@ -108,12 +121,20 @@ TypeScript interfaces for archive API responses and stream metadata:
 - `DayArchive` — Represents a single day with day number and list of `StreamInfo` objects
 - `MonthArchive` — Map from day numbers to `DayArchive` objects
 
+### `annotations.ts`
+TypeScript interfaces and types for manual bounding box annotations:
+- `BirdSlug` — Union type for supported bird species slugs (`'great_tit' | 'house_sparrow' | 'pigeon'`)
+- `BoundingBox` — Normalized bounding box with `x`, `y`, `width`, `height` (all in range 0–1)
+- `ROIAnnotation` — Region-of-interest annotation with a `bird_class` (BirdSlug) and a `bbox` (BoundingBox)
+- `ManualAnnotationsMap` — Type alias for a map keyed by segment filename to list of ROIAnnotations
+
 ## Routing
 
 Router supports:
 - `/` → `LiveView` (live stream)
 - `/archive` → `ArchiveView` (calendar browse)
 - `/archive/:year/:month/:day/:stream` → `ArchivePlaybackView` (playback a specific archived stream)
+- `/archive/:year/:month/:day/:stream/annotate` → `ManualAnnotationsView` (manual annotation of a stream, named `archive-annotate`)
 
 ## Development Workflow
 
