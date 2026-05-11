@@ -42,7 +42,7 @@
         <button
           type="button"
           class="submit-btn"
-          :disabled="submitting || !isDirty"
+          :disabled="submitting || (lastSubmitOk && !isDirty)"
           @click="onSubmit"
         >{{ submitting ? 'Submitting…' : 'Submit' }}</button>
       </div>
