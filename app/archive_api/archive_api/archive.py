@@ -25,6 +25,11 @@ def get_adjacent():
         return jsonify({"error": "Recording not found"}), 404
 
     bird_filter = utils.parse_bird_filter(request.args.get("birds"))
+    include_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
+        request.args.get("include_false_positives"), request.args.get("exclude_annotated")
+    )
+    if err:
+        return jsonify(err), 400
 
     all_streams = []
     if utils.ARCHIVE_PATH.is_dir():
@@ -38,7 +43,13 @@ def get_adjacent():
                     if not day_dir.is_dir():
                         continue
                     for stream_dir in sorted(day_dir.iterdir()):
-                        if stream_dir.is_dir() and utils.stream_matches_filter(stream_dir, bird_filter):
+                        if (
+                            stream_dir.is_dir()
+                            and utils.stream_matches_filter(stream_dir, bird_filter)
+                            and utils.stream_matches_annotations_filter(
+                                stream_dir, include_false_positives, exclude_annotated
+                            )
+                        ):
                             all_streams.append(
                                 {
                                     "year": year_dir.name,
@@ -77,6 +88,11 @@ def list_archive():
         return jsonify({"error": f"Date range must not exceed {utils.MAX_RANGE_DAYS} days"}), 400
 
     bird_filter = utils.parse_bird_filter(request.args.get("birds"))
+    include_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
+        request.args.get("include_false_positives"), request.args.get("exclude_annotated")
+    )
+    if err:
+        return jsonify(err), 400
 
     result: dict = {}
     current = from_date
@@ -90,7 +106,9 @@ def list_archive():
             streams = {
                 d.name: {"birds": utils.get_stream_birds(d)}
                 for d in sorted(day_path.iterdir())
-                if d.is_dir() and utils.stream_matches_filter(d, bird_filter)
+                if d.is_dir()
+                and utils.stream_matches_filter(d, bird_filter)
+                and utils.stream_matches_annotations_filter(d, include_false_positives, exclude_annotated)
             }
             if streams:
                 if year_str not in result:

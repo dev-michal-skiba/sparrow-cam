@@ -34,6 +34,10 @@ Helper functions and constants for shared functionality:
 - `get_stream_birds()` — reads meta.json from a stream directory and extracts sorted list of unique detected bird species
 - `parse_bird_filter()` — parses comma-separated bird species string from query parameter
 - `stream_matches_filter()` — determines if a stream contains requested bird species
+- `parse_bool_filter()` — parses "true"/"1" query parameter values to boolean
+- `parse_annotations_filter()` — parses and validates annotation filter parameters, ensuring both cannot be set simultaneously
+- `get_stream_manual_annotations()` — reads manual_annotations from meta.json
+- `stream_matches_annotations_filter()` — applies annotation filters (false positives inclusion, annotated exclusion) to a stream
 
 ## Endpoints
 
@@ -46,6 +50,7 @@ Helper functions and constants for shared functionality:
 - Stream names are sorted alphabetically within each day
 - Stream metadata — includes `birds` array with species detected in each stream
 - Optional bird filtering — supports `birds` query parameter (comma-separated species names) to filter results to only streams containing those species
+- Annotation filtering — supports optional `include_false_positives` and `exclude_annotated` query parameters (mutually exclusive) to filter by manual annotation status; returns 400 error if both are set simultaneously
 
 ### GET `/adjacent` — Navigate adjacent recordings
 - Accepts required query parameters: year, month, day, stream
@@ -55,6 +60,7 @@ Helper functions and constants for shared functionality:
 - Returns 400 if any required parameter is missing
 - Returns 404 if the specified recording is not found
 - Optional bird filtering — supports `birds` query parameter to filter the list of adjacent recordings to only those containing specified species
+- Annotation filtering — supports optional `include_false_positives` and `exclude_annotated` query parameters (mutually exclusive) to filter by manual annotation status; returns 400 error if both are set simultaneously
 
 ### PATCH `/meta` — Update manual annotations
 - Updates manual annotations for a specific stream recording

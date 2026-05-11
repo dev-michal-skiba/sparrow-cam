@@ -47,6 +47,46 @@ def stream_matches_filter(stream_path: Path, bird_filter: list[str]) -> bool:
     return any(b in bird_filter for b in birds)
 
 
+def parse_bool_filter(value: str | None) -> bool:
+    return value in ("true", "1")
+
+
+def parse_annotations_filter(
+    include_false_positives_param: str | None,
+    exclude_annotated_param: str | None,
+) -> tuple[bool, bool, dict | None]:
+    include_false_positives = parse_bool_filter(include_false_positives_param)
+    exclude_annotated = parse_bool_filter(exclude_annotated_param)
+    if include_false_positives and exclude_annotated:
+        return False, False, {"error": "include_false_positives and exclude_annotated cannot both be set"}
+    return include_false_positives, exclude_annotated, None
+
+
+def get_stream_manual_annotations(stream_path: Path) -> dict | None:
+    meta_path = stream_path / "meta.json"
+    try:
+        with meta_path.open() as f:
+            meta = json.load(f)
+        return meta.get("manual_annotations")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def stream_matches_annotations_filter(
+    stream_path: Path,
+    include_false_positives: bool,
+    exclude_annotated: bool,
+) -> bool:
+    if include_false_positives and not exclude_annotated:
+        return True
+    manual_annotations = get_stream_manual_annotations(stream_path)
+    if exclude_annotated and manual_annotations is not None:
+        return False
+    if not include_false_positives and manual_annotations == {}:
+        return False
+    return True
+
+
 def is_safe_path_component(component: str) -> bool:
     """Return True if component contains no path traversal sequences."""
     return Path(component).name == component and component not in (".", "..")

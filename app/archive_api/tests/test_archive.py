@@ -20,6 +20,18 @@ def make_stream_with_birds(archive_root, year, month, day, stream_name, birds):
     return stream_path
 
 
+def make_stream_with_birds_and_annotations(archive_root, year, month, day, stream_name, birds, annotations):
+    """Create a stream directory with bird detection metadata and manual annotations."""
+    stream_path = make_stream_with_birds(archive_root, year, month, day, stream_name, birds)
+    meta_file = stream_path / "meta.json"
+    with meta_file.open("r") as f:
+        meta = json.load(f)
+    meta["manual_annotations"] = annotations
+    with meta_file.open("w") as f:
+        json.dump(meta, f)
+    return stream_path
+
+
 class TestDateValidation:
     def test_missing_from(self, client):
         c, _ = client
@@ -152,6 +164,24 @@ class TestArchiveListing:
         data = resp.get_json()
         assert "20" in data["2025"]["01"]
 
+    def test_archive_with_non_directory_files(self, client):
+        c, archive_root = client
+        # Create normal stream
+        make_stream(archive_root, "2025", "01", "15", "stream_a")
+        # Create files and symlinks at various levels that should be ignored
+        (archive_root / "2025").mkdir(exist_ok=True)
+        (archive_root / "2025" / "stray_file.txt").touch()
+        (archive_root / "stray_root.txt").touch()
+        (archive_root / "2025" / "01").mkdir(exist_ok=True)
+        (archive_root / "2025" / "01" / "stray_file.txt").touch()
+        (archive_root / "2025" / "01" / "15").mkdir(exist_ok=True)
+        (archive_root / "2025" / "01" / "15" / "stray_file.txt").touch()
+
+        resp = c.get("/?from=2025-01-01&to=2025-01-31")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_a" in data["2025"]["01"]["15"]
+
     def test_stream_metadata_is_empty(self, client):
         c, archive_root = client
         make_stream(archive_root, "2025", "01", "15", "auto_stream")
@@ -208,6 +238,83 @@ class TestArchiveListing:
         assert resp.status_code == 200
         data = resp.get_json()
         assert "stream_with_birds" in data["2025"]["01"]["15"]
+
+    def test_annotations_filter_invalid_both_set(self, client):
+        c, _ = client
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&include_false_positives=true&exclude_annotated=true")
+        assert resp.status_code == 400
+        assert "cannot both be set" in resp.get_json()["error"]
+
+    def test_exclude_annotated_true_excludes_annotated_streams(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_with_annotation", ["sparrow"], {"seg1.ts": "false positive"}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_without_annotation", ["cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&exclude_annotated=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_with_annotation" not in data["2025"]["01"]["15"]
+        assert "stream_without_annotation" in data["2025"]["01"]["15"]
+
+    def test_include_false_positives_true_includes_all(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_with_annotation", ["sparrow"], {"seg1.ts": "false positive"}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_without_annotation", ["cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&include_false_positives=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_with_annotation" in data["2025"]["01"]["15"]
+        assert "stream_without_annotation" in data["2025"]["01"]["15"]
+
+    def test_no_flags_excludes_empty_annotations(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_empty_annotation", ["sparrow"], {}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_no_annotation", ["cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_empty_annotation" not in data["2025"]["01"]["15"]
+        assert "stream_no_annotation" in data["2025"]["01"]["15"]
+
+    def test_annotations_filter_with_bird_filter(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_sparrow_annotated", ["sparrow"], {"seg1.ts": "false positive"}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_sparrow_no_annotation", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_cardinal_no_annotation", ["cardinal"])
+
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&birds=sparrow&exclude_annotated=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "stream_sparrow_annotated" not in data["2025"]["01"]["15"]
+        assert "stream_sparrow_no_annotation" in data["2025"]["01"]["15"]
+        assert "stream_cardinal_no_annotation" not in data["2025"]["01"]["15"]
+
+    def test_archive_multiple_years_and_months(self, client):
+        c, archive_root = client
+        # Test creating both new year and month dictionaries (within 31-day limit)
+        make_stream(archive_root, "2025", "01", "01", "stream_jan_01")
+        make_stream(archive_root, "2025", "01", "15", "stream_jan_15")
+        make_stream(archive_root, "2025", "01", "31", "stream_jan_31")
+
+        resp = c.get("/?from=2025-01-01&to=2025-01-31")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Verify structure creation works
+        assert "2025" in data
+        assert "01" in data["2025"]
+        assert "01" in data["2025"]["01"]
+        assert "15" in data["2025"]["01"]
+        assert "31" in data["2025"]["01"]
 
 
 class TestAdjacentEndpoint:
@@ -270,6 +377,14 @@ class TestAdjacentEndpoint:
 
         resp = c.get("/adjacent?year=2025&month=01&day=15&stream=wrong_stream")
         assert resp.status_code == 404
+
+    def test_adjacent_invalid_stream_name(self, client):
+        c, archive_root = client
+        make_stream(archive_root, "2025", "01", "15", "stream_a")
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=../../../etc/passwd")
+        assert resp.status_code == 404
+        assert "Recording not found" in resp.get_json()["error"]
 
     def test_single_recording_no_adjacent(self, client):
         c, archive_root = client
@@ -464,3 +579,92 @@ class TestAdjacentEndpoint:
         resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_sparrow&birds=cardinal")
         assert resp.status_code == 404
         assert "Recording not found" in resp.get_json()["error"]
+
+    def test_adjacent_annotations_filter_invalid_both_set(self, client):
+        c, _ = client
+        resp = c.get(
+            "/adjacent?year=2025&month=01&day=15&stream=test&include_false_positives=true&exclude_annotated=true"
+        )
+        assert resp.status_code == 400
+        assert "cannot both be set" in resp.get_json()["error"]
+
+    def test_adjacent_exclude_annotated_true_excludes_annotated(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_annotated", ["sparrow"], {"seg.ts": "false positive"}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_no_annotation", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_unannotated", ["sparrow"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_no_annotation&exclude_annotated=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] is None
+        assert data["next"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "15",
+            "stream": "stream_unannotated",
+        }
+
+    def test_adjacent_include_false_positives_true_includes_annotated(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "15", "stream_annotated", ["sparrow"], {"seg.ts": "false positive"}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_unannotated", ["sparrow"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_unannotated&include_false_positives=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "15",
+            "stream": "stream_annotated",
+        }
+        assert data["next"] is None
+
+    def test_adjacent_no_flags_excludes_empty_annotations(self, client):
+        c, archive_root = client
+        make_stream_with_birds_and_annotations(
+            archive_root, "2025", "01", "14", "stream_empty_annotated", ["sparrow"], {}
+        )
+        make_stream_with_birds(archive_root, "2025", "01", "15", "stream_current", ["sparrow"])
+        make_stream_with_birds(archive_root, "2025", "01", "16", "stream_next", ["sparrow"])
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_current")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] is None
+        assert data["next"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "16",
+            "stream": "stream_next",
+        }
+
+    def test_adjacent_with_non_directory_files(self, client):
+        c, archive_root = client
+        # Create streams
+        make_stream(archive_root, "2025", "01", "15", "stream_a")
+        make_stream(archive_root, "2025", "01", "15", "stream_b")
+        # Create files and directories that should be ignored
+        (archive_root / "stray_root.txt").touch()
+        (archive_root / "2025").mkdir(exist_ok=True)
+        (archive_root / "2025" / "stray_file.txt").touch()
+        (archive_root / "2025" / "01").mkdir(exist_ok=True)
+        (archive_root / "2025" / "01" / "stray_file.txt").touch()
+        (archive_root / "2025" / "01" / "15").mkdir(exist_ok=True)
+        (archive_root / "2025" / "01" / "15" / "stray_file.txt").touch()
+
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_a")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] is None
+        assert data["next"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "15",
+            "stream": "stream_b",
+        }
