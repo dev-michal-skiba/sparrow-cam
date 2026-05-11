@@ -3,7 +3,12 @@ import type { ArchiveApiResponse, MonthArchive } from '../types/archive'
 
 const cache = new Map<string, MonthArchive>()
 
-export function useArchive(year: Ref<number>, month: Ref<number>, birdsParam?: Ref<string>) {
+export function useArchive(
+  year: Ref<number>,
+  month: Ref<number>,
+  birdsParam?: Ref<string>,
+  annotationsParams?: Ref<Record<string, string>>,
+) {
   const archive = ref<MonthArchive>(new Map())
   const loading = ref(false)
 
@@ -11,7 +16,8 @@ export function useArchive(year: Ref<number>, month: Ref<number>, birdsParam?: R
     const y = year.value
     const m = month.value
     const birdsKey = birdsParam?.value ?? ''
-    const cacheKey = `${y}-${m}-${birdsKey}`
+    const annotKey = JSON.stringify(annotationsParams?.value ?? {})
+    const cacheKey = `${y}-${m}-${birdsKey}-${annotKey}`
 
     if (cache.has(cacheKey)) {
       archive.value = cache.get(cacheKey)!
@@ -27,6 +33,7 @@ export function useArchive(year: Ref<number>, month: Ref<number>, birdsParam?: R
 
     const params = new URLSearchParams({ from, to })
     if (birdsKey) params.set('birds', birdsKey)
+    for (const [k, v] of Object.entries(annotationsParams?.value ?? {})) params.set(k, v)
 
     try {
       const res = await fetch(`/archive/api?${params}`)

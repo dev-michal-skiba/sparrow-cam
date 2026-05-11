@@ -21,7 +21,7 @@
     </div>
     <div class="divider" />
     <div class="filter-col">
-      <ArchiveBirdFilter :available-birds="streamBirds" />
+      <ArchiveBirdFilter :available-birds="streamBirds" :available-annotation-filters="availableAnnotationFilters" />
     </div>
     <div class="player-col">
       <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
@@ -46,6 +46,7 @@ import ArchiveBirdFilter from '../components/ArchiveBirdFilter.vue'
 import { useArchiveMeta } from '../composables/useArchiveMeta'
 import { useArchiveAdjacent } from '../composables/useArchiveAdjacent'
 import { useBirdFilter } from '../composables/useBirdFilter'
+import { useAnnotationsFilter } from '../composables/useAnnotationsFilter'
 
 const route = useRoute()
 const { year, month, day, stream } = route.params as Record<string, string>
@@ -54,10 +55,11 @@ const playlistUrl = `/archive/storage/${year}/${month}/${day}/${stream}/sparrow_
 const metaUrl = `/archive/storage/${year}/${month}/${day}/${stream}/meta.json`
 
 const currentSegment = ref<string | null>(null)
-const { currentDetections, metaAvailable, streamBirds } = useArchiveMeta(metaUrl, currentSegment)
+const { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters } = useArchiveMeta(metaUrl, currentSegment)
 
 const { birdsParam } = useBirdFilter()
-const { previous, next } = useArchiveAdjacent(year, month, day, stream, birdsParam)
+const { annotationsParams } = useAnnotationsFilter()
+const { previous, next } = useArchiveAdjacent(year, month, day, stream, birdsParam, annotationsParams)
 
 const formattedTitle = computed(() => {
   const d = new Date(Number(year), Number(month) - 1, Number(day))

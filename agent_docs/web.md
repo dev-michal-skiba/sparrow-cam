@@ -21,7 +21,7 @@ Main page showing the live HLS stream with bird detection annotations in real-ti
 Archive browse interface. Renders an `ArchiveCalendar` widget for month navigation and day selection.
 
 ### `ArchivePlaybackView.vue`
-Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player. Passes the detected birds from the stream to `ArchiveBirdFilter`, constraining the filter to only show species actually detected in the current recording. Includes a "Manual annotations" link that navigates to `ManualAnnotationsView`.
+Full-page archive playback view. Reads route parameters to construct a playlist URL for a specific archived stream. Renders the `ArchivePlayer` component and tracks the current segment. Uses `useArchiveMeta` to fetch detection metadata and passes detection data to `ArchiveBirdStatus` for display below the player. Uses `useAnnotationsFilter` to manage annotation filter state and passes both bird and annotation filters to `useArchiveAdjacent` for adjacent stream navigation. Passes detected birds and available annotation filters to `ArchiveBirdFilter`, constraining it to only show species and filters actually applicable to the current recording. Includes a "Manual annotations" link that navigates to `ManualAnnotationsView`.
 
 ### `ManualAnnotationsView.vue`
 Full-page view for manual annotation of archived streams. Allows users to step through the first frame of each HLS segment using Previous/Next buttons or arrow keys. Users draw region-of-interest bounding boxes on a canvas overlay positioned over the paused video, label each box with a bird species, and submit all annotations via the Archive API. Loads existing manual annotations from `meta.json` on mount to show prior work. Navigates back to `ArchivePlaybackView` on successful submission and warns users before leaving with unsaved changes.
@@ -40,7 +40,7 @@ HLS video player component. Uses the `useHlsPlayer` composable to manage playbac
 
 ### Archive
 #### `ArchiveCalendar.vue`
-Calendar widget for browsing archived streams. Features month navigation (with future month restriction), day grid with stream count badges, and today highlighting. Clicking a day shows `ArchiveDayModal`. Accepts `birdsParam` prop to filter streams by selected bird types.
+Calendar widget for browsing archived streams. Features month navigation (with future month restriction), day grid with stream count badges, and today highlighting. Clicking a day shows `ArchiveDayModal`. Uses `useBirdFilter` and `useAnnotationsFilter` composables to pass both bird and annotation filters to `useArchive` for filtering the displayed streams.
 
 #### `ArchiveCalendarDay.vue`
 Single day cell in the calendar. Displays the day number, a badge with stream count if available, and visual states for today and future days (disabled).
@@ -55,7 +55,7 @@ HLS video player for archive streams. Wraps hls.js with a `playlistUrl` prop. Em
 Displays bird detection information for the currently displayed archive segment. Shows two labeled rows: "Birds detected in this stream:" (displays all unique species found in the entire stream) and "Birds detected in this segment:" (displays species with confidence for the current segment). Optionally accepts `streamBirds` prop to show stream-level bird summary (archive view only); segment row always displays. Accepts `currentDetections` and `metaAvailable` props from the parent view.
 
 #### `ArchiveBirdFilter.vue`
-UI component for filtering archive streams by bird type. Renders toggle buttons for each bird species. Uses the `useBirdFilter` composable to track selected birds and expose them as a query parameter. Accepts an optional `availableBirds` prop (list of bird slugs). When provided, only birds in the available list are shown as toggles. Watches the `availableBirds` prop and automatically deselects any currently selected birds not in the updated available list.
+UI component for filtering archive streams by bird type and manual annotations. Renders toggle buttons for each bird species and annotation filter. Uses `useBirdFilter` and `useAnnotationsFilter` composables to track selections and expose them as query parameters. Accepts optional props: `availableBirds` (list of bird slugs to show) and `availableAnnotationFilters` (list of annotation filter labels to show). When provided, only matching filters are displayed. Watches both props and automatically deselects any currently selected filters not in the updated available lists.
 
 #### `AnnotationCanvas.vue`
 Absolutely-positioned overlay canvas positioned over the paused video in `ManualAnnotationsView`. Handles pointer events (mouse and touch) to let users draw region-of-interest bounding boxes on the frame. When a box is drawn, a species-picker popover appears to assign a bird label. Renders existing ROI annotations as green rectangles with labels and × buttons for removal. Enforces a minimum box size (~1% of frame) to meet backend validation requirements. Emits `add` (ROIAnnotation) and `remove` (index) events to the parent view.
@@ -76,24 +76,25 @@ Fetches bird detection annotations from the server:
 
 ### `useArchive.ts`
 Fetches and caches archive metadata from the archive API:
-- Accepts year and month refs, and optional `birdsParam` ref for filtering by bird types
-- Queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD&birds=...` (birds param is optional)
-- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month-birds for memory efficiency
-- Each stream in the result now includes metadata (bird species detected in that stream)
-- Supports reactive month/year/birds changes with cached results
+- Accepts year and month refs, optional `birdsParam` ref for filtering by bird types, and optional `annotationsParams` ref for annotation filters
+- Queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD&birds=...&exclude_annotated=true|include_false_positives=true` (both params optional)
+- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month-birds-annotationsParams for memory efficiency
+- Each stream in the result includes metadata (bird species detected in that stream)
+- Supports reactive changes to year, month, birds filter, and annotations filter with cached results
 
 ### `useArchiveMeta.ts`
 Fetches bird detection metadata (`meta.json`) for an archived stream:
 - Accepts a `metaUrl` (archive stream metadata endpoint) and reactive `currentSegment` ref
-- Exposes `currentDetections` (computed list of detections for the current segment), `metaAvailable` (loading/available/unavailable state), and `streamBirds` (list of all unique bird species in the stream)
+- Exposes `currentDetections` (computed list of detections for the current segment), `metaAvailable` (loading/available/unavailable state), `streamBirds` (list of all unique bird species in the stream), and `availableAnnotationFilters` (computed list of applicable annotation filters based on the stream's manual_annotations data)
+- `availableAnnotationFilters` returns "Include false positives" if manual_annotations is an empty object; returns "Exclude annotated" if manual_annotations is null
 - Handles missing or unreachable metadata gracefully
 
 ### `useArchiveAdjacent.ts`
 Fetches previous and next archived streams for navigation:
-- Accepts year, month, day, stream identifiers and optional `birdsParam` ref for filtering
-- Queries `/archive/api/adjacent?year=...&month=...&day=...&stream=...&birds=...` (birds param is optional)
+- Accepts year, month, day, stream identifiers, optional `birdsParam` ref for filtering, and optional `annotationsParams` ref for annotation filters
+- Queries `/archive/api/adjacent?year=...&month=...&day=...&stream=...&birds=...&exclude_annotated=true|include_false_positives=true` (both params optional)
 - Exposes `previous` and `next` refs to navigate between adjacent filtered streams
-- Automatically updates when year, month, day, stream, or bird filters change
+- Automatically updates when year, month, day, stream, bird filters, or annotations filters change
 
 ### `useBirdFilter.ts`
 Global reactive state for bird filter selection and bird name utilities:
@@ -102,6 +103,14 @@ Global reactive state for bird filter selection and bird name utilities:
 - Exposes `selectedBirds`, `selectedBirdsArray`, and `birdsParam` (comma-separated bird slugs for API queries)
 - Exports `BIRD_SLUGS` mapping (human-readable bird names to slugs for use by components)
 - Exports `unslugBird(slug)` utility function to convert bird name slugs (e.g., "house_sparrow") to human-readable names (e.g., "House sparrow")
+- Uses shared state so selection is consistent across all views
+
+### `useAnnotationsFilter.ts`
+Global reactive state for manual annotation filter selection (mutually exclusive filters):
+- Manages selection of "Exclude annotated" or "Include false positives" filter
+- Provides `toggleAnnotationFilter()` function to toggle a filter on/off (deselects if already selected)
+- Exposes `selectedAnnotationFilter` (currently active filter, null if none selected)
+- Exposes `annotationsParams` computed property (query parameter object for API, e.g., `{ exclude_annotated: 'true' }` or `{ include_false_positives: 'true' }`)
 - Uses shared state so selection is consistent across all views
 
 ### `useManualAnnotations.ts`

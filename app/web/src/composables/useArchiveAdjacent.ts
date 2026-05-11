@@ -18,6 +18,7 @@ export function useArchiveAdjacent(
   day: string,
   stream: string,
   birdsParam?: Ref<string>,
+  annotationsParams?: Ref<Record<string, string>>,
 ) {
   const previous = ref<AdjacentRecording | null>(null)
   const next = ref<AdjacentRecording | null>(null)
@@ -27,6 +28,7 @@ export function useArchiveAdjacent(
     try {
       const params = new URLSearchParams({ year, month, day, stream })
       if (birds) params.set('birds', birds)
+      for (const [k, v] of Object.entries(annotationsParams?.value ?? {})) params.set(k, v)
       const response = await fetch(`/archive/api/adjacent?${params}`)
       if (!response.ok) {
         previous.value = null

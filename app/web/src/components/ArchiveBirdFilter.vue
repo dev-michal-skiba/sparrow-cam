@@ -9,20 +9,36 @@
     >
       {{ bird }}
     </button>
+    <button
+      v-for="filter in visibleAnnotationFilters"
+      :key="filter"
+      class="filter-btn"
+      :class="{ active: selectedAnnotationFilter === filter }"
+      @click="toggleAnnotationFilter(filter)"
+    >
+      {{ filter }}
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { BIRD_TYPES, BIRD_SLUGS, useBirdFilter } from '../composables/useBirdFilter'
+import { ANNOTATION_FILTERS, useAnnotationsFilter, type AnnotationFilter } from '../composables/useAnnotationsFilter'
 
-const props = defineProps<{ availableBirds?: string[] }>()
+const props = defineProps<{ availableBirds?: string[]; availableAnnotationFilters?: string[] }>()
 
 const { selectedBirds, toggleBird } = useBirdFilter()
+const { selectedAnnotationFilter, toggleAnnotationFilter } = useAnnotationsFilter()
 
 const visibleBirdTypes = computed(() => {
   if (!props.availableBirds) return BIRD_TYPES
   return BIRD_TYPES.filter((bird) => props.availableBirds!.includes(BIRD_SLUGS[bird]))
+})
+
+const visibleAnnotationFilters = computed<AnnotationFilter[]>(() => {
+  if (!props.availableAnnotationFilters) return [...ANNOTATION_FILTERS]
+  return ANNOTATION_FILTERS.filter((f) => props.availableAnnotationFilters!.includes(f))
 })
 
 watch(
@@ -33,6 +49,16 @@ watch(
       if (!slugs.includes(BIRD_SLUGS[bird])) {
         toggleBird(bird)
       }
+    }
+  },
+)
+
+watch(
+  () => props.availableAnnotationFilters,
+  (filters) => {
+    if (!filters) return
+    if (selectedAnnotationFilter.value && !filters.includes(selectedAnnotationFilter.value)) {
+      toggleAnnotationFilter(selectedAnnotationFilter.value)
     }
   },
 )

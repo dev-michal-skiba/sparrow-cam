@@ -9,6 +9,7 @@ interface Detection {
 interface ArchiveMeta {
   version: number
   detections: Record<string, Detection[]>
+  manual_annotations?: Record<string, unknown> | null
 }
 
 export type { Detection }
@@ -47,5 +48,14 @@ export function useArchiveMeta(metaUrl: string, currentSegment: Ref<string | nul
     return [...birds].sort()
   })
 
-  return { currentDetections, metaAvailable, streamBirds }
+  const availableAnnotationFilters = computed<string[]>(() => {
+    if (!meta.value) return []
+    const ma = meta.value.manual_annotations
+    const available: string[] = []
+    if (ma != null && Object.keys(ma).length === 0) available.push('Include false positives')
+    if (ma == null) available.push('Exclude annotated')
+    return available
+  })
+
+  return { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters }
 }

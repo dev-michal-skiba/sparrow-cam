@@ -36,6 +36,7 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useArchive } from '../composables/useArchive'
 import { useBirdFilter } from '../composables/useBirdFilter'
+import { useAnnotationsFilter } from '../composables/useAnnotationsFilter'
 import ArchiveCalendarDay from './ArchiveCalendarDay.vue'
 import ArchiveDayModal from './ArchiveDayModal.vue'
 
@@ -52,7 +53,8 @@ const currentMonth = ref(initialMonth) // 0-indexed
 const selectedDay = ref<number | null>(null)
 
 const { birdsParam } = useBirdFilter()
-const { archive } = useArchive(currentYear, currentMonth, birdsParam)
+const { annotationsParams } = useAnnotationsFilter()
+const { archive } = useArchive(currentYear, currentMonth, birdsParam, annotationsParams)
 
 const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate())
 
