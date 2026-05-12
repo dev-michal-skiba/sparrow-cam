@@ -7,7 +7,11 @@
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
     @pointercancel="onPointerCancel"
+    @pointerleave="onPointerLeave"
   >
+    <div v-if="mousePos && !dragStart && !pickerRect" class="helpline helpline--h" :style="{ top: `${mousePos.y}px` }"></div>
+    <div v-if="mousePos && !dragStart && !pickerRect" class="helpline helpline--v" :style="{ left: `${mousePos.x}px` }"></div>
+
     <div
       v-for="(roi, i) in annotations"
       :key="`${i}-${roi.bird_class}-${roi.bbox.x}-${roi.bbox.y}`"
@@ -66,6 +70,7 @@ interface PixelRect {
 const dragStart = ref<{ x: number; y: number } | null>(null)
 const dragBox = ref<PixelRect | null>(null)
 const pickerRect = ref<PixelRect | null>(null)
+const mousePos = ref<{ x: number; y: number } | null>(null)
 
 const MIN_NORMALIZED_SIZE = 0.01
 
@@ -100,10 +105,15 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (!dragStart.value) return
   const local = clientToLocal(event)
   if (!local) return
+  mousePos.value = local
+  if (!dragStart.value) return
   dragBox.value = rectFromPoints(dragStart.value, local)
+}
+
+function onPointerLeave() {
+  mousePos.value = null
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -253,6 +263,27 @@ const pickerStyle = computed(() => {
 
 .overlay--picking {
   cursor: default;
+}
+
+.helpline {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.5;
+  background: var(--secondary-color);
+}
+
+.helpline--h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.helpline--v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
 }
 
 .roi {
