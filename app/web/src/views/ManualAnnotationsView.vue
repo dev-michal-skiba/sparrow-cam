@@ -41,6 +41,12 @@
         <span class="seg-label">{{ segmentLabel }}</span>
         <button
           type="button"
+          class="random-btn"
+          :disabled="segments.length === 0"
+          @click="goRandom"
+        >Random segment</button>
+        <button
+          type="button"
           class="submit-btn"
           :disabled="submitting || (lastSubmitOk && !isDirty)"
           @click="onSubmit"
@@ -125,6 +131,13 @@ function goNext() {
   if (!hasNextSegment.value) return
   currentIndex.value += 1
   seekToSegment(currentIndex.value)
+}
+
+function goRandom() {
+  if (segments.value.length === 0) return
+  const idx = Math.floor(Math.random() * segments.value.length)
+  currentIndex.value = idx
+  seekToSegment(idx)
 }
 
 function onAdd(roi: ROIAnnotation) {
@@ -347,6 +360,30 @@ video {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.random-btn {
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--primary-color);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.random-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+.random-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .submit-btn {
