@@ -43,13 +43,7 @@ def get_adjacent():
                     if not day_dir.is_dir():
                         continue
                     for stream_dir in sorted(day_dir.iterdir()):
-                        if (
-                            stream_dir.is_dir()
-                            and utils.stream_matches_filter(stream_dir, bird_filter)
-                            and utils.stream_matches_annotations_filter(
-                                stream_dir, include_false_positives, exclude_annotated
-                            )
-                        ):
+                        if stream_dir.is_dir():
                             all_streams.append(
                                 {
                                     "year": year_dir.name,
@@ -65,8 +59,14 @@ def get_adjacent():
     except ValueError:
         return jsonify({"error": "Recording not found"}), 404
 
-    previous = all_streams[idx - 1] if idx > 0 else None
-    next_recording = all_streams[idx + 1] if idx < len(all_streams) - 1 else None
+    def matches_filter(entry: dict) -> bool:
+        stream_path = utils.ARCHIVE_PATH / entry["year"] / entry["month"] / entry["day"] / entry["stream"]
+        return utils.stream_matches_filter(stream_path, bird_filter) and utils.stream_matches_annotations_filter(
+            stream_path, include_false_positives, exclude_annotated
+        )
+
+    previous = next((s for s in reversed(all_streams[:idx]) if matches_filter(s)), None)
+    next_recording = next((s for s in all_streams[idx + 1 :] if matches_filter(s)), None)
 
     return jsonify({"previous": previous, "next": next_recording})
 

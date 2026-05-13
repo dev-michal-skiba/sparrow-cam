@@ -55,12 +55,12 @@ Helper functions and constants for shared functionality:
 ### GET `/adjacent` — Navigate adjacent recordings
 - Accepts required query parameters: year, month, day, stream
 - Enumerates all recordings in the archive in chronological and alphabetical order (year/month/day/stream)
-- Finds the current recording by matching all four parameters
+- Finds the current (middle) recording by matching all four parameters; the middle stream must exist but is not subject to filtering
 - Returns JSON object with `previous` and `next` fields, each containing year/month/day/stream fields or null if no adjacent recording exists
 - Returns 400 if any required parameter is missing
 - Returns 404 if the specified recording is not found
-- Optional bird filtering — supports `birds` query parameter to filter the list of adjacent recordings to only those containing specified species
-- Annotation filtering — supports optional `include_false_positives` and `exclude_annotated` query parameters (mutually exclusive) to filter by manual annotation status; returns 400 error if both are set simultaneously
+- Optional bird filtering — supports `birds` query parameter to filter only the adjacent (previous/next) recordings to those containing specified species; does not filter the middle stream
+- Annotation filtering — supports optional `include_false_positives` and `exclude_annotated` query parameters (mutually exclusive, applied only to adjacent recordings); filters previous and next streams by manual annotation status; does not filter the middle stream; returns 400 error if both are set simultaneously
 
 ### PATCH `/meta` — Update manual annotations
 - Updates manual annotations for a specific stream recording

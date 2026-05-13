@@ -577,8 +577,10 @@ class TestAdjacentEndpoint:
         make_stream_with_birds(archive_root, "2025", "01", "15", "stream_sparrow", ["sparrow"])
 
         resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_sparrow&birds=cardinal")
-        assert resp.status_code == 404
-        assert "Recording not found" in resp.get_json()["error"]
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["previous"] is None
+        assert data["next"] is None
 
     def test_adjacent_annotations_filter_invalid_both_set(self, client):
         c, _ = client
