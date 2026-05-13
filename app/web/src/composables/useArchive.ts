@@ -1,8 +1,6 @@
 import { ref, watchEffect, type Ref } from 'vue'
 import type { ArchiveApiResponse, MonthArchive } from '../types/archive'
 
-const cache = new Map<string, MonthArchive>()
-
 export function useArchive(
   year: Ref<number>,
   month: Ref<number>,
@@ -16,13 +14,6 @@ export function useArchive(
     const y = year.value
     const m = month.value
     const birdsKey = birdsParam?.value ?? ''
-    const annotKey = JSON.stringify(annotationsParams?.value ?? {})
-    const cacheKey = `${y}-${m}-${birdsKey}-${annotKey}`
-
-    if (cache.has(cacheKey)) {
-      archive.value = cache.get(cacheKey)!
-      return
-    }
 
     loading.value = true
 
@@ -58,7 +49,6 @@ export function useArchive(
         }
       }
 
-      cache.set(cacheKey, result)
       archive.value = result
     } catch {
       archive.value = new Map()

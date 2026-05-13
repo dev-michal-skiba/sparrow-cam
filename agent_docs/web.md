@@ -75,12 +75,12 @@ Fetches bird detection annotations from the server:
 - Exposes `currentDetections` (list of detections for the current segment) and `metaAvailable` (loading/available/unavailable state)
 
 ### `useArchive.ts`
-Fetches and caches archive metadata from the archive API:
+Fetches archive metadata from the archive API:
 - Accepts year and month refs, optional `birdsParam` ref for filtering by bird types, and optional `annotationsParams` ref for annotation filters
 - Queries `/archive/api?from=YYYY-MM-01&to=YYYY-MM-DD&birds=...&exclude_annotated=true|include_false_positives=true` (both params optional)
-- Returns a `MonthArchive` (map of day numbers to stream lists) keyed by year-month-birds-annotationsParams for memory efficiency
+- Returns a `MonthArchive` (map of day numbers to stream lists)
 - Each stream in the result includes metadata (bird species detected in that stream)
-- Supports reactive changes to year, month, birds filter, and annotations filter with cached results
+- Fetches fresh data on any reactive change to year, month, birds filter, or annotations filter
 
 ### `useArchiveMeta.ts`
 Fetches bird detection metadata (`meta.json`) for an archived stream:
