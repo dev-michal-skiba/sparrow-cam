@@ -10,6 +10,6 @@ class TestLoadDetectionPreset:
 
         assert preset == {
             "params": {"imgsz": 480, "iou": 0.5},
-            "class_thresholds": {"0": 0.8, "2": 0.9},
+            "class_thresholds": {"0": 0.82, "2": 0.9},
             "regions": [[194, 0, 674, 480]],
         }
