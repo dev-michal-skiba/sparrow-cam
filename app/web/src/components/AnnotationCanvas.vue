@@ -239,7 +239,7 @@ const pickerStyle = computed(() => {
   const overlay = overlayRef.value.getBoundingClientRect()
   const rect = pickerRect.value
   const popoverWidth = 160
-  const popoverHeight = 168
+  const popoverHeight = 200
   let left = rect.left + rect.width
   let top = rect.top + rect.height
   if (left + popoverWidth > overlay.width) {

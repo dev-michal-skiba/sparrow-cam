@@ -1,4 +1,4 @@
-export type BirdSlug = 'great_tit' | 'house_sparrow' | 'pigeon'
+export type BirdSlug = 'great_tit' | 'house_sparrow' | 'pigeon' | 'eurasian_nuthatch'
 
 export interface BoundingBox {
   x: number

@@ -8,6 +8,7 @@ class BirdClass(StrEnum):
     great_tit = "great_tit"
     house_sparrow = "house_sparrow"
     pigeon = "pigeon"
+    eurasian_nuthatch = "eurasian_nuthatch"
 
 
 class BoundingBox(BaseModel):

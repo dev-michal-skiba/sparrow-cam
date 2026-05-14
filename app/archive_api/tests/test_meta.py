@@ -156,3 +156,20 @@ class TestUpdateMeta:
         assert len(data["manual_annotations"]) == 2
         assert "seg1.ts" in data["manual_annotations"]
         assert "seg2.ts" in data["manual_annotations"]
+
+    def test_eurasian_nuthatch_bird_class(self, client):
+        c, archive_root = client
+        stream_path = archive_root / "2025" / "01" / "15" / "stream_a"
+        stream_path.mkdir(parents=True, exist_ok=True)
+        body = {
+            "manual_annotations": {
+                "seg1.ts": [
+                    {"bird_class": "eurasian_nuthatch", "bbox": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.3}}
+                ]
+            }
+        }
+
+        resp = c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=body)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["manual_annotations"]["seg1.ts"][0]["bird_class"] == "eurasian_nuthatch"
