@@ -659,9 +659,12 @@ class TestStreamArchiver:
         """Test suite for on_segment method and archive scheduling."""
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_disabled_archive(self, monkeypatch):
-            """Test that on_segment does nothing when ARCHIVE_ENABLED=False."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", False)
+        def test_on_segment_disabled_archive(self, monkeypatch, tmp_path):
+            """Test that on_segment does nothing when disable flag exists."""
+            # Create the disable flag file
+            disabled_flag = tmp_path / "disable_archiving"
+            disabled_flag.touch()
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", disabled_flag)
             archiver = StreamArchiver()
 
             archiver.on_segment("segment-1.ts", True)
@@ -671,9 +674,10 @@ class TestStreamArchiver:
             assert archiver._overlap_countdown is None
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_no_detection(self, monkeypatch):
+        def test_on_segment_no_detection(self, monkeypatch, tmp_path):
             """Test that on_segment handles no detection correctly."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             archiver = StreamArchiver()
 
             archiver.on_segment("segment-1.ts", False)
@@ -683,9 +687,10 @@ class TestStreamArchiver:
             assert archiver._overlap_countdown is None
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_bird_detection_schedules_archive(self, monkeypatch, caplog):
+        def test_on_segment_bird_detection_schedules_archive(self, monkeypatch, caplog, tmp_path):
             """Test that bird detection schedules archive with delay."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 3)
             archiver = StreamArchiver()
 
@@ -697,9 +702,10 @@ class TestStreamArchiver:
             assert "Bird detected, archive scheduled in 3 segments" in caplog.text
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_multiple_detections_during_countdown(self, monkeypatch):
+        def test_on_segment_multiple_detections_during_countdown(self, monkeypatch, tmp_path):
             """Test that multiple detections during countdown don't reschedule archive."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 3)
             archiver = StreamArchiver()
 
@@ -712,9 +718,10 @@ class TestStreamArchiver:
             assert second_countdown == first_countdown - 1
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_countdown_execution(self, monkeypatch, caplog):
+        def test_on_segment_countdown_execution(self, monkeypatch, caplog, tmp_path):
             """Test that archive is executed after countdown completes."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 2)
             archiver = StreamArchiver()
@@ -729,9 +736,10 @@ class TestStreamArchiver:
             assert "Executing scheduled archive" in caplog.text
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_overlap_zone_extends_archive(self, monkeypatch, caplog):
+        def test_on_segment_overlap_zone_extends_archive(self, monkeypatch, caplog, tmp_path):
             """Test that detection in overlap zone extends previous archive."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_BEFORE_DETECTION", 7)
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 7)
@@ -754,9 +762,10 @@ class TestStreamArchiver:
             assert "Bird in overlap zone, extending previous archive" in caplog.text
 
         @pytest.mark.usefixtures("stream_path", "archive_path")
-        def test_on_segment_outside_overlap_zone_new_archive(self, monkeypatch):
+        def test_on_segment_outside_overlap_zone_new_archive(self, monkeypatch, tmp_path):
             """Test that detection outside overlap zone creates new archive."""
-            monkeypatch.setattr("processor.stream_archiver.ARCHIVE_ENABLED", True)
+            # Patch disabled flag path to non-existent location (archiving enabled)
+            monkeypatch.setattr("processor.stream_archiver.ARCHIVING_DISABLED_FLAG_PATH", tmp_path / "nonexistent")
             monkeypatch.setattr("processor.stream_archiver.ARCHIVE_SEGMENT_COUNT", 15)
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_BEFORE_DETECTION", 7)
             monkeypatch.setattr("processor.stream_archiver.SEGMENTS_AFTER_DETECTION", 7)

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from processor.constants import LOG_FORMAT
+from processor.constants import ARCHIVING_DISABLED_FLAG_PATH, LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,6 @@ STREAM_PATH = Path("/var/www/html/hls")
 ARCHIVE_PATH = Path("/var/www/html/storage/sparrow_cam/archive")
 M3U8_HEADER_TAGS = ["#EXTM3U", "#EXT-X-VERSION", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-TARGETDURATION", "#EXT-X-STREAM-INF"]
 
-ARCHIVE_ENABLED = True  # Set to True to enable archiving bird detections
 ARCHIVE_SEGMENT_COUNT = 15  # Total segments to archive
 SEGMENTS_BEFORE_DETECTION = (ARCHIVE_SEGMENT_COUNT - 1) // 2
 SEGMENTS_AFTER_DETECTION = ARCHIVE_SEGMENT_COUNT - 1 - SEGMENTS_BEFORE_DETECTION
@@ -81,7 +80,7 @@ class StreamArchiver:
             segment_name: Name of the current segment.
             bird_detected: Whether a bird was detected in this segment.
         """
-        if not ARCHIVE_ENABLED:
+        if ARCHIVING_DISABLED_FLAG_PATH.exists():
             return
 
         if bird_detected:

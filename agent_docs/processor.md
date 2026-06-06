@@ -51,6 +51,7 @@
 - Owns all archive configuration and scheduling logic with delayed trigger and overlap prevention
 - Archive scheduling driven per-segment by HLSSegmentProcessor calling on_segment()
   - When bird detected in overlap zone (region near previous archive), extends the previous archive with additional segments instead of creating a new archive
+  - Archiving can be disabled at runtime by creating a flag file; when the flag file exists, archiving is skipped but detection annotation and live detection functionality continue to work normally
 - Records per-segment detection metadata (class, confidence, region of interest) in memory with automatic pruning of stale entries when segments expire from the live playlist
 - Writes detection metadata to `meta.json` alongside archive files after archival or extension
   - When extending an existing archive, preserves detections from the existing `meta.json` file and merges them with current in-memory detections, ensuring data for segments pruned from the live playlist is not lost
@@ -84,6 +85,10 @@ The detection preset is loaded from a JSON file (`detection_preset.json`) contai
 - `class_thresholds`: Optional object mapping class IDs (as string keys) to per-class confidence thresholds
 
 The per-class thresholds allow fine-tuning detection sensitivity per species independently. When provided, the minimum threshold value is used as the confidence parameter for the initial YOLO model call, then results are filtered per-class afterward to include only detections meeting their specific class thresholds.
+
+## Disabling Archiving
+
+Archiving can be disabled at runtime without restarting the processor. Create the flag file `/var/www/html/storage/sparrow_cam/disable_archiving` to disable archiving. When the flag file exists, archiving is skipped on all subsequent segment processing. Bird detection and annotation to the live annotations file continue to work normally. Remove the flag file to re-enable archiving.
 
 ## Detection Metadata Format
 

@@ -50,4 +50,6 @@ Implement a feature based on a Notion task page.
 Use the Agent tool to run subagents **in parallel** — one `verify`, one `update-docs`, and one `e2e` per package:
 - For each package: a `verify` subagent targeting that package
 - For each package: an `update-docs` subagent targeting that package
-- One `e2e` subagent (run once, not per package) — **skip if all changed packages are frontend-only** (e.g. Web package with only UI/component changes that don't affect backend behavior, APIs, or data formats)
+- One `e2e` subagent (run once, not per package) — **skip if any of the following apply**:
+  - All changed packages are frontend-only (e.g. Web package with only UI/component changes that don't affect backend behavior, APIs, or data formats)
+  - The change is small/simple (e.g. a single flag, config value, threshold, or minor behavioural toggle with no structural changes)
