@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop format check test e2e lab-build lab-run lab-format lab-check lab-test archive_api_build archive_api_format archive_api_check archive_api_test
+.PHONY: help build start stream stop processor-format processor-check processor-test e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
 
 help:
 	@echo "SparrowCam Local Development"
@@ -9,9 +9,9 @@ help:
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make stream                - Stream sample.mp4 continuously (loops forever)"
 	@echo "  make stop                  - Stop the application and clean stream and annotation files"
-	@echo "  make format                - Format code with black and ruff"
-	@echo "  make check                 - Run lint, type and security checks (no formatting)"
-	@echo "  make test                  - Run unit tests for processor package"
+	@echo "  make processor-format      - Format processor code with black and ruff"
+	@echo "  make processor-check       - Run lint, type and security checks for processor"
+	@echo "  make processor-test        - Run unit tests for processor package"
 	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
 	@echo "  make e2e                   - Run end-to-end integration tests"
 	@echo "  make lab-build             - Build the lab Docker image"
@@ -62,14 +62,14 @@ stream:
 stop:
 	docker compose down -v
 
-format:
+processor-format:
 	docker compose run --rm --no-deps processor bash -lc "\
 		black processor tests && \
 		printf '\033[32mBlack formatting complete\033[0m\n' && \
 		ruff check --fix && \
 		printf '\033[32mRuff formatting complete\033[0m\n'"
 
-check:
+processor-check:
 	docker compose run --rm --no-deps processor bash -lc "\
 		ruff check && \
 		printf '\033[32mRuff check passed\033[0m\n' && \
@@ -78,7 +78,7 @@ check:
 		bandit -r processor && \
 		printf '\033[32mBandit check passed\033[0m\n'"
 
-test:
+processor-test:
 	docker compose run --rm --no-deps processor pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
 
 e2e:
@@ -132,3 +132,13 @@ archive-api-check:
 
 archive-api-test:
 	docker compose run --rm --no-deps archive_api pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
+
+
+web-test:
+	@echo "Web package has no tests — skipping"
+
+web-format:
+	@echo "Web package has no formatting — skipping"
+
+web-check:
+	@echo "Web package has no lint/type checks — skipping"

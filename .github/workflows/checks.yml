@@ -24,33 +24,10 @@ jobs:
         run: make -C local build
 
       - name: Check
-        run: make -C local check
+        run: make -C local processor-check
 
       - name: Test
-        run: make -C local test
-
-      - name: Cleanup
-        if: always()
-        run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans
-
-  e2e:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      DOCKER_BUILDKIT: "1"
-      COMPOSE_DOCKER_CLI_BUILD: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install E2E Test Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg netcat-openbsd
-
-      - name: E2E Tests
-        run: make -C local e2e
+        run: make -C local processor-test
 
       - name: Cleanup
         if: always()
@@ -79,3 +56,50 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -f local/docker-compose.lab.yml down --volumes --remove-orphans
+
+  archive-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make -C local archive-api-build
+
+      - name: Check
+        run: make -C local archive-api-check
+
+      - name: Test
+        run: make -C local archive-api-test
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans
+
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install E2E Test Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg netcat-openbsd
+
+      - name: E2E Tests
+        run: make -C local e2e
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f local/docker-compose.yml down --volumes --remove-orphans

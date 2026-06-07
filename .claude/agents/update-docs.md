@@ -8,6 +8,7 @@ allowedTools:
   - Edit
   - Glob
   - Grep
+  - Bash(bash bin/validate_agent_docs agent_docs/[^;&|`]*)
 ---
 
 # Update Package Documentation
@@ -39,7 +40,26 @@ If no update is needed, stop and report that no documentation changes are requir
 
 ## 3. Update Documentation
 
-- Keep changes minimal
-- Focus on high-level concepts — what the module does and how it fits in the architecture
-- Do **not** mention implementation details: variable names, class names, function/method names, specific types
-- Match the style and structure of the existing package context file
+Keep changes minimal. Agent docs must contain **only** domain/business knowledge:
+
+**Include:**
+- What the package does in business terms
+- Non-obvious design decisions and their rationale
+- Key constraints and invariants an implementer would violate without knowing
+- Cross-package data contracts (shared formats, protocols, semantics)
+- Critical "don't do this" warnings
+
+**Exclude:**
+- Module, class, function, method, or variable names
+- File paths (beyond the source/tests line present in testable packages)
+- Specific type names
+- Test/format/lint command syntax
+- Step-by-step implementation descriptions
+- Anything directly readable from the code
+
+Match the style and structure of the existing package context file.
+
+## 4. Validate
+
+Run `bash bin/validate_agent_docs agent_docs/<package>.md`. If it reports errors (too many
+non-empty lines or lines exceeding 99 characters), revise the file until it passes.

@@ -7,3 +7,4 @@
 **/.coverage
 app/web/node_modules/
 app/web/dist/
+.vscode/

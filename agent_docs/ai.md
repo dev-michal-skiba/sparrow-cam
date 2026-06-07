@@ -1,37 +1,36 @@
-# Overview
-- Software: Claude Code configuration (skills, subagents, settings)
-- Responsibility: Defines project-specific Claude Code behavior — custom slash command skills, subagent definitions, and permission settings.
+# AI
 
-## Package Layout
-- Package location: `.claude/`
-    - `settings.local.json` — project-level permissions (allowed/denied Bash commands, MCP servers, plugins)
-    - `skills/` — custom slash command skills
-        - `implement-feature/SKILL.md` — skill invoked via `/implement-feature`; fetches a Notion task page, reads package context, and implements or plans the feature
-    - `agents/` — custom subagent definitions
-        - `update-docs.md` — subagent that updates `agent_docs/` context files after a feature is implemented; only updates on structural changes
-        - `verify.md` — subagent that runs tests, formatting, and lint checks for a given package and fixes issues
-        - `e2e.md` — subagent that maintains and runs end-to-end tests; updates the test suite only for breaking changes or significant new features
+Defines project-specific Claude Code behavior: custom skills and subagent definitions.
 
-## Skills
+## Purpose
 
-### `implement-feature`
-Invoked via `/implement-feature <notion-url>`. Fetches the Notion task page, parses the package name(s) and task title from the `Package: Title` page title format, reads the relevant `agent_docs/` context files, and implements or plans the feature. After implementation, runs `verify`, `update-docs`, and `e2e` subagents in parallel per package.
+Provides Claude Code skills and subagent definitions tailored to this project's workflow.
 
-## Subagents
+## implement-feature Workflow
 
-### `update-docs`
-Accepts a `package` parameter. Reads the package context file and git diff, then updates `agent_docs/<package>.md` only if a new module was added or something fundamental changed. Skips updates for bug fixes, refactors, or minor changes.
+1. Load the Notion page for the task
+2. Read the relevant agent_docs context files for the target package(s)
+3. Implement the feature
+4. Pause for human review
+5. After approval, run verify, update-docs, and e2e in parallel
 
-### `verify`
-Accepts a `package` parameter. Reads the package context file, runs unit tests (fixing failures and writing tests for new features until coverage ≥90%), formats code, and runs lint/type checks. Uses `make -C local` commands defined in the package context file.
+## update-docs Subagent
 
-### `e2e`
-No parameters. Maintains end-to-end tests by reviewing implemented changes and deciding whether the test suite needs updating. Updates the test suite only for breaking changes or significant new user-facing features; defaults to no change for refactors, bug fixes, and minor enhancements. Runs the e2e test suite to verify changes.
+Updates agent_docs context files after a feature lands. Only triggers on structural
+changes: a new component added, or a component's responsibility changed. Skips bug
+fixes, refactors, and minor changes. After editing, validates that size limits pass.
 
-## Settings
+## verify Subagent
 
-### `settings.local.json`
-Stores project-level `permissions.allow` entries for Bash commands and MCP tools that Claude Code may use without prompting. Also enables MCP servers (`notion`) and plugins (`frontend-design`).
+Runs tests, code formatting, and lint/type/security checks for the target package.
+Fixes failures and writes tests for new features until coverage reaches at least 90%.
+Only fully implemented for processor, archive_api, and lab; for all other packages it
+stops immediately with a success result.
 
-## Formatting, Linting, and Unit Tests
-These steps should be skipped — AI Package has no formatting, linting, or unit test tooling.
+## e2e Subagent
+
+Maintains and runs the end-to-end test suite. Skipped entirely for frontend-only changes
+and for simple single-flag or single-config changes. For all other changes, reviews what
+was implemented and updates the test suite only for breaking changes or significant new
+user-facing features; defaults to no change for refactors, bug fixes, and minor
+enhancements.
