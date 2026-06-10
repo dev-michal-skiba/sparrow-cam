@@ -8,6 +8,23 @@ Captures a USB webcam feed and produces an HLS stream for the web server to serv
 - Segment duration: 1 second
 - Rolling window: 60 segments retained at any time
 
+## Crop Configuration
+
+Crop is configured via `app/stream/stream.conf`, a bash-sourceable key=value file:
+
+```
+ROI_LEFT=25
+ROI_TOP=25
+ROI_RIGHT=75
+ROI_BOTTOM=75
+```
+
+Values are percentages (0–100) of the input frame. The script converts them to an ffmpeg `crop` expression at startup and on every reload.
+
+Invalid values (RIGHT ≤ LEFT, BOTTOM ≤ TOP, or any value outside 0–100) are logged and the crop is skipped — the full frame is streamed instead.
+
+When `stream.conf` is modified on disk, the script detects the change (via mtime polling every 1 second), kills ffmpeg, and immediately restarts with the new crop. The retry counter is reset on a config-driven restart.
+
 ## Constraint: FPS, Keyframe Interval, and Segment Duration
 
 Segments begin on keyframes. The FPS, keyframe interval, and segment duration are
@@ -18,6 +35,6 @@ value requires updating the other two to match.
 
 When the ffmpeg process exits for any reason, the stream restarts after a delay:
 
-- 1st retry: 10 seconds
-- 2nd retry: 30 seconds
-- 3rd and subsequent retries: 60 seconds
+- 1st retry: 2 seconds
+- 2nd retry: 5 seconds
+- 3rd and subsequent retries: 10 seconds
