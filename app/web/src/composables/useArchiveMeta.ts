@@ -1,4 +1,5 @@
 import { ref, computed, onMounted, type Ref } from 'vue'
+import type { ROIAnnotation, ManualAnnotationsMap } from '../types/annotations'
 
 interface Detection {
   class: string
@@ -9,7 +10,7 @@ interface Detection {
 interface ArchiveMeta {
   version: number
   detections: Record<string, Detection[]>
-  manual_annotations?: Record<string, unknown> | null
+  manual_annotations?: ManualAnnotationsMap | null
 }
 
 export type { Detection }
@@ -57,5 +58,30 @@ export function useArchiveMeta(metaUrl: string, currentSegment: Ref<string | nul
     return available
   })
 
-  return { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters }
+  const hasManualAnnotations = computed<boolean>(() => {
+    if (!meta.value) return false
+    return meta.value.manual_annotations != null
+  })
+
+  const currentManualAnnotations = computed<ROIAnnotation[]>(() => {
+    if (!meta.value || !currentSegment.value) return []
+    const ma = meta.value.manual_annotations
+    if (!ma) return []
+    return ma[currentSegment.value] ?? []
+  })
+
+  const streamManualBirds = computed<string[]>(() => {
+    if (!meta.value) return []
+    const ma = meta.value.manual_annotations
+    if (!ma) return []
+    const birds = new Set<string>()
+    for (const annotations of Object.values(ma)) {
+      for (const ann of annotations) {
+        birds.add(ann.bird_class)
+      }
+    }
+    return [...birds].sort()
+  })
+
+  return { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters, hasManualAnnotations, currentManualAnnotations, streamManualBirds }
 }

@@ -21,13 +21,13 @@
     </div>
     <div class="divider" />
     <div class="filter-col">
-      <ArchiveBirdFilter :available-birds="streamBirds" :available-annotation-filters="availableAnnotationFilters" />
+      <ArchiveBirdFilter :available-birds="allAvailableBirds" :available-annotation-filters="availableAnnotationFilters" />
     </div>
     <div class="player-col">
       <ArchivePlayer :playlist-url="playlistUrl" @segment-change="currentSegment = $event" />
     </div>
     <div class="status-col">
-      <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" :title="formattedTitle" />
+      <ArchiveBirdStatus :current-detections="currentDetections" :meta-available="metaAvailable" :stream-birds="streamBirds" :title="formattedTitle" :has-manual-annotations="hasManualAnnotations" :current-manual-annotations="currentManualAnnotations" :stream-manual-birds="streamManualBirds" />
       <RouterLink
         :to="`/archive/${year}/${month}/${day}/${stream}/annotate`"
         class="adj-link annotate-link"
@@ -55,7 +55,11 @@ const playlistUrl = `/archive/storage/${year}/${month}/${day}/${stream}/sparrow_
 const metaUrl = `/archive/storage/${year}/${month}/${day}/${stream}/meta.json`
 
 const currentSegment = ref<string | null>(null)
-const { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters } = useArchiveMeta(metaUrl, currentSegment)
+const { currentDetections, metaAvailable, streamBirds, availableAnnotationFilters, hasManualAnnotations, currentManualAnnotations, streamManualBirds } = useArchiveMeta(metaUrl, currentSegment)
+
+const allAvailableBirds = computed(() =>
+  hasManualAnnotations.value ? streamManualBirds.value : streamBirds.value
+)
 
 const { birdsParam } = useBirdFilter()
 const { annotationsParams } = useAnnotationsFilter()

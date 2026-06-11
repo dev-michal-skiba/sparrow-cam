@@ -17,6 +17,13 @@ work on a stream:
 - "Exclude annotated" — omits streams where annotation work has been done
 - "Include false positives" — shows streams reviewed and confirmed as false positives
 
+When viewing an archived stream, if manual annotations exist for that stream, they
+take precedence: the bird species filter sources its options from manual annotations
+rather than auto detections. The status display also shows manual annotations
+separately (dimmed auto detections alongside highlighted manual annotations on
+desktop; stacked vertically on mobile). This precedence ensures annotated streams
+show only the manually-verified bird species to the user.
+
 ## Manual Annotation State
 The `manual_annotations` field in stream metadata carries specific meaning:
 - `null` — no annotation work has been done on this stream
