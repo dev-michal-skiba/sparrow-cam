@@ -25,10 +25,17 @@ def get_stream_birds(stream_path: Path) -> list[str]:
         with meta_path.open() as f:
             meta = json.load(f)
         birds: set[str] = set()
-        for detections in meta.get("detections", {}).values():
-            for det in detections:
-                if "class" in det:
-                    birds.add(det["class"])
+        manual_annotations = meta.get("manual_annotations")
+        if manual_annotations is not None:
+            for annotations in manual_annotations.values():
+                for ann in annotations:
+                    if "bird_class" in ann:
+                        birds.add(ann["bird_class"])
+        else:
+            for detections in meta.get("detections", {}).values():
+                for det in detections:
+                    if "class" in det:
+                        birds.add(det["class"])
         return sorted(birds)
     except (OSError, json.JSONDecodeError, KeyError):
         return []

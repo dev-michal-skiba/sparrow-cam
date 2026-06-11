@@ -63,6 +63,64 @@ class TestGetStreamBirds:
         meta_path.write_text("not json")
         assert get_stream_birds(tmp_path) == []
 
+    def test_returns_birds_from_manual_annotations(self, tmp_path):
+        meta_path = tmp_path / "meta.json"
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "manual_annotations": {
+                        "seg1.ts": [{"bird_class": "sparrow"}, {"bird_class": "cardinal"}],
+                        "seg2.ts": [{"bird_class": "sparrow"}],
+                    }
+                }
+            )
+        )
+        assert get_stream_birds(tmp_path) == ["cardinal", "sparrow"]
+
+    def test_prefers_manual_annotations_over_detections(self, tmp_path):
+        meta_path = tmp_path / "meta.json"
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "manual_annotations": {
+                        "seg1.ts": [{"bird_class": "cardinal"}],
+                    },
+                    "detections": {
+                        "seg1.ts": [{"class": "sparrow"}],
+                        "seg2.ts": [{"class": "jay"}],
+                    },
+                }
+            )
+        )
+        assert get_stream_birds(tmp_path) == ["cardinal"]
+
+    def test_ignores_detections_when_manual_annotations_present(self, tmp_path):
+        meta_path = tmp_path / "meta.json"
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "manual_annotations": {},
+                    "detections": {
+                        "seg1.ts": [{"class": "sparrow"}],
+                    },
+                }
+            )
+        )
+        assert get_stream_birds(tmp_path) == []
+
+    def test_handles_manual_annotations_with_missing_bird_class(self, tmp_path):
+        meta_path = tmp_path / "meta.json"
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "manual_annotations": {
+                        "seg1.ts": [{"other_field": "value"}, {"bird_class": "sparrow"}],
+                    }
+                }
+            )
+        )
+        assert get_stream_birds(tmp_path) == ["sparrow"]
+
 
 class TestParseBirdFilter:
     def test_none_returns_empty(self):

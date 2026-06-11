@@ -12,3 +12,5 @@ HTTP API for querying archived streams by date range and managing manual annotat
   `include_false_positives` cannot both be set; returns 400.
 - PATCH /meta preserves detections — only `manual_annotations` is replaced;
   existing detection data is never touched.
+- Bird enumeration prefers manual annotations — when querying birds from a
+  stream, `manual_annotations` takes precedence over `detections` if present.
