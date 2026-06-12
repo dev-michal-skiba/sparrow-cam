@@ -53,8 +53,8 @@ export function useArchiveMeta(metaUrl: string, currentSegment: Ref<string | nul
     if (!meta.value) return []
     const ma = meta.value.manual_annotations
     const available: string[] = []
-    if (ma != null && Object.keys(ma).length === 0) available.push('Include false positives')
     if (ma == null) available.push('Exclude annotated')
+    if (ma == null || Object.keys(ma).length > 0) available.push('Exclude false positives')
     return available
   })
 

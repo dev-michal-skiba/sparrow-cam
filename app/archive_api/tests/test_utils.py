@@ -179,45 +179,45 @@ class TestParseBoolFilter:
 
 class TestParseAnnotationsFilter:
     def test_both_none_returns_defaults(self):
-        include_fp, exclude_ann, err = parse_annotations_filter(None, None)
-        assert include_fp is False
+        exclude_fp, exclude_ann, err = parse_annotations_filter(None, None)
+        assert exclude_fp is False
         assert exclude_ann is False
         assert err is None
 
-    def test_include_false_positives_true(self):
-        include_fp, exclude_ann, err = parse_annotations_filter("true", None)
-        assert include_fp is True
+    def test_exclude_false_positives_true(self):
+        exclude_fp, exclude_ann, err = parse_annotations_filter("true", None)
+        assert exclude_fp is True
         assert exclude_ann is False
         assert err is None
 
     def test_exclude_annotated_true(self):
-        include_fp, exclude_ann, err = parse_annotations_filter(None, "true")
-        assert include_fp is False
+        exclude_fp, exclude_ann, err = parse_annotations_filter(None, "true")
+        assert exclude_fp is False
         assert exclude_ann is True
         assert err is None
 
     def test_both_set_returns_error(self):
-        include_fp, exclude_ann, err = parse_annotations_filter("true", "true")
-        assert include_fp is False
+        exclude_fp, exclude_ann, err = parse_annotations_filter("true", "true")
+        assert exclude_fp is False
         assert exclude_ann is False
         assert err is not None
-        assert "cannot both be set" in err["error"]
+        assert "exclude_false_positives and exclude_annotated cannot both be set" in err["error"]
 
-    def test_include_false_positives_with_1(self):
-        include_fp, exclude_ann, err = parse_annotations_filter("1", None)
-        assert include_fp is True
+    def test_exclude_false_positives_with_1(self):
+        exclude_fp, exclude_ann, err = parse_annotations_filter("1", None)
+        assert exclude_fp is True
         assert exclude_ann is False
         assert err is None
 
     def test_exclude_annotated_with_1(self):
-        include_fp, exclude_ann, err = parse_annotations_filter(None, "1")
-        assert include_fp is False
+        exclude_fp, exclude_ann, err = parse_annotations_filter(None, "1")
+        assert exclude_fp is False
         assert exclude_ann is True
         assert err is None
 
     def test_both_set_with_1_returns_error(self):
-        include_fp, exclude_ann, err = parse_annotations_filter("1", "1")
-        assert include_fp is False
+        exclude_fp, exclude_ann, err = parse_annotations_filter("1", "1")
+        assert exclude_fp is False
         assert exclude_ann is False
         assert err is not None
 
@@ -252,59 +252,59 @@ class TestGetStreamManualAnnotations:
 
 
 class TestStreamMatchesAnnotationsFilter:
-    def test_include_false_positives_true_returns_true(self, tmp_path):
+    def test_no_flags_returns_true_for_no_annotations(self, tmp_path):
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=True, exclude_annotated=False) is True
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=False) is True
         )
 
-    def test_include_false_positives_true_excludes_annotated_false(self, tmp_path):
+    def test_no_flags_returns_true_with_non_empty_annotations(self, tmp_path):
         meta_path = tmp_path / "meta.json"
         meta_path.write_text(json.dumps({"manual_annotations": {"seg.ts": "false positive"}}))
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=True, exclude_annotated=False) is True
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=False) is True
+        )
+
+    def test_no_flags_returns_true_with_empty_annotations(self, tmp_path):
+        meta_path = tmp_path / "meta.json"
+        meta_path.write_text(json.dumps({"manual_annotations": {}}))
+        assert (
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=False) is True
         )
 
     def test_exclude_annotated_true_excludes_streams_with_annotations(self, tmp_path):
         meta_path = tmp_path / "meta.json"
         meta_path.write_text(json.dumps({"manual_annotations": {"seg.ts": "false positive"}}))
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=True) is False
-        )
-
-    def test_exclude_annotated_true_includes_streams_without_annotations(self, tmp_path):
-        assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=True) is True
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=True) is False
         )
 
     def test_exclude_annotated_true_excludes_streams_with_empty_annotations(self, tmp_path):
         meta_path = tmp_path / "meta.json"
         meta_path.write_text(json.dumps({"manual_annotations": {}}))
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=True) is False
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=True) is False
         )
 
-    def test_neither_flag_true_excludes_streams_with_empty_annotations(self, tmp_path):
-        meta_path = tmp_path / "meta.json"
-        meta_path.write_text(json.dumps({"manual_annotations": {}}))
+    def test_exclude_annotated_true_includes_streams_without_annotations(self, tmp_path):
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=False) is False
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=False, exclude_annotated=True) is True
         )
 
-    def test_neither_flag_true_includes_streams_without_annotations(self, tmp_path):
+    def test_exclude_false_positives_true_includes_no_annotations(self, tmp_path):
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=False) is True
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=True, exclude_annotated=False) is True
         )
 
-    def test_neither_flag_true_includes_streams_with_non_empty_annotations(self, tmp_path):
+    def test_exclude_false_positives_true_includes_non_empty_annotations(self, tmp_path):
         meta_path = tmp_path / "meta.json"
         meta_path.write_text(json.dumps({"manual_annotations": {"seg.ts": "false positive"}}))
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=False) is True
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=True, exclude_annotated=False) is True
         )
 
-    def test_exclude_annotated_true_also_excludes_empty_annotations_dict(self, tmp_path):
+    def test_exclude_false_positives_true_excludes_empty_annotations(self, tmp_path):
         meta_path = tmp_path / "meta.json"
         meta_path.write_text(json.dumps({"manual_annotations": {}}))
         assert (
-            stream_matches_annotations_filter(tmp_path, include_false_positives=False, exclude_annotated=True) is False
+            stream_matches_annotations_filter(tmp_path, exclude_false_positives=True, exclude_annotated=False) is False
         )

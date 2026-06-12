@@ -32,8 +32,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useArchive } from '../composables/useArchive'
 import { useBirdFilter } from '../composables/useBirdFilter'
 import { useAnnotationsFilter } from '../composables/useAnnotationsFilter'
@@ -44,13 +44,20 @@ const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const now = new Date()
 const route = useRoute()
-const queryYear = Number(route.query.year)
-const queryMonth = Number(route.query.month)
-const initialYear = queryYear || now.getFullYear()
-const initialMonth = queryMonth ? queryMonth - 1 : now.getMonth() // query month is 1-indexed, store 0-indexed
-const currentYear = ref(initialYear)
-const currentMonth = ref(initialMonth) // 0-indexed
+const router = useRouter()
+
+// year/month are always kept in the URL so filter changes don't reset the month.
+// month in URL is 1-indexed; internally 0-indexed.
+const currentYear = computed(() => Number(route.query.year) || now.getFullYear())
+const currentMonth = computed(() => Number(route.query.month) ? Number(route.query.month) - 1 : now.getMonth())
+
 const selectedDay = ref<number | null>(null)
+
+onMounted(() => {
+  if (!route.query.year || !route.query.month) {
+    router.replace({ query: { ...route.query, year: now.getFullYear(), month: now.getMonth() + 1 } })
+  }
+})
 
 const { birdsParam } = useBirdFilter()
 const { annotationsParams } = useAnnotationsFilter()
@@ -78,23 +85,19 @@ const canGoNext = computed(() => {
 })
 
 function prevMonth() {
-  if (currentMonth.value === 0) {
-    currentMonth.value = 11
-    currentYear.value--
-  } else {
-    currentMonth.value--
-  }
+  let y = currentYear.value
+  let m = currentMonth.value
+  if (m === 0) { y--; m = 11 } else { m-- }
+  router.replace({ query: { ...route.query, year: y, month: m + 1 } })
   selectedDay.value = null
 }
 
 function nextMonth() {
   if (!canGoNext.value) return
-  if (currentMonth.value === 11) {
-    currentMonth.value = 0
-    currentYear.value++
-  } else {
-    currentMonth.value++
-  }
+  let y = currentYear.value
+  let m = currentMonth.value
+  if (m === 11) { y++; m = 0 } else { m++ }
+  router.replace({ query: { ...route.query, year: y, month: m + 1 } })
   selectedDay.value = null
 }
 

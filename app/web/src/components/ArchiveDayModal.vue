@@ -10,7 +10,7 @@
           v-for="stream in streams"
           :key="stream.name"
           class="stream-item"
-          :to="{ name: 'archive-playback', params: { year, month: paddedMonth, day: paddedDay, stream: stream.name } }"
+          :to="{ name: 'archive-playback', params: { year, month: paddedMonth, day: paddedDay, stream: stream.name }, query: filterQuery }"
           @click="$emit('close')"
         >
           <span class="stream-time">{{ formatStreamName(stream.name) }}</span>
@@ -28,6 +28,9 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { StreamInfo } from '../types/archive'
+import { useFilterQuery } from '../composables/useFilterQuery'
+
+const { filterQuery } = useFilterQuery()
 
 const props = defineProps<{
   year: number

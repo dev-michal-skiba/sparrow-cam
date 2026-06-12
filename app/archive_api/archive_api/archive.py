@@ -25,8 +25,8 @@ def get_adjacent():
         return jsonify({"error": "Recording not found"}), 404
 
     bird_filter = utils.parse_bird_filter(request.args.get("birds"))
-    include_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
-        request.args.get("include_false_positives"), request.args.get("exclude_annotated")
+    exclude_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
+        request.args.get("exclude_false_positives"), request.args.get("exclude_annotated")
     )
     if err:
         return jsonify(err), 400
@@ -62,7 +62,7 @@ def get_adjacent():
     def matches_filter(entry: dict) -> bool:
         stream_path = utils.ARCHIVE_PATH / entry["year"] / entry["month"] / entry["day"] / entry["stream"]
         return utils.stream_matches_filter(stream_path, bird_filter) and utils.stream_matches_annotations_filter(
-            stream_path, include_false_positives, exclude_annotated
+            stream_path, exclude_false_positives, exclude_annotated
         )
 
     previous = next((s for s in reversed(all_streams[:idx]) if matches_filter(s)), None)
@@ -88,8 +88,8 @@ def list_archive():
         return jsonify({"error": f"Date range must not exceed {utils.MAX_RANGE_DAYS} days"}), 400
 
     bird_filter = utils.parse_bird_filter(request.args.get("birds"))
-    include_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
-        request.args.get("include_false_positives"), request.args.get("exclude_annotated")
+    exclude_false_positives, exclude_annotated, err = utils.parse_annotations_filter(
+        request.args.get("exclude_false_positives"), request.args.get("exclude_annotated")
     )
     if err:
         return jsonify(err), 400
@@ -108,7 +108,7 @@ def list_archive():
                 for d in sorted(day_path.iterdir())
                 if d.is_dir()
                 and utils.stream_matches_filter(d, bird_filter)
-                and utils.stream_matches_annotations_filter(d, include_false_positives, exclude_annotated)
+                and utils.stream_matches_annotations_filter(d, exclude_false_positives, exclude_annotated)
             }
             if streams:
                 if year_str not in result:

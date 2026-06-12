@@ -1,18 +1,18 @@
 <template>
   <div class="page">
     <div class="nav-bar">
-      <RouterLink :to="`/archive?year=${year}&month=${month}`" class="back-link">&#8592; Back</RouterLink>
+      <RouterLink :to="{ path: '/archive', query: { year, month, ...filterQuery } }" class="back-link">&#8592; Back</RouterLink>
       <div class="adj-nav">
         <RouterLink
           v-if="previous"
-          :to="`/archive/${previous.year}/${previous.month}/${previous.day}/${previous.stream}`"
+          :to="{ path: `/archive/${previous.year}/${previous.month}/${previous.day}/${previous.stream}`, query: filterQuery }"
           class="adj-link"
           title="Previous recording"
         >&#8592; Previous</RouterLink>
         <span v-else class="adj-link adj-link--disabled" title="No previous recording">&#8592; Previous</span>
         <RouterLink
           v-if="next"
-          :to="`/archive/${next.year}/${next.month}/${next.day}/${next.stream}`"
+          :to="{ path: `/archive/${next.year}/${next.month}/${next.day}/${next.stream}`, query: filterQuery }"
           class="adj-link"
           title="Next recording"
         >Next &#8594;</RouterLink>
@@ -47,6 +47,7 @@ import { useArchiveMeta } from '../composables/useArchiveMeta'
 import { useArchiveAdjacent } from '../composables/useArchiveAdjacent'
 import { useBirdFilter } from '../composables/useBirdFilter'
 import { useAnnotationsFilter } from '../composables/useAnnotationsFilter'
+import { useFilterQuery } from '../composables/useFilterQuery'
 
 const route = useRoute()
 const { year, month, day, stream } = route.params as Record<string, string>
@@ -63,6 +64,7 @@ const allAvailableBirds = computed(() =>
 
 const { birdsParam } = useBirdFilter()
 const { annotationsParams } = useAnnotationsFilter()
+const { filterQuery } = useFilterQuery()
 const { previous, next } = useArchiveAdjacent(year, month, day, stream, birdsParam, annotationsParams)
 
 const formattedTitle = computed(() => {

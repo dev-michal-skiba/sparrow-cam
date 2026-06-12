@@ -241,7 +241,7 @@ class TestArchiveListing:
 
     def test_annotations_filter_invalid_both_set(self, client):
         c, _ = client
-        resp = c.get("/?from=2025-01-15&to=2025-01-15&include_false_positives=true&exclude_annotated=true")
+        resp = c.get("/?from=2025-01-15&to=2025-01-15&exclude_false_positives=true&exclude_annotated=true")
         assert resp.status_code == 400
         assert "cannot both be set" in resp.get_json()["error"]
 
@@ -258,20 +258,20 @@ class TestArchiveListing:
         assert "stream_with_annotation" not in data["2025"]["01"]["15"]
         assert "stream_without_annotation" in data["2025"]["01"]["15"]
 
-    def test_include_false_positives_true_includes_all(self, client):
+    def test_no_flags_includes_all_with_annotations(self, client):
         c, archive_root = client
         make_stream_with_birds_and_annotations(
             archive_root, "2025", "01", "15", "stream_with_annotation", ["sparrow"], {"seg1.ts": "false positive"}
         )
         make_stream_with_birds(archive_root, "2025", "01", "15", "stream_without_annotation", ["cardinal"])
 
-        resp = c.get("/?from=2025-01-15&to=2025-01-15&include_false_positives=true")
+        resp = c.get("/?from=2025-01-15&to=2025-01-15")
         assert resp.status_code == 200
         data = resp.get_json()
         assert "stream_with_annotation" in data["2025"]["01"]["15"]
         assert "stream_without_annotation" in data["2025"]["01"]["15"]
 
-    def test_no_flags_excludes_empty_annotations(self, client):
+    def test_no_flags_includes_empty_annotations(self, client):
         c, archive_root = client
         make_stream_with_birds_and_annotations(
             archive_root, "2025", "01", "15", "stream_empty_annotation", ["sparrow"], {}
@@ -281,7 +281,7 @@ class TestArchiveListing:
         resp = c.get("/?from=2025-01-15&to=2025-01-15")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert "stream_empty_annotation" not in data["2025"]["01"]["15"]
+        assert "stream_empty_annotation" in data["2025"]["01"]["15"]
         assert "stream_no_annotation" in data["2025"]["01"]["15"]
 
     def test_annotations_filter_with_bird_filter(self, client):
@@ -585,7 +585,7 @@ class TestAdjacentEndpoint:
     def test_adjacent_annotations_filter_invalid_both_set(self, client):
         c, _ = client
         resp = c.get(
-            "/adjacent?year=2025&month=01&day=15&stream=test&include_false_positives=true&exclude_annotated=true"
+            "/adjacent?year=2025&month=01&day=15&stream=test&exclude_false_positives=true&exclude_annotated=true"
         )
         assert resp.status_code == 400
         assert "cannot both be set" in resp.get_json()["error"]
@@ -609,14 +609,14 @@ class TestAdjacentEndpoint:
             "stream": "stream_unannotated",
         }
 
-    def test_adjacent_include_false_positives_true_includes_annotated(self, client):
+    def test_adjacent_no_flags_includes_annotated(self, client):
         c, archive_root = client
         make_stream_with_birds_and_annotations(
             archive_root, "2025", "01", "15", "stream_annotated", ["sparrow"], {"seg.ts": "false positive"}
         )
         make_stream_with_birds(archive_root, "2025", "01", "15", "stream_unannotated", ["sparrow"])
 
-        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_unannotated&include_false_positives=true")
+        resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_unannotated")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["previous"] == {
@@ -627,7 +627,7 @@ class TestAdjacentEndpoint:
         }
         assert data["next"] is None
 
-    def test_adjacent_no_flags_excludes_empty_annotations(self, client):
+    def test_adjacent_no_flags_includes_empty_annotations(self, client):
         c, archive_root = client
         make_stream_with_birds_and_annotations(
             archive_root, "2025", "01", "14", "stream_empty_annotated", ["sparrow"], {}
@@ -638,7 +638,12 @@ class TestAdjacentEndpoint:
         resp = c.get("/adjacent?year=2025&month=01&day=15&stream=stream_current")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["previous"] is None
+        assert data["previous"] == {
+            "year": "2025",
+            "month": "01",
+            "day": "14",
+            "stream": "stream_empty_annotated",
+        }
         assert data["next"] == {
             "year": "2025",
             "month": "01",

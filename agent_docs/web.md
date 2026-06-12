@@ -15,7 +15,8 @@ cannot select both simultaneously.
 The annotation filter has two options that reflect the state of manual annotation
 work on a stream:
 - "Exclude annotated" — omits streams where annotation work has been done
-- "Include false positives" — shows streams reviewed and confirmed as false positives
+- "Exclude false positives" — hides streams reviewed and confirmed as false positives
+  (default; selected on load)
 
 When viewing an archived stream, if manual annotations exist for that stream, they
 take precedence: the bird species filter sources its options from manual annotations
@@ -24,18 +25,29 @@ separately (dimmed auto detections alongside highlighted manual annotations on
 desktop; stacked vertically on mobile). This precedence ensures annotated streams
 show only the manually-verified bird species to the user.
 
+In the playback view, annotation filters are conditionally shown based on stream
+state: "Exclude false positives" displays only when the current stream is NOT a
+false positive, and "Exclude annotated" displays only when the current stream has
+no manual annotations. The calendar view always shows both options.
+
 ## Manual Annotation State
 The `manual_annotations` field in stream metadata carries specific meaning:
 - `null` — no annotation work has been done on this stream
 - `{}` (empty object) — the stream was reviewed and confirmed as a false positive
   (a bird was detected by the model but no real bird was present)
 
-This distinction drives the `include_false_positives` API filter: only streams with
-`manual_annotations` equal to `{}` are returned when that filter is active.
+This distinction drives the `exclude_false_positives` API filter: only streams with
+`manual_annotations` not equal to `{}` are returned when that filter is active.
+
+## Filter Persistence
+Filter state persists in the URL query string (`birds`, `annotation` keys) across
+page refreshes and navigation. Calendar year/month are also tracked in the URL to
+maintain position when filters change. The calendar view includes a Reset button
+(disabled when filters are already at default) to clear all filters at once.
 
 ## Bird Type Slugs
-The web layer maps slugs to human-readable display names. Slugs are used when communicating with the
-API; display names are only used for rendering.
+The web layer maps slugs to human-readable display names. Slugs communicate with
+the API; display names are only used for rendering.
 
 ## Development Rules
 Never run npm directly on the host machine. All development happens inside Docker.

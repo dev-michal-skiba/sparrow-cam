@@ -1,5 +1,6 @@
 <template>
   <div class="bird-filter">
+    <button v-if="showReset" class="filter-btn reset-btn" :class="{ 'reset-btn--inactive': isDefaultFilter }" :disabled="isDefaultFilter" @click="resetFilters">Reset</button>
     <button
       v-for="bird in visibleBirdTypes"
       :key="bird"
@@ -25,20 +26,22 @@
 import { computed, watch } from 'vue'
 import { BIRD_TYPES, BIRD_SLUGS, useBirdFilter } from '../composables/useBirdFilter'
 import { ANNOTATION_FILTERS, useAnnotationsFilter, type AnnotationFilter } from '../composables/useAnnotationsFilter'
+import { useFilterQuery } from '../composables/useFilterQuery'
 
-const props = defineProps<{ availableBirds?: string[]; availableAnnotationFilters?: string[] }>()
+const props = defineProps<{ availableBirds?: string[]; availableAnnotationFilters?: string[]; showReset?: boolean }>()
 
 const { selectedBirds, toggleBird } = useBirdFilter()
 const { selectedAnnotationFilter, toggleAnnotationFilter } = useAnnotationsFilter()
-
-const visibleBirdTypes = computed(() => {
-  if (!props.availableBirds) return BIRD_TYPES
-  return BIRD_TYPES.filter((bird) => props.availableBirds!.includes(BIRD_SLUGS[bird]))
-})
+const { isDefaultFilter, resetFilters } = useFilterQuery()
 
 const visibleAnnotationFilters = computed<AnnotationFilter[]>(() => {
   if (!props.availableAnnotationFilters) return [...ANNOTATION_FILTERS]
   return ANNOTATION_FILTERS.filter((f) => props.availableAnnotationFilters!.includes(f))
+})
+
+const visibleBirdTypes = computed(() => {
+  if (!props.availableBirds) return BIRD_TYPES
+  return BIRD_TYPES.filter((bird) => props.availableBirds!.includes(BIRD_SLUGS[bird]))
 })
 
 watch(
@@ -49,16 +52,6 @@ watch(
       if (!slugs.includes(BIRD_SLUGS[bird])) {
         toggleBird(bird)
       }
-    }
-  },
-)
-
-watch(
-  () => props.availableAnnotationFilters,
-  (filters) => {
-    if (!filters) return
-    if (selectedAnnotationFilter.value && !filters.includes(selectedAnnotationFilter.value)) {
-      toggleAnnotationFilter(selectedAnnotationFilter.value)
     }
   },
 )
@@ -99,5 +92,27 @@ watch(
   border-color: var(--secondary-color);
   color: var(--secondary-color);
   opacity: 1;
+}
+
+.reset-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: var(--primary-color);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.reset-btn:not(.reset-btn--inactive):hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.reset-btn--inactive,
+.reset-btn--inactive:hover {
+  opacity: 0.2;
+  cursor: default;
+  background: none;
+  border-color: rgba(255, 255, 255, 0.2);
+  font-weight: normal;
 }
 </style>

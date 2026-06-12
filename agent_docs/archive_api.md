@@ -9,12 +9,13 @@ HTTP API for querying archived streams by date range and managing manual annotat
 - Adjacent endpoint does not filter the middle stream — current recording always
   navigable regardless of active filter; only previous/next are filtered.
 - Annotation filters are mutually exclusive — `exclude_annotated` and
-  `include_false_positives` cannot both be set; returns 400.
+  `exclude_false_positives` cannot both be set; returns 400.
 - PATCH /meta preserves detections — only `manual_annotations` is replaced;
   existing detection data is never touched.
 - Bird enumeration prefers manual annotations — when querying birds from a
   stream, `manual_annotations` takes precedence over `detections` if present.
 
 ## Bird Type Slugs
-Bird types are slugs throughout. Manual annotations enforce the valid slug set via an enum; auto-detection
-slugs are trusted as correct since the processor guarantees them.
+Bird types are slugs throughout. Manual annotations enforce the valid slug set via
+an enum; auto-detection slugs are trusted as correct since the processor guarantees
+them.

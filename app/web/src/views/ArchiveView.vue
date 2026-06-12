@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <ArchiveBirdFilter />
+    <ArchiveBirdFilter show-reset />
     <ArchiveCalendar />
   </div>
 </template>

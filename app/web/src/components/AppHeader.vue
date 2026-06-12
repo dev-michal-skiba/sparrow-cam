@@ -5,13 +5,27 @@
       <span class="title">SparrowCam</span>
     </RouterLink>
     <nav class="nav">
-      <RouterLink to="/archive" class="nav-link">Archive</RouterLink>
+      <RouterLink :to="archiveTo" class="nav-link">Archive</RouterLink>
     </nav>
   </header>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+import { useFilterQuery } from '../composables/useFilterQuery'
+
+const route = useRoute()
+const { filterQuery } = useFilterQuery()
+
+const archiveTo = computed(() => {
+  const year = route.params.year || route.query.year
+  const month = route.params.month || route.query.month
+  const query: Record<string, string> = { ...filterQuery.value as Record<string, string> }
+  if (year) query.year = String(year)
+  if (month) query.month = String(month)
+  return { path: '/archive', query }
+})
 </script>
 
 <style scoped>

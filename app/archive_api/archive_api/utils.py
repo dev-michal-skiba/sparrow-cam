@@ -59,14 +59,14 @@ def parse_bool_filter(value: str | None) -> bool:
 
 
 def parse_annotations_filter(
-    include_false_positives_param: str | None,
+    exclude_false_positives_param: str | None,
     exclude_annotated_param: str | None,
 ) -> tuple[bool, bool, dict | None]:
-    include_false_positives = parse_bool_filter(include_false_positives_param)
+    exclude_false_positives = parse_bool_filter(exclude_false_positives_param)
     exclude_annotated = parse_bool_filter(exclude_annotated_param)
-    if include_false_positives and exclude_annotated:
-        return False, False, {"error": "include_false_positives and exclude_annotated cannot both be set"}
-    return include_false_positives, exclude_annotated, None
+    if exclude_false_positives and exclude_annotated:
+        return False, False, {"error": "exclude_false_positives and exclude_annotated cannot both be set"}
+    return exclude_false_positives, exclude_annotated, None
 
 
 def get_stream_manual_annotations(stream_path: Path) -> dict | None:
@@ -81,15 +81,15 @@ def get_stream_manual_annotations(stream_path: Path) -> dict | None:
 
 def stream_matches_annotations_filter(
     stream_path: Path,
-    include_false_positives: bool,
+    exclude_false_positives: bool,
     exclude_annotated: bool,
 ) -> bool:
-    if include_false_positives and not exclude_annotated:
+    if not exclude_false_positives and not exclude_annotated:
         return True
     manual_annotations = get_stream_manual_annotations(stream_path)
     if exclude_annotated and manual_annotations is not None:
         return False
-    if not include_false_positives and manual_annotations == {}:
+    if exclude_false_positives and manual_annotations == {}:
         return False
     return True
 
