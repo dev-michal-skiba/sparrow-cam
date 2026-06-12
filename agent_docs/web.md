@@ -33,6 +33,10 @@ The `manual_annotations` field in stream metadata carries specific meaning:
 This distinction drives the `include_false_positives` API filter: only streams with
 `manual_annotations` equal to `{}` are returned when that filter is active.
 
+## Bird Type Slugs
+The web layer maps slugs to human-readable display names. Slugs are used when communicating with the
+API; display names are only used for rendering.
+
 ## Development Rules
 Never run npm directly on the host machine. All development happens inside Docker.
 To add or change dependencies, edit the package file and rebuild the Docker image —

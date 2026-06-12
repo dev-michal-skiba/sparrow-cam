@@ -6,6 +6,7 @@ from processor.bird_detector import (
     DEFAULT_DETECTION_PARAMS,
     DEFAULT_MODEL_PATH,
     GREAT_TIT_CLASS_ID,
+    HOUSE_SPARROW_CLASS_ID,
     PIGEON_CLASS_ID,
     BirdDetector,
 )
@@ -267,6 +268,17 @@ class TestBirdDetector:
             result = detector.detect_boxes(frame, class_thresholds={GREAT_TIT_CLASS_ID: 0.8, PIGEON_CLASS_ID: 0.9})
 
             assert result == []
+
+    def test_class_name_returns_slug_for_known_ids(self, mock_detector):
+        detector, _ = mock_detector
+        assert detector.class_name(GREAT_TIT_CLASS_ID) == "great_tit"
+        assert detector.class_name(HOUSE_SPARROW_CLASS_ID) == "house_sparrow"
+        assert detector.class_name(PIGEON_CLASS_ID) == "pigeon"
+
+    def test_class_name_raises_for_unknown_id(self, mock_detector):
+        detector, _ = mock_detector
+        with pytest.raises(ValueError, match="Unknown class ID: 99"):
+            detector.class_name(99)
 
     def test_detect_boxes_with_class_thresholds_keeps_box_above_threshold(self):
         """Test that detect_boxes keeps boxes at or above their per-class threshold."""

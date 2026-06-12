@@ -14,3 +14,7 @@ HTTP API for querying archived streams by date range and managing manual annotat
   existing detection data is never touched.
 - Bird enumeration prefers manual annotations — when querying birds from a
   stream, `manual_annotations` takes precedence over `detections` if present.
+
+## Bird Type Slugs
+Bird types are slugs throughout. Manual annotations enforce the valid slug set via an enum; auto-detection
+slugs are trusted as correct since the processor guarantees them.

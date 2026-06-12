@@ -13,7 +13,14 @@ DEFAULT_MODEL_PATH = str(Path(__file__).parent / "model.pt")
 
 # Class IDs in the fine-tuned model
 GREAT_TIT_CLASS_ID = 0
+HOUSE_SPARROW_CLASS_ID = 1
 PIGEON_CLASS_ID = 2
+
+CLASS_ID_TO_SLUG: dict[int, str] = {
+    GREAT_TIT_CLASS_ID: "great_tit",
+    HOUSE_SPARROW_CLASS_ID: "house_sparrow",
+    PIGEON_CLASS_ID: "pigeon",
+}
 
 DEFAULT_DETECTION_PARAMS = {
     "conf": 0.25,
@@ -61,5 +68,7 @@ class BirdDetector:
         return boxes
 
     def class_name(self, class_id: int) -> str:
-        """Return the human-readable class name for a given class ID."""
-        return str(self.model.names.get(class_id, class_id))
+        """Return the slug for a given class ID, raising ValueError for unknown IDs."""
+        if class_id not in CLASS_ID_TO_SLUG:
+            raise ValueError(f"Unknown class ID: {class_id}")
+        return CLASS_ID_TO_SLUG[class_id]

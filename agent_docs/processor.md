@@ -24,3 +24,7 @@ the live playlist is not lost.
 ## Detection Metadata Format
 Shared contract with archive_api and web:
 {"version": 1, "detections": {"segment.ts": [{"class": "...", "confidence": 0.87, "roi": {...}}]}}
+
+## Bird Type Slugs
+The processor owns the authoritative mapping from model integer class IDs to bird type slugs. All
+written annotation data contains slugs — raw class IDs never leave the processor.

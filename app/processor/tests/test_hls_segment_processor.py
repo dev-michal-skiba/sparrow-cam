@@ -98,7 +98,7 @@ def setup_video_capture(monkeypatch):
 def mock_bird_detector(monkeypatch):
     mock_detector = MagicMock()
     mock_detector.detect_boxes.return_value = []
-    mock_detector.class_name.return_value = "MockBird"
+    mock_detector.class_name.return_value = "great_tit"
     monkeypatch.setattr("processor.hls_segment_processor.BirdDetector", lambda: mock_detector)
     return mock_detector
 
@@ -209,12 +209,12 @@ class TestHLSSegmentProcessor:
         ):
             """Test that process_segment detects birds and annotates correctly."""
             expected_detections = (
-                [{"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}]
+                [{"class": "great_tit", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}]
                 if detect_return_value
                 else []
             )
             mock_bird_detector.detect_boxes.return_value = annotate_detections
-            mock_bird_detector.class_name.return_value = "MockBird"
+            mock_bird_detector.class_name.return_value = "great_tit"
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -277,14 +277,14 @@ class TestHLSSegmentProcessor:
             capture = setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             # Bird detected on first frame (frame 0)
             mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]]
-            mock_bird_detector.class_name.return_value = "MockBird"
+            mock_bird_detector.class_name.return_value = "great_tit"
 
             result = hls_processor.process_segment("/tmp/segment_005.ts", "segment_005.ts")
 
             # Should only call detect_boxes once (early exit after finding bird)
             assert mock_bird_detector.detect_boxes.call_count == 1
             expected_detections = [
-                {"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+                {"class": "great_tit", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
             ]
             mock_bird_annotator.annotate.assert_called_once_with("segment_005.ts", expected_detections)
             assert result is True
@@ -324,7 +324,7 @@ class TestHLSSegmentProcessor:
         ):
             """Test that process_segment passes detection details to the archiver."""
             mock_bird_detector.detect_boxes.side_effect = [[_MOCK_BOX]]
-            mock_bird_detector.class_name.return_value = "Pigeon"
+            mock_bird_detector.class_name.return_value = "pigeon"
             setup_video_capture(opened=True, read_return=(True, no_bird_frame), total_frames=30)
             processor = HLSSegmentProcessor()
 
@@ -332,7 +332,7 @@ class TestHLSSegmentProcessor:
 
             mock_stream_archiver.record_detections.assert_called_once_with(
                 "segment_001.ts",
-                [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+                [{"class": "pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
             )
 
         def test_process_segment_records_empty_detections_when_no_bird(
@@ -641,7 +641,7 @@ class TestHLSSegmentProcessor:
             assert mock_bird_detector.detect_boxes.call_count > 0
             assert mock_bird_annotator.annotate.call_count == num_segments
             expected_detections = [
-                {"class": "MockBird", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+                {"class": "great_tit", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
             ]
             mock_bird_annotator.annotate.assert_any_call("segment_000.ts", expected_detections)
 
