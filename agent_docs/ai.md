@@ -14,6 +14,12 @@ Provides Claude Code skills and subagent definitions tailored to this project's 
 4. Pause for human review
 5. After approval, run verify, update-docs, and e2e in parallel
 
+## plan-feature Skill
+
+Generates a Notion task ready to paste directly into Notion from the current conversation
+context. Reads what's being discussed, identifies the target package, and outputs a task
+with title, optional description, and acceptance criteria in the required format.
+
 ## update-docs Subagent
 
 Updates agent_docs context files after a feature lands. Only triggers on structural

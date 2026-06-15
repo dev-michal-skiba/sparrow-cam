@@ -24,13 +24,7 @@ Implement a feature based on a Notion task page.
   - **BLOCKING**: If any package is not listed in `CLAUDE.md`, stop immediately and report: `Package '<name>' is not listed in CLAUDE.md`
 - Read all package context files to understand architecture and existing patterns
 
-### 3. [Optional] Plan Changes
-
-- The user decides before invoking this skill whether to use plan mode (complex features) or proceed directly (simple changes)
-- If you're in plan mode: Follow standard Claude Code plan mode workflow before implementation step
-- If you're in normal mode: Skip to the implementation step
-
-### 4. Implement
+### 3. Implement
 
 - Make changes to satisfy each acceptance criterion
 - Follow existing code style and patterns in the package
@@ -38,14 +32,14 @@ Implement a feature based on a Notion task page.
 - Keep changes minimal and focused on the task
 - DO NOT implement or fix any tests, lint and formatting issues
 
-### 5. Human Review
+### 4. Human Review
 
 - Stop and present a summary of all changes made, organized by acceptance criterion
 - Ask the user to review the implementation and provide feedback or approval
 - If the user requests changes, implement them and return to the top of this step
 - Only proceed to the next step once the user explicitly approves
 
-### 6. Verify, Update Documentation & E2E
+### 5. Verify, Update Documentation & E2E
 
 Use the Agent tool to run subagents **in parallel** — one `verify`, one `update-docs`, and one `e2e` per package:
 - For each package: a `verify` subagent targeting that package
