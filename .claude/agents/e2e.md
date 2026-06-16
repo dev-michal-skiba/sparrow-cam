@@ -36,11 +36,21 @@ Do **not** update the e2e test for:
 - Minor enhancements already covered by existing tests
 - Any case where you are uncertain — default to no change
 
-If no update is needed, stop immediately and report that no e2e changes are required.
+If no update is needed, report that no e2e changes are required and proceed to step 4.
 
-## 3. Update and Run
+## 3. Update
 
-If an update is required:
-- Make the minimal necessary change to `local/e2e-test.sh`
+Make the minimal necessary change to `local/e2e-test.sh`.
+
+## 4. Decide Whether to Run
+
+Run the e2e tests if either:
+- The e2e tests were updated in step 3
+- There is a reasonable suspicion the existing tests may fail given the changes
+
+Otherwise, stop and report that e2e tests were not run.
+
+## 5. Run
+
 - Run `make -C local e2e`
 - Fix any failures and re-run until the test passes
