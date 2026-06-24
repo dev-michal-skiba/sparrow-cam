@@ -81,6 +81,7 @@
           Environment="HOME=/opt/sparrow_cam_app"
           Environment="PYENV_ROOT=/opt/sparrow_cam_app/.pyenv"
           Environment="PYTHONUNBUFFERED=1"
+          Environment="YOLO_MODEL_PATH=yolo26n_ncnn_model"
           ExecStart=/opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_processor/bin/python -m processor
           Restart=always
           RestartSec=10

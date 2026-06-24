@@ -2,10 +2,14 @@
 - Source: app/processor/processor/ | Tests: app/processor/tests/
 - Purpose: per-segment bird detection, annotation, optional archival
 
-## Per-Class Thresholds
-The minimum across all class thresholds is used for the initial YOLO call, then
-results are filtered per-class afterward. This prevents missed detections when
-one species has a high threshold while another has a low one.
+## Model Strategy
+Using yolo26n model with COCO class 14 for bird. Detects generic birds across full frame.
+For Raspberry Pi, NCNN export can be built locally via scripts/export_ncnn.py;
+deployment via YOLO_MODEL_PATH env var.
+
+## Detection Parameters
+Detection uses class confidence threshold from preset JSON. Per-class thresholds remain
+supported for future species-specific models. Image size standardized to 640x640.
 
 ## Archive Extension
 When a bird is detected in the overlap zone near the previous archive's window,
@@ -23,8 +27,8 @@ the live playlist is not lost.
 
 ## Detection Metadata Format
 Shared contract with archive_api and web:
-{"version": 1, "detections": {"segment.ts": [{"class": "...", "confidence": 0.87, "roi": {...}}]}}
+{"version": 1, "detections": {"segment.ts": [{"class": "bird", "confidence": 0.87, "roi": {...}}]}}
 
 ## Bird Type Slugs
-The processor owns the authoritative mapping from model integer class IDs to bird type slugs. All
-written annotation data contains slugs — raw class IDs never leave the processor.
+Currently maps COCO bird class to "bird" slug. Processor owns authoritative slug mapping.
+All written annotation data contains slugs — raw class IDs never leave the processor.

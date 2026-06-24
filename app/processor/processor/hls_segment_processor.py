@@ -53,12 +53,8 @@ class HLSSegmentProcessor:
         # Load detection preset
         preset = load_detection_preset()
         self.detection_params = preset["params"]
-        self.detection_regions = preset["regions"]
         self.class_thresholds: dict[int, float] = {int(k): v for k, v in preset.get("class_thresholds", {}).items()}
-        logger.info(
-            f"Loaded preset: {len(self.detection_regions)} regions, "
-            f"params={self.detection_params}, class_thresholds={self.class_thresholds}"
-        )
+        logger.info(f"Loaded preset: params={self.detection_params}, class_thresholds={self.class_thresholds}")
 
     def process_segment(self, input_segment_path, segment_name):
         """Process a single segment: detect bird across multiple frames and log result.
@@ -93,23 +89,19 @@ class HLSSegmentProcessor:
                     logger.error(f"{segment_name}: Failed to read frame {frame_index}")
                     continue
 
-                for x1, y1, x2, y2 in self.detection_regions:
-                    cropped = frame[y1:y2, x1:x2]
-                    boxes = self.bird_detector.detect_boxes(
-                        cropped, class_thresholds=self.class_thresholds, **self.detection_params
-                    )
-                    if boxes:
-                        bird_detected = True
-                        for box in boxes:
-                            detections.append(
-                                {
-                                    "class": self.bird_detector.class_name(box.class_id),
-                                    "confidence": round(box.confidence, 4),
-                                    "roi": {"x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2},
-                                }
-                            )
-                        # Early exit once bird is detected
-                        break
+                boxes = self.bird_detector.detect_boxes(
+                    frame, class_thresholds=self.class_thresholds, **self.detection_params
+                )
+                if boxes:
+                    bird_detected = True
+                    for box in boxes:
+                        detections.append(
+                            {
+                                "class": self.bird_detector.class_name(box.class_id),
+                                "confidence": round(box.confidence, 4),
+                                "roi": {"x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2},
+                            }
+                        )
 
                 if bird_detected:
                     break

@@ -37,14 +37,6 @@ def preset_detection_parameters():
 
 
 @pytest.fixture
-def cropped_bird_frame(bird_frame):
-    """Return bird frame cropped to first detection region from preset."""
-    preset = load_detection_preset()
-    x1, y1, x2, y2 = preset["regions"][0]
-    return bird_frame[y1:y2, x1:x2]
-
-
-@pytest.fixture
 def caplog(caplog):
     """Configure caplog for all tests."""
     caplog.set_level(logging.INFO)

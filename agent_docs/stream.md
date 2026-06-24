@@ -12,13 +12,6 @@ Captures a USB webcam feed and produces an HLS stream for the web server to serv
 
 Crop is configured via `app/stream/stream.conf`, a bash-sourceable key=value file:
 
-```
-ROI_LEFT=25
-ROI_TOP=25
-ROI_RIGHT=75
-ROI_BOTTOM=75
-```
-
 Values are percentages (0–100) of the input frame. The script converts them to an ffmpeg `crop` expression at startup and on every reload.
 
 Invalid values (RIGHT ≤ LEFT, BOTTOM ≤ TOP, or any value outside 0–100) are logged and the crop is skipped — the full frame is streamed instead.

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from processor.bird_detector import GREAT_TIT_CLASS_ID, PIGEON_CLASS_ID
+from processor.bird_detector import BIRD_CLASS_ID
 from processor.hls_segment_processor import (
     HLSSegmentProcessor,
     _get_detection_frame_indices,
@@ -365,7 +365,7 @@ class TestHLSSegmentProcessor:
             processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
             call_kwargs = mock_bird_detector.detect_boxes.call_args
-            assert call_kwargs.kwargs["class_thresholds"] == {GREAT_TIT_CLASS_ID: 0.82, PIGEON_CLASS_ID: 0.9}
+            assert call_kwargs.kwargs["class_thresholds"] == {BIRD_CLASS_ID: 0.01}
 
     class TestDelayedArchive:
         """Tests for delayed archive behavior (archive triggers segments_after segments after detection)."""

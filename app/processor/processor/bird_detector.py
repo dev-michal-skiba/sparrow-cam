@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -9,22 +10,19 @@ from processor.types import DetectionBox
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_PATH = str(Path(__file__).parent / "model.pt")
+# Model path: env var for deployment flexibility, default to standard PT model for local development
+_model_filename = os.getenv("YOLO_MODEL_PATH", "yolo26n.pt")
+DEFAULT_MODEL_PATH = str(Path(__file__).parent / "models" / _model_filename)
 
-# Class IDs in the fine-tuned model
-GREAT_TIT_CLASS_ID = 0
-HOUSE_SPARROW_CLASS_ID = 1
-PIGEON_CLASS_ID = 2
+BIRD_CLASS_ID = 14  # COCO class ID for bird
 
 CLASS_ID_TO_SLUG: dict[int, str] = {
-    GREAT_TIT_CLASS_ID: "great_tit",
-    HOUSE_SPARROW_CLASS_ID: "house_sparrow",
-    PIGEON_CLASS_ID: "pigeon",
+    BIRD_CLASS_ID: "bird",
 }
 
 DEFAULT_DETECTION_PARAMS = {
     "conf": 0.25,
-    "imgsz": 480,
+    "imgsz": 640,
     "iou": 0.7,
 }
 
@@ -36,8 +34,9 @@ class BirdDetector:
         if model_path is None:
             model_path = DEFAULT_MODEL_PATH
         self.model = YOLO(model_path)
-        self.model.fuse()
-        self._classes = classes if classes is not None else [GREAT_TIT_CLASS_ID, PIGEON_CLASS_ID]
+        if model_path.endswith(".pt"):
+            self.model.fuse()
+        self._classes = classes if classes is not None else [BIRD_CLASS_ID]
 
     def detect(self, frame, **kwargs) -> bool:
         """Return True if at least one bird is detected in the frame."""

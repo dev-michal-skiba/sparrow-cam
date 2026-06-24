@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop processor-format processor-check processor-test e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
+.PHONY: help build start stream stop processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
 
 help:
 	@echo "SparrowCam Local Development"
@@ -9,10 +9,13 @@ help:
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
 	@echo "  make stream                - Stream sample.mp4 continuously (loops forever)"
 	@echo "  make stop                  - Stop the application and clean stream and annotation files"
+	@echo "  processor-build            - Build the processor Docker image"
 	@echo "  make processor-format      - Format processor code with black and ruff"
 	@echo "  make processor-check       - Run lint, type and security checks for processor"
 	@echo "  make processor-test        - Run unit tests for processor package"
 	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
+	@echo "  make processor-export-ncnn - Export YOLO model to NCNN format (downloads if missing)"
+	@echo "    MODEL=yolo26n.pt         - Model filename in models/ directory"
 	@echo "  make e2e                   - Run end-to-end integration tests"
 	@echo "  make lab-build             - Build the lab Docker image"
 	@echo "  make lab-run               - Launch lab GUI (files auto-update)"
@@ -62,6 +65,9 @@ stream:
 stop:
 	docker compose down -v
 
+processor-build:
+	docker compose build processor
+
 processor-format:
 	docker compose run --rm --no-deps processor bash -lc "\
 		black processor tests && \
@@ -80,6 +86,9 @@ processor-check:
 
 processor-test:
 	docker compose run --rm --no-deps processor pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
+
+processor-export-ncnn:
+	docker compose run --rm --no-deps processor python -m processor.scripts.export_ncnn $(MODEL)
 
 e2e:
 	@bash e2e-test.sh
