@@ -194,12 +194,28 @@ class StreamArchiver:
         if not validation_result.is_valid:
             logger.error(validation_result.error_message)
             return None
-        # Copy stream files to archive directory
-        copy_result = self.copy_stream(validation_result.playlist_filename, prefix)
-        # Get playlist data
-        playlist_data = self.get_playlist_data(copy_result, limit, end_segment)
-        # Clean archive directory
-        self.clean_archive(copy_result.destination_path, playlist_data)
+
+        # Parse live playlist and apply limit/end_segment filter before any .ts file I/O
+        playlist_data = self.parse_playlist(STREAM_PATH / validation_result.playlist_filename)
+        segments_data = playlist_data.segments_data
+        if end_segment is not None:
+            end_idx = next((i for i, s in enumerate(segments_data) if s.name == end_segment), None)
+            if end_idx is not None:
+                if limit is not None:
+                    start_idx = max(0, end_idx - limit + 1)
+                    segments_data = segments_data[start_idx : end_idx + 1]
+                else:
+                    segments_data = segments_data[: end_idx + 1]
+        elif limit is not None and limit < len(segments_data):
+            segments_data = segments_data[-limit:]
+        playlist_data = PlaylistData(
+            filename=playlist_data.filename,
+            header_lines=playlist_data.header_lines,
+            segments_data=segments_data,
+        )
+
+        copy_result = self.copy_stream(playlist_data, prefix)
+        self.write_playlist(copy_result.destination_path, playlist_data)
         self.write_meta(copy_result.destination_path, playlist_data)
 
         logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
@@ -240,11 +256,11 @@ class StreamArchiver:
             playlist_filename=playlist_files[0].name,
         )
 
-    def copy_stream(self, playlist_filename: str, prefix: str) -> CopyResult:
-        """Create archive directory with timestamped UUID name and copy all streamfiles from HLS directory.
+    def copy_stream(self, playlist_data: PlaylistData, prefix: str) -> CopyResult:
+        """Create archive directory with timestamped UUID name and copy relevant stream files.
 
         Args:
-            playlist_filename: Name of the playlist file to copy.
+            playlist_data: Filtered PlaylistData whose segments will be copied.
             prefix: Prefix for the archive directory name (e.g., "auto" or "manual").
 
         Returns:
@@ -267,15 +283,15 @@ class StreamArchiver:
             current = current.parent
 
         # Copy playlist file to archive directory
-        shutil.copy2(STREAM_PATH / playlist_filename, destination_path / playlist_filename)
+        shutil.copy2(STREAM_PATH / playlist_data.filename, destination_path / playlist_data.filename)
 
-        # Copy all segments files to archive directory
-        for file in STREAM_PATH.glob("*.ts"):
-            shutil.copy2(file, destination_path / file.name)
+        # Copy only the segment files listed in playlist_data
+        for segment in playlist_data.segments_data:
+            shutil.copy2(STREAM_PATH / segment.name, destination_path / segment.name)
 
         return CopyResult(
             destination_path=destination_path,
-            playlist_filename=playlist_filename,
+            playlist_filename=playlist_data.filename,
         )
 
     def parse_playlist(self, playlist_path: Path) -> PlaylistData:
@@ -314,41 +330,6 @@ class StreamArchiver:
         return PlaylistData(
             filename=playlist_path.name,
             header_lines=header_lines,
-            segments_data=segments_data,
-        )
-
-    def get_playlist_data(
-        self, copy_result: CopyResult, limit: int | None, end_segment: str | None = None
-    ) -> PlaylistData:
-        """Get data from playlist file.
-
-        Args:
-            copy_result: CopyResult object.
-            limit: Maximum number of segments to keep. If None, all segments are kept.
-            end_segment: If provided, select segments ending with this segment name.
-
-        Returns:
-            PlaylistData object.
-        """
-        playlist_data = self.parse_playlist(copy_result.destination_path / copy_result.playlist_filename)
-        segments_data = playlist_data.segments_data
-
-        # Apply segment selection based on end_segment or limit
-        if end_segment is not None:
-            # Find index of end_segment and slice to get `limit` segments ending with it
-            end_idx = next((i for i, s in enumerate(segments_data) if s.name == end_segment), None)
-            if end_idx is not None:
-                if limit is not None:
-                    start_idx = max(0, end_idx - limit + 1)
-                    segments_data = segments_data[start_idx : end_idx + 1]
-                else:
-                    segments_data = segments_data[: end_idx + 1]
-        elif limit is not None and limit < len(segments_data):
-            segments_data = segments_data[-limit:]
-
-        return PlaylistData(
-            filename=playlist_data.filename,
-            header_lines=playlist_data.header_lines,
             segments_data=segments_data,
         )
 
@@ -418,7 +399,7 @@ class StreamArchiver:
             header_lines=existing_playlist.header_lines,
             segments_data=existing_playlist.segments_data + new_segments,
         )
-        self.clean_archive(archive_path, updated_playlist)
+        self.write_playlist(archive_path, updated_playlist)
         self.write_meta(archive_path, updated_playlist)
 
         logger.info(f"Extended archive {archive_path} with {len(new_segments)} new segment(s)")
@@ -453,30 +434,21 @@ class StreamArchiver:
         with open(meta_path, "w") as f:
             json.dump(meta, f, indent=2)
 
-    def clean_archive(self, destination_path: str, playlist_data: PlaylistData):
-        """Remove excess files from archive directory and update playlist file.
+    def write_playlist(self, destination_path: str | Path, playlist_data: PlaylistData) -> None:
+        """Write the archive playlist file with only the archived segments.
 
         Args:
             destination_path: Path to the archive directory.
-            playlist_data: PlaylistData object.
+            playlist_data: PlaylistData object describing the archived segments.
         """
-
-        # Get list of segment files
-        segment_files = [segment.name for segment in playlist_data.segments_data]
-        # Remove excess segments from archive directory
-        destination = Path(destination_path)
-        for file in destination.iterdir():
-            if file.is_file() and file.name not in segment_files:
-                file.unlink()
-        # Update playlist file
-        playlist_lines = playlist_data.header_lines
+        playlist_lines = playlist_data.header_lines[:]
         for segment_data in playlist_data.segments_data:
             for metadata in segment_data.metadata:
                 playlist_lines.append(metadata)
             playlist_lines.append(segment_data.name)
         playlist_lines.append("#EXT-X-ENDLIST")
         playlist_lines.append("")
-        with open(destination_path / playlist_data.filename, "w") as f:
+        with open(Path(destination_path) / playlist_data.filename, "w") as f:
             f.write("\n".join(playlist_lines))
 
 

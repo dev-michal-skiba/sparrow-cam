@@ -11,6 +11,13 @@ deployment via YOLO_MODEL_PATH env var.
 Detection uses class confidence threshold from preset JSON. Per-class thresholds remain
 supported for future species-specific models. Image size standardized to 640x640.
 
+## Archive Race Condition Prevention
+When archiving, the live playlist is parsed and filtered before any segment files
+are copied. This ordering prevents a race condition where the HLS stream service
+could delete segments from the live stream after we identify them but before we copy
+them to the archive directory. Always filter the playlist data from the live stream
+first, then copy only the segments in that filtered data.
+
 ## Archive Extension
 When a bird is detected in the overlap zone near the previous archive's window,
 that archive is extended rather than a new one created. This preserves continuity

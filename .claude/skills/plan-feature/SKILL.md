@@ -39,6 +39,7 @@ Rules:
 - Description is optional — include only when the motivation isn't obvious from the title and criteria
 - Each acceptance criterion must be a single, testable, concrete statement
 - No vague criteria like "it works" or "improve performance" — be specific
+- DO NOT add any description or acceptance criteria for unit/e2e tests
 
 ### 3. Output
 

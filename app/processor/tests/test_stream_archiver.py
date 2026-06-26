@@ -5,7 +5,7 @@ import re
 import pytest
 from freezegun import freeze_time
 
-from processor.stream_archiver import CopyResult, PlaylistData, SegmentData, StreamArchiver, parse_limit
+from processor.stream_archiver import PlaylistData, SegmentData, StreamArchiver, parse_limit
 
 
 @pytest.fixture
@@ -300,8 +300,35 @@ class TestStreamArchiver:
         def test_copy_stream_success_manual_prefix(self, stream_path, archive_path):
             """Test successful copying of stream files with manual prefix."""
             archiver = StreamArchiver()
+            playlist_data = PlaylistData(
+                filename="playlist.m3u8",
+                header_lines=[
+                    "#EXTM3U",
+                    "#EXT-X-VERSION:3",
+                    "#EXT-X-MEDIA-SEQUENCE:0",
+                    "#EXT-X-TARGETDURATION:2",
+                ],
+                segments_data=[
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-0.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:1.669,"],
+                        name="segment-1.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:0.667,"],
+                        name="segment-2.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-3.ts",
+                    ),
+                ],
+            )
 
-            result = archiver.copy_stream("playlist.m3u8", prefix="manual")
+            result = archiver.copy_stream(playlist_data, prefix="manual")
 
             # Verify playlist filename
             assert result.playlist_filename == "playlist.m3u8"
@@ -322,7 +349,7 @@ class TestStreamArchiver:
             assert (result.destination_path / "playlist.m3u8").read_text() == (
                 stream_path / "playlist.m3u8"
             ).read_text()
-            # Verify all segment files were copied
+            # Verify only listed segment files were copied
             for i in range(4):
                 segment_file = f"segment-{i}.ts"
                 assert (result.destination_path / segment_file).exists()
@@ -333,8 +360,35 @@ class TestStreamArchiver:
         def test_copy_stream_sets_group_write_permissions(self, stream_path, archive_path):
             """Test that copy_stream sets group write permissions on created directories."""
             archiver = StreamArchiver()
+            playlist_data = PlaylistData(
+                filename="playlist.m3u8",
+                header_lines=[
+                    "#EXTM3U",
+                    "#EXT-X-VERSION:3",
+                    "#EXT-X-MEDIA-SEQUENCE:0",
+                    "#EXT-X-TARGETDURATION:2",
+                ],
+                segments_data=[
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-0.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:1.669,"],
+                        name="segment-1.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:0.667,"],
+                        name="segment-2.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-3.ts",
+                    ),
+                ],
+            )
 
-            result = archiver.copy_stream("playlist.m3u8", prefix="manual")
+            result = archiver.copy_stream(playlist_data, prefix="manual")
 
             # Verify destination directory has group write permissions (0o775 = rwxrwxr-x)
             destination_perms = result.destination_path.stat().st_mode & 0o777
@@ -364,138 +418,46 @@ class TestStreamArchiver:
         def test_copy_stream_success_auto_prefix(self, stream_path, archive_path):
             """Test successful copying of stream files with auto prefix."""
             archiver = StreamArchiver()
+            playlist_data = PlaylistData(
+                filename="playlist.m3u8",
+                header_lines=[
+                    "#EXTM3U",
+                    "#EXT-X-VERSION:3",
+                    "#EXT-X-MEDIA-SEQUENCE:0",
+                    "#EXT-X-TARGETDURATION:2",
+                ],
+                segments_data=[
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-0.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:1.669,"],
+                        name="segment-1.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXTINF:0.667,"],
+                        name="segment-2.ts",
+                    ),
+                    SegmentData(
+                        metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
+                        name="segment-3.ts",
+                    ),
+                ],
+            )
 
-            result = archiver.copy_stream("playlist.m3u8", prefix="auto")
+            result = archiver.copy_stream(playlist_data, prefix="auto")
 
             # Check directory name starts with auto prefix
             assert result.destination_path.name.startswith("auto_2024-12-21T153045Z_")
             # Verify year/month/day directory structure
             assert result.destination_path.parent == archive_path / "2024" / "12" / "21"
 
-    class TestGetPlaylistData:
-        """Test suite for GetPlaylistData method."""
+    class TestWritePlaylist:
+        """Test suite for WritePlaylist method."""
 
-        def test_get_whole_playlist_data(self, archive_path):
-            """Test successful getting of whole playlist data."""
-            archiver = StreamArchiver()
-            copy_result = CopyResult(
-                destination_path=archive_path / "test",
-                playlist_filename="playlist.m3u8",
-            )
-
-            playlist_data = archiver.get_playlist_data(copy_result, limit=None)
-
-            assert playlist_data.filename == "playlist.m3u8"
-            assert playlist_data.header_lines == [
-                "#EXTM3U",
-                "#EXT-X-VERSION:3",
-                "#EXT-X-MEDIA-SEQUENCE:0",
-                "#EXT-X-TARGETDURATION:2",
-            ]
-            assert playlist_data.segments_data == [
-                SegmentData(
-                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
-                    name="segment-0.ts",
-                ),
-                SegmentData(
-                    metadata=["#EXTINF:1.669,"],
-                    name="segment-1.ts",
-                ),
-                SegmentData(
-                    metadata=["#EXTINF:0.667,"],
-                    name="segment-2.ts",
-                ),
-                SegmentData(
-                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
-                    name="segment-3.ts",
-                ),
-            ]
-
-        def test_get_limited_playlist_data(self, archive_path):
-            """Test successful getting of limited playlist data."""
-            archiver = StreamArchiver()
-            copy_result = CopyResult(
-                destination_path=archive_path / "test",
-                playlist_filename="playlist.m3u8",
-            )
-
-            playlist_data = archiver.get_playlist_data(copy_result, limit=2)
-
-            assert playlist_data.filename == "playlist.m3u8"
-            assert playlist_data.header_lines == [
-                "#EXTM3U",
-                "#EXT-X-VERSION:3",
-                "#EXT-X-MEDIA-SEQUENCE:0",
-                "#EXT-X-TARGETDURATION:2",
-            ]
-            assert playlist_data.segments_data == [
-                SegmentData(
-                    metadata=["#EXTINF:0.667,"],
-                    name="segment-2.ts",
-                ),
-                SegmentData(
-                    metadata=["#EXT-X-DISCONTINUITY", "#EXTINF:1.668,"],
-                    name="segment-3.ts",
-                ),
-            ]
-
-        def test_get_playlist_data_with_end_segment(self, archive_path):
-            """Test getting playlist data with end_segment parameter."""
-            archiver = StreamArchiver()
-            copy_result = CopyResult(
-                destination_path=archive_path / "test",
-                playlist_filename="playlist.m3u8",
-            )
-
-            # Get 2 segments ending with segment-2.ts
-            playlist_data = archiver.get_playlist_data(copy_result, limit=2, end_segment="segment-2.ts")
-
-            assert playlist_data.filename == "playlist.m3u8"
-            assert playlist_data.segments_data == [
-                SegmentData(
-                    metadata=["#EXTINF:1.669,"],
-                    name="segment-1.ts",
-                ),
-                SegmentData(
-                    metadata=["#EXTINF:0.667,"],
-                    name="segment-2.ts",
-                ),
-            ]
-
-        def test_get_playlist_data_with_end_segment_no_limit(self, archive_path):
-            """Test getting playlist data with end_segment but no limit."""
-            archiver = StreamArchiver()
-            copy_result = CopyResult(
-                destination_path=archive_path / "test",
-                playlist_filename="playlist.m3u8",
-            )
-
-            # Get all segments up to and including segment-2.ts
-            playlist_data = archiver.get_playlist_data(copy_result, limit=None, end_segment="segment-2.ts")
-
-            assert len(playlist_data.segments_data) == 3
-            assert playlist_data.segments_data[-1].name == "segment-2.ts"
-
-        def test_get_playlist_data_with_end_segment_limit_exceeds_available(self, archive_path):
-            """Test end_segment with limit larger than available segments before it."""
-            archiver = StreamArchiver()
-            copy_result = CopyResult(
-                destination_path=archive_path / "test",
-                playlist_filename="playlist.m3u8",
-            )
-
-            # Request 10 segments ending with segment-1.ts (only 2 available: segment-0 and segment-1)
-            playlist_data = archiver.get_playlist_data(copy_result, limit=10, end_segment="segment-1.ts")
-
-            assert len(playlist_data.segments_data) == 2
-            assert playlist_data.segments_data[0].name == "segment-0.ts"
-            assert playlist_data.segments_data[1].name == "segment-1.ts"
-
-    class TestCleanArchive:
-        """Test suite for CleanArchive method."""
-
-        def test_clean_archive_success(self, archive_path, playlist_file_content):
-            """Test successful cleaning of archive directory."""
+        def test_write_playlist_success(self, archive_path):
+            """Test successful writing of archive playlist file."""
             archiver = StreamArchiver()
             playlist_data = PlaylistData(
                 filename="playlist.m3u8",
@@ -516,18 +478,9 @@ class TestStreamArchiver:
                     ),
                 ],
             )
-            assert (archive_path / "test" / "segment-0.ts").exists() is True
-            assert (archive_path / "test" / "segment-1.ts").exists() is True
-            assert (archive_path / "test" / "segment-2.ts").exists() is True
-            assert (archive_path / "test" / "segment-3.ts").exists() is True
-            assert (archive_path / "test" / "playlist.m3u8").read_text() == playlist_file_content
 
-            archiver.clean_archive(archive_path / "test", playlist_data)
+            archiver.write_playlist(archive_path / "test", playlist_data)
 
-            assert (archive_path / "test" / "segment-0.ts").exists() is False
-            assert (archive_path / "test" / "segment-1.ts").exists() is False
-            assert (archive_path / "test" / "segment-2.ts").exists() is True
-            assert (archive_path / "test" / "segment-3.ts").exists() is True
             assert (archive_path / "test" / "playlist.m3u8").read_text().splitlines() == [
                 "#EXTM3U",
                 "#EXT-X-VERSION:3",
