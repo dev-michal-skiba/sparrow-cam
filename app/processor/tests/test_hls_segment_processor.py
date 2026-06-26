@@ -365,7 +365,7 @@ class TestHLSSegmentProcessor:
             processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
 
             call_kwargs = mock_bird_detector.detect_boxes.call_args
-            assert call_kwargs.kwargs["class_thresholds"] == {BIRD_CLASS_ID: 0.01}
+            assert call_kwargs.kwargs["class_thresholds"] == {BIRD_CLASS_ID: 0.1}
 
     class TestDelayedArchive:
         """Tests for delayed archive behavior (archive triggers segments_after segments after detection)."""
