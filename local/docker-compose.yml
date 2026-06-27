@@ -17,7 +17,7 @@ services:
     volumes:
       - ../app/processor:/app/processor
       - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
-      - ../sample.mp4:/app/sample.mp4:ro
+      - ../samples:/app/samples:ro
       - hls_data:/var/www/html/hls
       - annotations_data:/var/www/html/annotations
 

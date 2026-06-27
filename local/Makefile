@@ -7,7 +7,9 @@ help:
 	@echo "  make build                 - Build the Docker image"
 	@echo "  make start                 - Start the application (nginx on :8080)"
 	@echo "    OPENCV_LOGS=1            - Start with OpenCV debug logging enabled"
-	@echo "  make stream                - Stream sample.mp4 continuously (loops forever)"
+	@echo "  make stream                - Stream a sample video (SAMPLE=sparrow|pigeon|overlapping)"
+	@echo "    SAMPLE=sparrow           - Sample file to stream (required)"
+	@echo "    LOOP=1                   - Stream in loop (default: false)"
 	@echo "  make stop                  - Stop the application and clean stream and annotation files"
 	@echo "  processor-build            - Build the processor Docker image"
 	@echo "  make processor-format      - Format processor code with black and ruff"
@@ -44,10 +46,19 @@ start:
 	@echo "  Web interface: http://localhost:8080"
 
 stream:
+	@if [ -z "$(SAMPLE)" ]; then \
+		echo "Error: SAMPLE is required. Valid values: sparrow, pigeon, overlapping"; \
+		echo "Usage: make stream SAMPLE=sparrow"; \
+		exit 1; \
+	fi
+	@if [ "$(SAMPLE)" != "sparrow" ] && [ "$(SAMPLE)" != "pigeon" ] && [ "$(SAMPLE)" != "overlapping" ]; then \
+		echo "Error: invalid SAMPLE '$(SAMPLE)'. Valid values: sparrow, pigeon, overlapping"; \
+		exit 1; \
+	fi
 	docker compose exec processor ffmpeg \
-		-stream_loop -1 \
+		$(if $(filter 1,$(LOOP)),-stream_loop -1) \
 		-re \
-		-i /app/sample.mp4 \
+		-i /app/samples/$(SAMPLE).mp4 \
 		-c:v libx264 \
 		-preset ultrafast \
 		-g 8 \
