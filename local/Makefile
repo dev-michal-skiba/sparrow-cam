@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
+.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
 
 help:
 	@echo "SparrowCam Local Development"
@@ -76,6 +76,9 @@ stream:
 stop:
 	docker compose down -v
 
+clean-archive:
+	docker compose exec processor sh -c "rm -rf /var/www/html/storage/sparrow_cam/archive/*"
+
 processor-build:
 	docker compose build processor
 
@@ -102,7 +105,7 @@ processor-export-ncnn:
 	docker compose run --rm --no-deps processor python -m processor.scripts.export_ncnn $(MODEL)
 
 e2e:
-	@bash e2e-test.sh
+	@../bin/e2e-test
 
 
 lab-build:
