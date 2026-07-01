@@ -8,7 +8,7 @@ from processor.bird_annotator import BirdAnnotator
 from processor.bird_detector import BirdDetector
 from processor.hls_watchtower import HLSWatchtower
 from processor.stream_archiver import StreamArchiver
-from processor.utils import load_detection_preset
+from processor.utils import is_maintenance_window, load_detection_preset
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,10 @@ class HLSSegmentProcessor:
         hls_watchtower = HLSWatchtower()
         for input_segment_path in hls_watchtower.segments_iterator:
             segment_name = os.path.basename(input_segment_path)
+
+            if is_maintenance_window():
+                continue
+
             start_time = time.time()
 
             bird_detected = self.process_segment(input_segment_path, segment_name)

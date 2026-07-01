@@ -39,3 +39,10 @@ Shared contract with archive_api and web:
 ## Bird Type Slugs
 Currently maps COCO bird class to "bird" slug. Processor owns authoritative slug mapping.
 All written annotation data contains slugs — raw class IDs never leave the processor.
+
+## Maintenance Window
+Between 23:00 (11 PM) and 03:00 (3 AM) local time, the processor skips segment processing
+(detection, annotation, archival are all paused). The segments iterator continues consuming
+stream segments without processing them, so no backlog accumulates. After 03:00, processing
+resumes from the newest available segment. This is environment-gated via MAINTENANCE_WINDOW_ENABLED
+and only applies on Raspberry Pi deployment; local dev/docker does not enable this.
