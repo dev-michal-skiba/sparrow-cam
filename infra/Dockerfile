@@ -15,11 +15,5 @@ WORKDIR /ansible
 # Copy ansible configuration
 COPY ansible/ /ansible/
 
-# Set proper permissions for SSH key
-RUN if [ -f /ansible/ssh_key ]; then \
-        chmod 600 /ansible/ssh_key && \
-        chown ansible:ansible /ansible/ssh_key; \
-    fi
-
 # Switch to ansible user
 USER ansible
