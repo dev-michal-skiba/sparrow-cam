@@ -1,4 +1,4 @@
-.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream run_archive_stream all web_build check_git_state
+.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream setup_cron run_archive_stream cleanup_recordings all web_build check_git_state
 
 help:
 	@echo "Available infrastructure targets:"
@@ -11,9 +11,13 @@ help:
 	@echo "  make setup_archive_api    - Deploy archive API service"
 	@echo "  make setup_stream         - Deploy stream service"
 	@echo "  make setup_web            - Build web app and deploy web server (nginx)"
+	@echo "  make setup_cron           - Deploy cron cleanup service"
 	@echo "  make setup_all            - Deploy all services"
 	@echo "  make archive              - Run archive stream script"
 	@echo "    LIMIT=<number>          - Limit the number of segments to archive (default: 15)"
+	@echo "  make cleanup_recordings   - Manually run recordings cleanup"
+	@echo "    FROM=<YYYY-MM-DD>       - First day to clean up (default: today)"
+	@echo "    TO=<YYYY-MM-DD>        - Last day to clean up (default: FROM, or today)"
 
 build:
 	docker build --tag sparrow_cam_infra ./
@@ -35,6 +39,9 @@ setup_archive_api:
 
 setup_stream:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_stream.yml
+
+setup_cron:
+	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_cron.yml
 
 check_git_state:
 	@branch=$$(git rev-parse --abbrev-ref HEAD); \
@@ -64,8 +71,11 @@ web_build:
 setup_web: check_git_state web_build
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_web.yml
 
-setup_all: setup_users setup_storage setup_processor setup_archive_api setup_stream setup_web
-	@echo "Users, hard drive, processor service, archive API, stream service, and web server deployed successfully"
+setup_all: setup_users setup_storage setup_processor setup_archive_api setup_stream setup_web setup_cron
+	@echo "Users, hard drive, processor service, archive API, stream service, web server, and cron cleanup service deployed successfully"
 
 archive:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml archive.yml $(if $(LIMIT),-e "limit=$(LIMIT)",)
+
+cleanup_recordings:
+	docker-compose run --rm infra ansible-playbook -i inventory.yml cleanup.yml $(if $(FROM),-e "from_date=$(FROM)",) $(if $(TO),-e "to_date=$(TO)",)

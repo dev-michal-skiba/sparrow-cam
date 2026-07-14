@@ -12,6 +12,7 @@ When working on a package, load the corresponding context file for architecture 
 - **Infra** → `agent_docs/infra.md`
 - **Stream** → `agent_docs/stream.md`
 - **AI** → `agent_docs/ai.md`
+- **Cron** → `agent_docs/cron.md`
 
 ---
 

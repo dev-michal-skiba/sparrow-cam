@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check
+.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check cron-build cron-format cron-check cron-test cron-cleanup
 
 help:
 	@echo "SparrowCam Local Development"
@@ -30,6 +30,14 @@ help:
 	@echo "  make archive-api-check     - Run lint, type and security checks for archive API"
 	@echo "  make archive-api-test      - Run unit tests for archive API package"
 	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
+	@echo "  make cron-build            - Build the cron package Docker image"
+	@echo "  make cron-format           - Format cron package with black and ruff"
+	@echo "  make cron-check            - Run lint, type and security checks for cron package"
+	@echo "  make cron-test             - Run unit tests for cron package"
+	@echo "    ARGS=\"..."              - Run with extra pytest flags (e.g. -vv for verbose output)"
+	@echo "  make cron-cleanup          - Manually run the recordings cleanup cron job"
+	@echo "    FROM=<YYYY-MM-DD>        - First day to clean up (default: today)"
+	@echo "    TO=<YYYY-MM-DD>          - Last day to clean up (default: FROM, or today)"
 
 build:
 	docker compose build
@@ -165,3 +173,31 @@ web-format:
 
 web-check:
 	@echo "Web package has no lint/type checks — skipping"
+
+
+cron-build:
+	docker compose build cron
+
+cron-format:
+	docker compose run --rm --no-deps cron bash -lc "\
+		black cron tests && \
+		printf '\033[32mBlack formatting complete\033[0m\n' && \
+		ruff check --fix && \
+		printf '\033[32mRuff formatting complete\033[0m\n'"
+
+cron-check:
+	docker compose run --rm --no-deps cron bash -lc "\
+		ruff check && \
+		printf '\033[32mRuff check passed\033[0m\n' && \
+		PYRIGHT_PYTHON_PATH=\$(which python3) pyright && \
+		printf '\033[32mPyright check passed\033[0m\n' && \
+		bandit -r cron && \
+		printf '\033[32mBandit check passed\033[0m\n'"
+
+cron-test:
+	docker compose run --rm --no-deps cron pytest --cov --cov-report=term --cov-report=term-missing $(ARGS)
+
+cron-cleanup:
+	docker compose run --rm --no-deps cron python -m cron.jobs.cleanup_recordings \
+		$(if $(FROM),--from-date $(FROM),) \
+		$(if $(TO),--to-date $(TO),)

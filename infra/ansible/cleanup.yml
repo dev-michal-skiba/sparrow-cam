@@ -1,0 +1,23 @@
+---
+- name: Run Recordings Cleanup
+  hosts: all
+  become: yes
+  vars:
+    from_date: ""
+    to_date: ""
+
+  tasks:
+    - name: Run cron cleanup_recordings job
+      shell: |
+        PYTHONUNBUFFERED=1 /opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_cron/bin/python -m cron.jobs.cleanup_recordings \
+          {{ '--from-date ' + from_date if from_date else '' }} \
+          {{ '--to-date ' + to_date if to_date else '' }} 2>&1
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: sparrow_cam_app
+      register: cleanup_result
+
+    - name: Show cleanup logs
+      debug:
+        var: cleanup_result.stdout_lines

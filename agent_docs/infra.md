@@ -2,7 +2,7 @@
 
 Ansible playbooks that provision and deploy all SparrowCam services to a
 Raspberry Pi over SSH. Manages users, groups, directory layout, Python
-environments, systemd services, nginx, and external storage mounting.
+environments, systemd services, nginx, cron jobs, and external storage mounting.
 
 ## Deployment Model
 
@@ -29,6 +29,15 @@ The archive drive is mounted by UUID rather than device path, so the mount
 survives USB resets and device renaming. The ext4 filesystem must be
 pre-formatted manually before the storage setup playbook is run — the playbook
 will fail with guidance if the partition is unformatted.
+
+## Cron Jobs
+
+The `setup_cron.yml` playbook installs and schedules cron jobs for the
+`sparrow_cam_app` user. Currently supports:
+
+- **cleanup_recordings**: Runs daily at 23:05 to archive and clean up old
+  recording segments. Can also be run manually with `make cleanup_recordings`
+  from the `infra/` directory.
 
 ## Validation
 

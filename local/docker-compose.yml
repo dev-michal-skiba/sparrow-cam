@@ -34,6 +34,16 @@ services:
       - ../app/archive_api:/app/archive_api
       - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
 
+  cron:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.cron
+    container_name: sparrow_cam_cron
+    profiles: ["tools"]
+    volumes:
+      - ../app/cron:/app/cron
+      - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
+
   web:
     build:
       context: ..
