@@ -33,6 +33,7 @@ services:
     volumes:
       - ../app/archive_api:/app/archive_api
       - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
+      - ../.storage/processor/sparrow_cam/dataset:/var/www/html/storage/sparrow_cam/dataset
 
   cron:
     build:

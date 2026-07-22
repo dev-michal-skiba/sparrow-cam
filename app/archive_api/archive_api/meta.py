@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, jsonify, request
 from pydantic import ValidationError
 
-from archive_api import utils
+from archive_api import dataset, utils
 from archive_api.models import ManualAnnotationsRequest
 
 meta_bp = Blueprint("meta", __name__)
@@ -48,5 +48,7 @@ def update_meta():
 
     with meta_path.open("w") as f:
         json.dump(meta, f)
+
+    dataset.schedule_update(year, month, day, stream_path)
 
     return jsonify(meta)

@@ -9,6 +9,11 @@
     - name: Update apt cache
       include_tasks: tasks/apt_update.yml
 
+    - name: Install ffmpeg
+      apt:
+        name: ffmpeg
+        state: present
+
     - name: Setup pyenv and virtualenv for sparrow_cam_app (archive_api)
       include_tasks: tasks/pyenv_setup.yml
       vars:
@@ -16,6 +21,14 @@
         virtualenv_name: sparrow_cam_archive_api
         app_user: sparrow_cam_app
         app_home: /opt/sparrow_cam_app
+
+    - name: Create dataset storage directory
+      file:
+        path: /var/www/html/storage/sparrow_cam/dataset
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam
+        mode: '0775'
 
     - name: Clone sparrow_cam repo with sparse checkout for app/archive_api
       shell: |

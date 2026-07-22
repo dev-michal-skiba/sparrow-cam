@@ -19,3 +19,18 @@ HTTP API for querying archived streams by date range and managing manual annotat
 Bird types are slugs throughout. Manual annotations enforce the valid slug set via
 an enum; auto-detection slugs are trusted as correct since the processor guarantees
 them.
+
+## Dataset Generation
+PATCH /meta triggers asynchronous dataset building for training YOLO on manual
+annotations, but returns immediately — dataset processing happens in the background.
+An update job is enqueued once per PATCH; jobs execute serially (one at a time).
+
+Dataset building workflow:
+- Purges prior dataset files for that stream/date via prefix matching, logs removals.
+- If manual_annotations is empty ({}), treats as negative sample: picks a random .ts
+  segment, extracts its first frame via ffmpeg, writes with empty label file.
+- If annotations present, treats as positive samples: for each annotated segment,
+  extracts first frame and writes YOLO-format label (class_id cx cy w h with
+  normalized center-coordinates; class_id is the bird's index in BirdClass enum).
+- All image/label writes are atomic (temp file + rename).
+- On success, logs written samples with per-bird-class annotation counts.

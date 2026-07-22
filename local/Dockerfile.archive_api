@@ -3,6 +3,9 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app/archive_api
 
+# Install ffmpeg for dataset frame extraction
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Install archive_api package
 COPY app/archive_api/ .
 RUN pip install --no-cache-dir -e .
