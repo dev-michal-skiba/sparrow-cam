@@ -1,3 +1,3 @@
-ansible/ssh_key
-ansible/ssh_key.pub
+ansible/.secrets/*
+!ansible/.secrets/*.example
 ansible/group_vars/all.yml

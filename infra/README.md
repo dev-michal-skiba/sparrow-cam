@@ -15,11 +15,12 @@ Ansible requires an SSH user on the target device with sudo privileges.
 
 ```bash
 # Generate SSH key pair (run on your development machine)
-ssh-keygen -t ed25519 -f infra/ansible/ssh_key -C "sparrow_cam_infra"
+mkdir -p infra/ansible/.secrets
+ssh-keygen -t ed25519 -f infra/ansible/.secrets/ssh_key -C "sparrow_cam_infra"
 
 # This creates:
-#   infra/ansible/ssh_key      (private key - used by Ansible)
-#   infra/ansible/ssh_key.pub  (public key - copy to target)
+#   infra/ansible/.secrets/ssh_key      (private key - used by Ansible)
+#   infra/ansible/.secrets/ssh_key.pub  (public key - copy to target)
 ```
 
 **Step 2: Flash OS with Raspberry Pi Imager**
@@ -37,6 +38,21 @@ This creates the user and sets up SSH key access automatically.
 cp infra/ansible/group_vars/all.yml.example infra/ansible/group_vars/all.yml
 # Edit all.yml with your target IP and username
 ```
+
+**Step 4: AWS credentials for dataset sync**
+
+The `sync_dataset` cron job uploads `/var/www/html/storage/sparrow_cam/dataset` to the
+`sparrow-cam-dataset` S3 bucket (assumed to already be set up). Provide an IAM user's
+access and secret key:
+
+```bash
+# Copy example credentials file and fill in your actual AWS keys
+cp infra/ansible/.secrets/aws_credentials.example infra/ansible/.secrets/aws_credentials
+# Edit aws_credentials with your AWS access key ID and secret access key
+```
+
+All secrets (`ssh_key`, `ssh_key.pub`, `aws_credentials`) live under
+`infra/ansible/.secrets/`, which is git-ignored.
 
 ## Deploy
 

@@ -56,3 +56,34 @@
           PYTHONUNBUFFERED=1
           /opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_cron/bin/python -m cron.jobs.cleanup_recordings
           >> /opt/sparrow_cam_app/tmp/cron_cleanup_recordings.log 2>&1
+
+    - name: Install AWS CLI
+      apt:
+        name: awscli
+        state: present
+
+    - name: Create .aws directory for sparrow_cam_app
+      file:
+        path: /opt/sparrow_cam_app/.aws
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
+        mode: '0700'
+
+    - name: Deploy AWS credentials for sparrow_cam_app
+      copy:
+        src: .secrets/aws_credentials
+        dest: /opt/sparrow_cam_app/.aws/credentials
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
+        mode: '0600'
+
+    - name: Install daily sync_dataset cron job at 23:35
+      cron:
+        name: "sparrow_cam sync_dataset"
+        user: sparrow_cam_app
+        minute: "35"
+        hour: "23"
+        job: >-
+          /usr/bin/aws s3 sync /var/www/html/storage/sparrow_cam/dataset s3://sparrow-cam-dataset --delete
+          >> /opt/sparrow_cam_app/tmp/cron_sync_dataset.log 2>&1
