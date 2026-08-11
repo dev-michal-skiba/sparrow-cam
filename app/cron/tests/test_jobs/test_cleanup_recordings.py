@@ -3,16 +3,22 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
 from cron.jobs.cleanup_recordings import (
+    FREE_SPACE_THRESHOLD_BYTES,
     KEEP_COUNT,
     MAX_SEGMENTS,
+    CleanedDaysStore,
     Recording,
     RecordingsCleaner,
+    find_earliest_archive_day,
+    find_oldest_uncleaned_day,
+    get_free_space_bytes,
     parse_date_arg,
+    run_space_pressure_sweep,
 )
 
 
@@ -487,6 +493,200 @@ class TestCleanupDay:
         shutil.rmtree(archive_path.parent.parent.parent)
 
 
+class TestCleanedDaysStore:
+    """Test suite for CleanedDaysStore."""
+
+    def test_read_last_cleaned_up_day_missing_file(self, tmp_path, monkeypatch):
+        """Test read_last_cleaned_up_day returns None when no history file exists."""
+        monkeypatch.setattr(
+            "cron.jobs.cleanup_recordings.LAST_CLEANED_UP_DAY_PATH", tmp_path / "cron_last_cleaned_up_day.json"
+        )
+        store = CleanedDaysStore()
+
+        assert store.read_last_cleaned_up_day() is None
+
+    def test_read_last_cleaned_up_day_existing_file(self, tmp_path, monkeypatch):
+        """Test read_last_cleaned_up_day parses the persisted date."""
+        path = tmp_path / "cron_last_cleaned_up_day.json"
+        path.write_text(json.dumps({"last_cleaned_up_day": "2024-01-15"}))
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.LAST_CLEANED_UP_DAY_PATH", path)
+        store = CleanedDaysStore()
+
+        assert store.read_last_cleaned_up_day() == date(2024, 1, 15)
+
+    def test_record_writes_and_replaces_file(self, tmp_path, monkeypatch):
+        """Test record persists the day and cleans up the tmp file."""
+        path = tmp_path / "cron_last_cleaned_up_day.json"
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.LAST_CLEANED_UP_DAY_PATH", path)
+        store = CleanedDaysStore()
+
+        store.record(date(2024, 1, 15))
+
+        assert json.loads(path.read_text()) == {"last_cleaned_up_day": "2024-01-15"}
+        assert not path.with_name(path.name + ".tmp").exists()
+
+    def test_record_overwrites_previous_value(self, tmp_path, monkeypatch):
+        """Test record overwrites a previously persisted day."""
+        path = tmp_path / "cron_last_cleaned_up_day.json"
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.LAST_CLEANED_UP_DAY_PATH", path)
+        store = CleanedDaysStore()
+
+        store.record(date(2024, 1, 15))
+        store.record(date(2024, 1, 16))
+
+        assert store.read_last_cleaned_up_day() == date(2024, 1, 16)
+
+
+class TestGetFreeSpaceBytes:
+    """Test suite for get_free_space_bytes function."""
+
+    def test_get_free_space_bytes_returns_disk_usage_free(self, monkeypatch):
+        """Test get_free_space_bytes returns the free field from shutil.disk_usage."""
+        usage = Mock(total=100, used=40, free=60)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.shutil.disk_usage", Mock(return_value=usage))
+
+        assert get_free_space_bytes() == 60
+
+
+class TestFindEarliestArchiveDay:
+    """Test suite for find_earliest_archive_day function."""
+
+    def test_find_earliest_archive_day_no_archive_dir(self, tmp_path, monkeypatch):
+        """Test returns None when ARCHIVE_PATH does not exist."""
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path / "missing")
+
+        assert find_earliest_archive_day() is None
+
+    def test_find_earliest_archive_day_empty_archive_dir(self, tmp_path, monkeypatch):
+        """Test returns None when ARCHIVE_PATH has no year directories."""
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_earliest_archive_day() is None
+
+    def test_find_earliest_archive_day_empty_year_dir(self, tmp_path, monkeypatch):
+        """Test returns None when the earliest year has no month directories."""
+        (tmp_path / "2024").mkdir()
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_earliest_archive_day() is None
+
+    def test_find_earliest_archive_day_empty_month_dir(self, tmp_path, monkeypatch):
+        """Test returns None when the earliest month has no day directories."""
+        (tmp_path / "2024" / "01").mkdir(parents=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_earliest_archive_day() is None
+
+    def test_find_earliest_archive_day_picks_earliest(self, tmp_path, monkeypatch):
+        """Test returns the earliest year/month/day combination present."""
+        for year, month, day in [("2024", "03", "10"), ("2024", "01", "20"), ("2023", "12", "31")]:
+            (tmp_path / year / month / day).mkdir(parents=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_earliest_archive_day() == date(2023, 12, 31)
+
+    def test_find_earliest_archive_day_invalid_components(self, tmp_path, monkeypatch):
+        """Test returns None when the directory names aren't a valid date."""
+        (tmp_path / "2024" / "13" / "40").mkdir(parents=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_earliest_archive_day() is None
+
+
+class TestFindOldestUncleanedDay:
+    """Test suite for find_oldest_uncleaned_day function."""
+
+    def test_find_oldest_uncleaned_day_no_history_uses_earliest(self, tmp_path, monkeypatch):
+        """Test starts from the earliest archived day when no history is given."""
+        (tmp_path / "2024" / "01" / "15").mkdir(parents=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_oldest_uncleaned_day(None) == date(2024, 1, 15)
+
+    def test_find_oldest_uncleaned_day_no_history_and_no_archive(self, tmp_path, monkeypatch):
+        """Test returns None when there is no history and nothing archived."""
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        assert find_oldest_uncleaned_day(None) is None
+
+    def test_find_oldest_uncleaned_day_steps_forward_from_history(self, tmp_path, monkeypatch):
+        """Test starts the day after last_cleaned_up_day and steps forward to the next archived day."""
+        (tmp_path / "2024" / "01" / "17").mkdir(parents=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        result = find_oldest_uncleaned_day(date(2024, 1, 15))
+
+        assert result == date(2024, 1, 17)
+
+    def test_find_oldest_uncleaned_day_none_left(self, tmp_path, monkeypatch):
+        """Test returns None when stepping forward from history reaches today without finding a day."""
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path)
+
+        result = find_oldest_uncleaned_day(date.today())
+
+        assert result is None
+
+
+class TestRunSpacePressureSweep:
+    """Test suite for run_space_pressure_sweep function."""
+
+    @patch("cron.jobs.cleanup_recordings.get_free_space_bytes")
+    def test_run_space_pressure_sweep_skips_when_above_threshold(self, mock_free_space):
+        """Test the sweep does nothing when free space is already above the threshold."""
+        mock_free_space.return_value = FREE_SPACE_THRESHOLD_BYTES
+
+        with (
+            patch.object(CleanedDaysStore, "read_last_cleaned_up_day") as mock_read,
+            patch.object(RecordingsCleaner, "cleanup_day") as mock_cleanup_day,
+            patch.object(CleanedDaysStore, "record") as mock_record,
+        ):
+            run_space_pressure_sweep()
+
+        mock_read.assert_called_once_with()
+        mock_cleanup_day.assert_not_called()
+        mock_record.assert_not_called()
+
+    @patch("cron.jobs.cleanup_recordings.find_oldest_uncleaned_day")
+    @patch("cron.jobs.cleanup_recordings.get_free_space_bytes")
+    def test_run_space_pressure_sweep_stops_when_no_days_left(self, mock_free_space, mock_find_day, caplog):
+        """Test the sweep stops and logs when no uncleaned days remain despite low free space."""
+        mock_free_space.return_value = FREE_SPACE_THRESHOLD_BYTES - 1
+        mock_find_day.return_value = None
+
+        with (
+            patch.object(CleanedDaysStore, "read_last_cleaned_up_day", return_value=None),
+            patch.object(RecordingsCleaner, "cleanup_day") as mock_cleanup_day,
+            patch.object(CleanedDaysStore, "record") as mock_record,
+            caplog.at_level(logging.INFO),
+        ):
+            run_space_pressure_sweep()
+
+        mock_cleanup_day.assert_not_called()
+        mock_record.assert_not_called()
+        assert "no uncleaned days remain" in caplog.text
+
+    @patch("cron.jobs.cleanup_recordings.find_oldest_uncleaned_day")
+    @patch("cron.jobs.cleanup_recordings.get_free_space_bytes")
+    def test_run_space_pressure_sweep_prunes_until_threshold_reached(self, mock_free_space, mock_find_day):
+        """Test the sweep prunes days one at a time, persisting each, until free space clears the threshold."""
+        mock_free_space.side_effect = [
+            FREE_SPACE_THRESHOLD_BYTES - 1,
+            FREE_SPACE_THRESHOLD_BYTES - 1,
+            FREE_SPACE_THRESHOLD_BYTES,
+        ]
+        mock_find_day.side_effect = [date(2024, 1, 15), date(2024, 1, 16)]
+
+        with (
+            patch.object(CleanedDaysStore, "read_last_cleaned_up_day", return_value=None),
+            patch.object(RecordingsCleaner, "cleanup_day") as mock_cleanup_day,
+            patch.object(CleanedDaysStore, "record") as mock_record,
+        ):
+            run_space_pressure_sweep()
+
+        assert mock_cleanup_day.call_args_list == [call(date(2024, 1, 15)), call(date(2024, 1, 16))]
+        assert mock_record.call_args_list == [call(date(2024, 1, 15)), call(date(2024, 1, 16))]
+
+
 class TestParseDateArg:
     """Test suite for parse_date_arg function."""
 
@@ -524,17 +724,15 @@ class TestParseDateArg:
 class TestMain:
     """Test suite for main CLI function."""
 
-    @patch("cron.jobs.cleanup_recordings.RecordingsCleaner.cleanup_day")
+    @patch("cron.jobs.cleanup_recordings.run_space_pressure_sweep")
     @patch("sys.argv", ["cleanup_recordings.py"])
-    def test_main_default_today(self, mock_cleanup):
-        """Test main uses today's date when no args provided."""
+    def test_main_default_runs_space_pressure_sweep(self, mock_sweep):
+        """Test main runs the free-space sweep when no args provided."""
         from cron.jobs.cleanup_recordings import main
 
         main()
 
-        # Should cleanup today's date
-        assert len(mock_cleanup.call_args_list) == 1
-        assert mock_cleanup.call_args_list[0][0][0] == date.today()
+        mock_sweep.assert_called_once_with()
 
     @patch("cron.jobs.cleanup_recordings.RecordingsCleaner.cleanup_day")
     @patch("sys.argv", ["cleanup_recordings.py", "--from-date", "2024-01-15"])
