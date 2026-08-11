@@ -8,8 +8,30 @@ existing ones.
 
 Prunes archived recordings so storage on the Pi does not fill up.
 
-- Runs once per day via a real crontab entry at 23:05 local time, pruning that day's
-  recordings. Can also be invoked manually for a single day or an inclusive date range.
+### Scheduled daily invocation
+
+Runs once per day via a real crontab entry at 23:05 local time. Rather than pruning a fixed
+calendar day, it runs a free-space-pressure sweep: it prunes the oldest not-yet-cleaned
+archived day one at a time, rechecking disk free space after each, until free space reaches
+15 GB. The last cleaned-up day is persisted to disk so the sweep never reprocesses days
+across runs. If the sweep exhausts all archived days and free space is still below the
+threshold, it stops and logs the condition.
+
+On first run (no previous sweep history), the sweep starts from the earliest day present in
+the archive and steps forward one day at a time; after that, it starts the day after the
+last recorded cleanup and steps forward.
+
+### Manual invocation
+
+Can be invoked manually for a single day or an inclusive date range using `--from-date`
+and/or `--to-date` arguments. This bypasses the free-space threshold and persistent
+watermark—it prunes exactly the specified day(s) directly.
+
+### Per-day pruning rules
+
+The following logic applies when pruning any day, whether as part of the sweep or via
+manual invocation:
+
 - A recording counts as manually annotated when its meta.json has a `manual_annotations`
   key, even if the value is an empty object (reviewed as containing no birds). Manually
   annotated recordings are never removed.
