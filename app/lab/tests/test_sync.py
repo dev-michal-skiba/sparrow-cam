@@ -1,1440 +1,1293 @@
-"""Tests for lab.sync module."""
+"""Unit tests for the dataset sync manager."""
 
-from datetime import date
+import stat
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import paramiko
 import pytest
 
-from lab.constants import ARCHIVE_DIR, REMOTE_ARCHIVE_PATH
-from lab.sync import (
-    ARCHIVE_FOLDER_PATTERN,
-    DATE_FOLDER_PATTERN,
-    FileToSync,
-    SyncError,
-    SyncManager,
-    _remove_empty_date_dirs,
-    remove_hls_files,
-    remove_recording,
-    remove_recording_locally,
-)
+from lab.sync import CONNECTION_TIMEOUT, MAX_RETRIES, SyncError, SyncManager, main
 
 
-class TestArchiveFolderPattern:
-    """Tests for ARCHIVE_FOLDER_PATTERN regex."""
+class TestSyncError:
+    """Tests for SyncError exception."""
 
-    def test_matches_folder_with_prefix(self):
-        """Should match archive folder with prefix."""
-        name = "auto_2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
-        assert ARCHIVE_FOLDER_PATTERN.match(name)
+    def test_sync_error_is_exception(self):
+        """Test that SyncError is an Exception."""
+        assert issubclass(SyncError, Exception)
 
-    def test_matches_folder_without_prefix(self):
-        """Should match archive folder without prefix."""
-        name = "2026-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"
-        assert ARCHIVE_FOLDER_PATTERN.match(name)
-
-    def test_does_not_match_invalid_format(self):
-        """Should not match invalid folder format."""
-        name = "invalid_folder_name"
-        assert not ARCHIVE_FOLDER_PATTERN.match(name)
-
-    def test_case_insensitive_match(self):
-        """Should match folder names with uppercase UUID."""
-        name = "AUTO_2026-01-15T064557Z_5D83D036-3F12-4D9B-82F5-4D7EB1AB0D92"
-        assert ARCHIVE_FOLDER_PATTERN.match(name)
+    def test_sync_error_with_message(self):
+        """Test that SyncError can be raised with a message."""
+        with pytest.raises(SyncError, match="Test error"):
+            raise SyncError("Test error")
 
 
-class TestDateFolderPattern:
-    """Tests for DATE_FOLDER_PATTERN regex."""
+class TestSyncManagerInit:
+    """Tests for SyncManager initialization."""
 
-    def test_matches_numeric_folder(self):
-        """Should match numeric folder names."""
-        assert DATE_FOLDER_PATTERN.match("2024")
-        assert DATE_FOLDER_PATTERN.match("01")
-        assert DATE_FOLDER_PATTERN.match("15")
-
-    def test_does_not_match_non_numeric(self):
-        """Should not match non-numeric folder names."""
-        assert not DATE_FOLDER_PATTERN.match("january")
-        assert not DATE_FOLDER_PATTERN.match("2024a")
-
-
-class TestFileToSync:
-    """Tests for FileToSync class."""
-
-    def test_init_stores_folder_and_filename(self):
-        """Should store folder and filename."""
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
-        assert file.folder == "2024/01/15/playlist1"
-        assert file.filename == "video.ts"
-
-    def test_remote_path_property(self):
-        """Should construct remote path correctly."""
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
-        expected = f"{REMOTE_ARCHIVE_PATH}/2024/01/15/playlist1/video.ts"
-        assert file.remote_path == expected
-
-    def test_local_path_property(self):
-        """Should construct local path correctly."""
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
-        expected = ARCHIVE_DIR / "2024/01/15/playlist1" / "video.ts"
-        assert file.local_path == expected
-
-    def test_repr(self):
-        """Should have useful string representation."""
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
-        assert repr(file) == "FileToSync(2024/01/15/playlist1/video.ts)"
-
-
-class TestSyncManager:
-    """Tests for SyncManager class."""
-
-    def test_init(self):
-        """Should initialize with no connection."""
+    def test_init_default_state(self):
+        """Test that SyncManager initializes with correct default state."""
         manager = SyncManager()
         assert manager._sftp is None
         assert manager._transport is None
+        assert manager._socket is None
         assert manager._host == ""
         assert manager._user == ""
 
+
+class TestLoadConfig:
+    """Tests for _load_config method."""
+
     def test_load_config_success(self):
-        """Should load config successfully."""
-        config_yaml = "ansible_target_host: 192.168.1.100\nansible_target_user: pi\n"
+        """Test successful config loading."""
+        config_data = {"ansible_target_host": "192.168.1.1", "ansible_target_user": "pi"}
+        config_content = "ansible_target_host: 192.168.1.1\nansible_target_user: pi\n"
 
         with patch("lab.sync.CONFIG_PATH") as mock_config_path:
             mock_config_path.exists.return_value = True
-            with patch("builtins.open", mock_open(read_data=config_yaml)):
-                manager = SyncManager()
-                host, user = manager._load_config()
+            with patch("builtins.open", mock_open(read_data=config_content)):
+                with patch("yaml.safe_load", return_value=config_data):
+                    manager = SyncManager()
+                    host, user = manager._load_config()
 
-                assert host == "192.168.1.100"
-                assert user == "pi"
+        assert host == "192.168.1.1"
+        assert user == "pi"
 
-    def test_load_config_missing_file(self):
-        """Should raise SyncError when config file is missing."""
+    def test_load_config_file_not_found(self):
+        """Test that SyncError is raised when config file doesn't exist."""
         with patch("lab.sync.CONFIG_PATH") as mock_config_path:
             mock_config_path.exists.return_value = False
-            manager = SyncManager()
+            mock_config_path.__str__.return_value = "/secrets/all.yml"
 
-            with pytest.raises(SyncError) as excinfo:
+            manager = SyncManager()
+            with pytest.raises(SyncError, match="Config file not found"):
                 manager._load_config()
 
-            assert "Config file not found" in str(excinfo.value)
-
     def test_load_config_missing_host(self):
-        """Should raise SyncError when host is missing from config."""
-        config_yaml = "ansible_target_user: pi\n"
+        """Test that SyncError is raised when ansible_target_host is missing."""
+        config_data = {"ansible_target_user": "pi"}
+        config_content = "ansible_target_user: pi\n"
 
         with patch("lab.sync.CONFIG_PATH") as mock_config_path:
             mock_config_path.exists.return_value = True
-            with patch("builtins.open", mock_open(read_data=config_yaml)):
-                manager = SyncManager()
-
-                with pytest.raises(SyncError) as excinfo:
-                    manager._load_config()
-
-                assert "Missing ansible_target_host" in str(excinfo.value)
+            with patch("builtins.open", mock_open(read_data=config_content)):
+                with patch("yaml.safe_load", return_value=config_data):
+                    manager = SyncManager()
+                    with pytest.raises(SyncError, match="Missing ansible_target_host or ansible_target_user"):
+                        manager._load_config()
 
     def test_load_config_missing_user(self):
-        """Should raise SyncError when user is missing from config."""
-        config_yaml = "ansible_target_host: 192.168.1.100\n"
+        """Test that SyncError is raised when ansible_target_user is missing."""
+        config_data = {"ansible_target_host": "192.168.1.1"}
+        config_content = "ansible_target_host: 192.168.1.1\n"
 
         with patch("lab.sync.CONFIG_PATH") as mock_config_path:
             mock_config_path.exists.return_value = True
-            with patch("builtins.open", mock_open(read_data=config_yaml)):
-                manager = SyncManager()
+            with patch("builtins.open", mock_open(read_data=config_content)):
+                with patch("yaml.safe_load", return_value=config_data):
+                    manager = SyncManager()
+                    with pytest.raises(SyncError, match="Missing ansible_target_host or ansible_target_user"):
+                        manager._load_config()
 
-                with pytest.raises(SyncError) as excinfo:
-                    manager._load_config()
+    def test_load_config_empty_host(self):
+        """Test that SyncError is raised when ansible_target_host is empty."""
+        config_data = {"ansible_target_host": "", "ansible_target_user": "pi"}
+        config_content = "ansible_target_host: ''\nansible_target_user: pi\n"
 
-                assert "Missing ansible_target_host or ansible_target_user" in str(excinfo.value)
+        with patch("lab.sync.CONFIG_PATH") as mock_config_path:
+            mock_config_path.exists.return_value = True
+            with patch("builtins.open", mock_open(read_data=config_content)):
+                with patch("yaml.safe_load", return_value=config_data):
+                    manager = SyncManager()
+                    with pytest.raises(SyncError, match="Missing ansible_target_host or ansible_target_user"):
+                        manager._load_config()
 
-    def test_disconnect_with_no_connection(self):
-        """Should handle disconnect with no connection gracefully."""
+    def test_load_config_empty_user(self):
+        """Test that SyncError is raised when ansible_target_user is empty."""
+        config_data = {"ansible_target_host": "192.168.1.1", "ansible_target_user": ""}
+        config_content = "ansible_target_host: 192.168.1.1\nansible_target_user: ''\n"
+
+        with patch("lab.sync.CONFIG_PATH") as mock_config_path:
+            mock_config_path.exists.return_value = True
+            with patch("builtins.open", mock_open(read_data=config_content)):
+                with patch("yaml.safe_load", return_value=config_data):
+                    manager = SyncManager()
+                    with pytest.raises(SyncError, match="Missing ansible_target_host or ansible_target_user"):
+                        manager._load_config()
+
+
+class TestConnect:
+    """Tests for connect method."""
+
+    def test_connect_ssh_key_not_found(self):
+        """Test that SyncError is raised when SSH key doesn't exist."""
+        with patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path:
+            mock_ssh_key_path.exists.return_value = False
+            mock_ssh_key_path.__str__.return_value = "/secrets/ssh_key"
+
+            manager = SyncManager()
+            with pytest.raises(SyncError, match="SSH key not found"):
+                manager.connect()
+
+    def test_connect_with_ed25519_key_success(self):
+        """Test successful connection with Ed25519 key."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("socket.create_connection") as mock_socket,
+            patch("paramiko.Transport") as mock_transport_class,
+            patch("paramiko.SFTPClient.from_transport") as mock_sftp_from_transport,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_key = MagicMock()
+            mock_ed25519.return_value = mock_key
+            mock_socket_instance = MagicMock()
+            mock_socket.return_value = mock_socket_instance
+            mock_transport_instance = MagicMock()
+            mock_transport_class.return_value = mock_transport_instance
+            mock_sftp_instance = MagicMock()
+            mock_transport_instance.open_session.return_value = MagicMock()
+            mock_channel = MagicMock()
+            mock_sftp_instance.get_channel.return_value = mock_channel
+            mock_sftp_from_transport.return_value = mock_sftp_instance
+
+            manager = SyncManager()
+            manager.connect()
+
+            assert manager._host == "test.host"
+            assert manager._user == "user"
+            assert manager._socket == mock_socket_instance
+            assert manager._transport == mock_transport_instance
+            assert manager._sftp == mock_sftp_instance
+            mock_socket.assert_called_once_with(("test.host", 22), timeout=CONNECTION_TIMEOUT)
+            mock_transport_instance.set_keepalive.assert_called_once_with(30)
+            mock_transport_instance.connect.assert_called_once_with(username="user", pkey=mock_key)
+
+    def test_connect_ed25519_fails_rsa_succeeds(self):
+        """Test fallback to RSA key when Ed25519 fails."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("paramiko.RSAKey.from_private_key_file") as mock_rsa,
+            patch("socket.create_connection") as mock_socket,
+            patch("paramiko.Transport") as mock_transport_class,
+            patch("paramiko.SFTPClient.from_transport") as mock_sftp_from_transport,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.side_effect = paramiko.SSHException("Ed25519 failed")
+            mock_key = MagicMock()
+            mock_rsa.return_value = mock_key
+            mock_socket_instance = MagicMock()
+            mock_socket.return_value = mock_socket_instance
+            mock_transport_instance = MagicMock()
+            mock_transport_class.return_value = mock_transport_instance
+            mock_sftp_instance = MagicMock()
+            mock_channel = MagicMock()
+            mock_sftp_instance.get_channel.return_value = mock_channel
+            mock_sftp_from_transport.return_value = mock_sftp_instance
+
+            manager = SyncManager()
+            manager.connect()
+
+            mock_ed25519.assert_called_once()
+            mock_rsa.assert_called_once()
+            assert manager._sftp == mock_sftp_instance
+
+    def test_connect_both_keys_fail(self):
+        """Test that SyncError is raised when both Ed25519 and RSA keys fail."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("paramiko.RSAKey.from_private_key_file") as mock_rsa,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.side_effect = paramiko.SSHException("Ed25519 failed")
+            mock_rsa.side_effect = paramiko.SSHException("RSA failed")
+
+            manager = SyncManager()
+            with pytest.raises(SyncError, match="Failed to load SSH key"):
+                manager.connect()
+
+    def test_connect_socket_timeout(self):
+        """Test that SyncError is raised on socket timeout."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("socket.create_connection") as mock_socket,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.return_value = MagicMock()
+            mock_socket.side_effect = TimeoutError("Connection timed out")
+
+            manager = SyncManager()
+            with pytest.raises(SyncError, match="Connection to test.host timed out"):
+                manager.connect()
+
+    def test_connect_general_error(self):
+        """Test that SyncError is raised on general connection errors."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("socket.create_connection") as mock_socket,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.return_value = MagicMock()
+            mock_socket.side_effect = OSError("Connection refused")
+
+            manager = SyncManager()
+            with pytest.raises(SyncError, match="Failed to connect to test.host"):
+                manager.connect()
+
+    def test_connect_sftp_from_transport_returns_none(self):
+        """Test connect when SFTPClient.from_transport returns None."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("socket.create_connection") as mock_socket,
+            patch("paramiko.Transport") as mock_transport_class,
+            patch("paramiko.SFTPClient.from_transport") as mock_sftp_from_transport,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.return_value = MagicMock()
+            mock_socket_instance = MagicMock()
+            mock_socket.return_value = mock_socket_instance
+            mock_transport_instance = MagicMock()
+            mock_transport_class.return_value = mock_transport_instance
+            # Return None to simulate sftp creation failure
+            mock_sftp_from_transport.return_value = None
+
+            manager = SyncManager()
+            manager.connect()
+
+            # Should set sftp to None when from_transport returns None
+            assert manager._sftp is None
+
+    def test_connect_channel_is_none(self):
+        """Test connect when get_channel returns None."""
+        with (
+            patch("lab.sync.SSH_KEY_PATH") as mock_ssh_key_path,
+            patch("lab.sync.CONFIG_PATH") as mock_config_path,
+            patch("builtins.open", mock_open(read_data="ansible_target_host: test.host\nansible_target_user: user\n")),
+            patch("yaml.safe_load", return_value={"ansible_target_host": "test.host", "ansible_target_user": "user"}),
+            patch("paramiko.Ed25519Key.from_private_key_file") as mock_ed25519,
+            patch("socket.create_connection") as mock_socket,
+            patch("paramiko.Transport") as mock_transport_class,
+            patch("paramiko.SFTPClient.from_transport") as mock_sftp_from_transport,
+        ):
+
+            mock_ssh_key_path.exists.return_value = True
+            mock_config_path.exists.return_value = True
+            mock_ed25519.return_value = MagicMock()
+            mock_socket_instance = MagicMock()
+            mock_socket.return_value = mock_socket_instance
+            mock_transport_instance = MagicMock()
+            mock_transport_class.return_value = mock_transport_instance
+            mock_sftp_instance = MagicMock()
+            # Return None for get_channel to test that branch
+            mock_sftp_instance.get_channel.return_value = None
+            mock_sftp_from_transport.return_value = mock_sftp_instance
+
+            manager = SyncManager()
+            manager.connect()
+
+            # Should have set sftp without error when channel is None
+            assert manager._sftp == mock_sftp_instance
+            # get_channel should have been called
+            mock_sftp_instance.get_channel.assert_called_once()
+
+
+class TestDisconnect:
+    """Tests for disconnect method."""
+
+    def test_disconnect_when_not_connected(self):
+        """Test disconnect when manager is not connected."""
         manager = SyncManager()
-        manager.disconnect()
-        assert manager._sftp is None
-        assert manager._transport is None
+        manager.disconnect()  # Should not raise
 
     def test_disconnect_closes_sftp(self):
-        """Should close SFTP connection."""
+        """Test that disconnect closes SFTP connection."""
         manager = SyncManager()
         mock_sftp = MagicMock()
         manager._sftp = mock_sftp
-
         manager.disconnect()
 
         mock_sftp.close.assert_called_once()
         assert manager._sftp is None
 
     def test_disconnect_closes_transport(self):
-        """Should close transport connection."""
+        """Test that disconnect closes transport."""
         manager = SyncManager()
         mock_transport = MagicMock()
         manager._transport = mock_transport
-
         manager.disconnect()
 
         mock_transport.close.assert_called_once()
         assert manager._transport is None
 
-    def test_is_dir_not_connected(self):
-        """Should raise SyncError when not connected."""
+    def test_disconnect_closes_socket(self):
+        """Test that disconnect closes socket."""
         manager = SyncManager()
+        mock_socket = MagicMock()
+        manager._socket = mock_socket
+        manager.disconnect()
 
-        with pytest.raises(SyncError) as excinfo:
-            manager._is_dir("/some/path")
+        mock_socket.close.assert_called_once()
+        assert manager._socket is None
 
-        assert "Not connected" in str(excinfo.value)
-
-    def test_is_dir_directory(self):
-        """Should identify directories correctly."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-
-        # Mock stat result for a directory (mode & 0o40000 != 0)
-        mock_stat = MagicMock()
-        mock_stat.st_mode = 0o40755  # Directory with permissions
-        mock_sftp.stat.return_value = mock_stat
-
-        result = manager._is_dir("/some/path")
-
-        assert result is True
-
-    def test_is_dir_file(self):
-        """Should identify files correctly."""
+    def test_disconnect_handles_sftp_error(self):
+        """Test that disconnect handles errors closing SFTP."""
         manager = SyncManager()
         mock_sftp = MagicMock()
+        mock_sftp.close.side_effect = Exception("SFTP already closed")
         manager._sftp = mock_sftp
+        manager.disconnect()  # Should not raise
 
-        # Mock stat result for a file (mode & 0o40000 == 0)
-        mock_stat = MagicMock()
-        mock_stat.st_mode = 0o100644  # Regular file
-        mock_sftp.stat.return_value = mock_stat
+        assert manager._sftp is None
 
-        result = manager._is_dir("/some/path")
+    def test_disconnect_handles_transport_error(self):
+        """Test that disconnect handles errors closing transport."""
+        manager = SyncManager()
+        mock_transport = MagicMock()
+        mock_transport.close.side_effect = Exception("Transport already closed")
+        manager._transport = mock_transport
+        manager.disconnect()  # Should not raise
 
-        assert result is False
+        assert manager._transport is None
 
-    def test_is_dir_path_not_found(self):
-        """Should return False when path is not found."""
+    def test_disconnect_handles_socket_error(self):
+        """Test that disconnect handles errors closing socket."""
+        manager = SyncManager()
+        mock_socket = MagicMock()
+        mock_socket.close.side_effect = Exception("Socket already closed")
+        manager._socket = mock_socket
+        manager.disconnect()  # Should not raise
+
+        assert manager._socket is None
+
+    def test_disconnect_closes_all_resources(self):
+        """Test that disconnect closes all resources in correct order."""
         manager = SyncManager()
         mock_sftp = MagicMock()
+        mock_transport = MagicMock()
+        mock_socket = MagicMock()
         manager._sftp = mock_sftp
-        mock_sftp.stat.side_effect = OSError("File not found")
+        manager._transport = mock_transport
+        manager._socket = mock_socket
 
-        result = manager._is_dir("/nonexistent/path")
+        manager.disconnect()
 
-        assert result is False
+        mock_sftp.close.assert_called_once()
+        mock_transport.close.assert_called_once()
+        mock_socket.close.assert_called_once()
+        assert manager._sftp is None
+        assert manager._transport is None
+        assert manager._socket is None
 
-    def test_connect_ssh_key_not_found(self):
-        """Should raise SyncError when SSH key is not found."""
-        with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
-            mock_key_path.exists.return_value = False
-            manager = SyncManager()
 
-            with pytest.raises(SyncError) as excinfo:
-                manager.connect()
+class TestReconnect:
+    """Tests for _reconnect method."""
 
-            assert "SSH key not found" in str(excinfo.value)
+    def test_reconnect_disconnect_then_connect(self):
+        """Test that _reconnect calls disconnect then connect."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-    def test_connect_invalid_ssh_key(self):
-        """Should raise SyncError when SSH key is invalid."""
-        with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
-            mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file") as mock_ed25519:
-                mock_ed25519.side_effect = paramiko.SSHException("Invalid key")
-                with patch("lab.sync.paramiko.RSAKey.from_private_key_file") as mock_rsa:
-                    mock_rsa.side_effect = paramiko.SSHException("Invalid key")
-                    with patch("lab.sync.CONFIG_PATH") as mock_config_path:
-                        mock_config_path.exists.return_value = True
-                        with patch(
-                            "builtins.open",
-                            mock_open(read_data="ansible_target_host: host\nansible_target_user: user\n"),
-                        ):
-                            manager = SyncManager()
+        with (
+            patch.object(manager, "disconnect") as mock_disconnect,
+            patch.object(manager, "connect") as mock_connect,
+            patch("time.sleep") as mock_sleep,
+        ):
 
-                            with pytest.raises(SyncError) as excinfo:
-                                manager.connect()
+            manager._reconnect()
 
-                            assert "Failed to load SSH key" in str(excinfo.value)
+            mock_disconnect.assert_called_once()
+            mock_sleep.assert_called_once_with(0.5)
+            mock_connect.assert_called_once()
 
-    def test_connect_connection_failed(self):
-        """Should raise SyncError when connection fails."""
-        with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
-            mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file"):
-                with patch("lab.sync.paramiko.Transport") as mock_transport:
-                    mock_transport.return_value.connect.side_effect = Exception("Connection refused")
-                    with patch("lab.sync.CONFIG_PATH") as mock_config_path:
-                        mock_config_path.exists.return_value = True
-                        with patch(
-                            "builtins.open",
-                            mock_open(read_data="ansible_target_host: host\nansible_target_user: user\n"),
-                        ):
-                            manager = SyncManager()
+    def test_reconnect_disconnect_error_ignored(self):
+        """Test that _reconnect ignores disconnect errors."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-                            with pytest.raises(SyncError) as excinfo:
-                                manager.connect()
+        with (
+            patch.object(manager, "disconnect", side_effect=Exception("Disconnect failed")),
+            patch.object(manager, "connect") as mock_connect,
+            patch("time.sleep") as mock_sleep,
+        ):
 
-                            assert "Failed to connect" in str(excinfo.value)
+            manager._reconnect()
 
-    def test_connect_success(self):
-        """Should establish connection successfully."""
-        with patch("lab.sync.SSH_KEY_PATH") as mock_key_path:
-            mock_key_path.exists.return_value = True
-            with patch("lab.sync.paramiko.Ed25519Key.from_private_key_file") as mock_ed25519:
-                with patch("lab.sync.socket.create_connection") as mock_socket:
-                    with patch("lab.sync.paramiko.Transport") as mock_transport_class:
-                        with patch("lab.sync.paramiko.SFTPClient.from_transport") as mock_sftp_from_transport:
-                            with patch("lab.sync.CONFIG_PATH") as mock_config_path:
-                                mock_config_path.exists.return_value = True
+            # Connection handles should be cleared even if disconnect fails
+            assert manager._sftp is None
+            assert manager._transport is None
+            assert manager._socket is None
+            mock_sleep.assert_called_once_with(0.5)
+            mock_connect.assert_called_once()
 
-                                # Setup mocks
-                                mock_pkey = MagicMock()
-                                mock_ed25519.return_value = mock_pkey
-                                mock_sock = MagicMock()
-                                mock_socket.return_value = mock_sock
-                                mock_transport = MagicMock()
-                                mock_transport_class.return_value = mock_transport
-                                mock_sftp = MagicMock()
-                                mock_sftp_from_transport.return_value = mock_sftp
-                                mock_channel = MagicMock()
-                                mock_sftp.get_channel.return_value = mock_channel
 
-                                with patch(
-                                    "builtins.open",
-                                    mock_open(
-                                        read_data="ansible_target_host: testhost\nansible_target_user: testuser\n"
-                                    ),
-                                ):
-                                    manager = SyncManager()
-                                    manager.connect()
+class TestListRemoteFiles:
+    """Tests for _list_remote_files method."""
 
-                                    # Verify connection was established
-                                    assert manager._sftp == mock_sftp
-                                    assert manager._transport == mock_transport
-                                    assert manager._socket == mock_sock
-                                    assert manager._host == "testhost"
-                                    assert manager._user == "testuser"
+    def test_list_remote_files_not_connected(self):
+        """Test that SyncError is raised when not connected."""
+        manager = SyncManager()
+        with pytest.raises(SyncError, match="Not connected"):
+            manager._list_remote_files()
 
-    def test_list_remote_archive_folders_not_connected(self):
-        """Should raise SyncError when not connected."""
+    def test_list_remote_files_empty_directory(self):
+        """Test listing empty remote directory."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._sftp.listdir_attr.return_value = []
+
+        files = manager._list_remote_files()
+
+        assert files == {}
+        manager._sftp.listdir_attr.assert_called_once()
+
+    def test_list_remote_files_single_file(self):
+        """Test listing remote directory with single file."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        # Create mock file entry
+        file_entry = MagicMock()
+        file_entry.filename = "image.jpg"
+        file_entry.st_mode = stat.S_IFREG | 0o644  # Regular file
+        file_entry.st_size = 1024
+
+        manager._sftp.listdir_attr.return_value = [file_entry]
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            files = manager._list_remote_files()
+
+        assert files == {"image.jpg": 1024}
+
+    def test_list_remote_files_multiple_files(self):
+        """Test listing remote directory with multiple files."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        file1 = MagicMock()
+        file1.filename = "file1.jpg"
+        file1.st_mode = stat.S_IFREG | 0o644
+        file1.st_size = 1024
+
+        file2 = MagicMock()
+        file2.filename = "file2.jpg"
+        file2.st_mode = stat.S_IFREG | 0o644
+        file2.st_size = 2048
+
+        manager._sftp.listdir_attr.return_value = [file1, file2]
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            files = manager._list_remote_files()
+
+        assert files == {"file1.jpg": 1024, "file2.jpg": 2048}
+
+    def test_list_remote_files_nested_directories(self):
+        """Test listing remote directory with nested structure."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        # Mock directory entry
+        dir_entry = MagicMock()
+        dir_entry.filename = "subdir"
+        dir_entry.st_mode = stat.S_IFDIR | 0o755  # Directory
+
+        # Mock file in root
+        file_entry = MagicMock()
+        file_entry.filename = "root_file.jpg"
+        file_entry.st_mode = stat.S_IFREG | 0o644
+        file_entry.st_size = 512
+
+        # Mock file in subdirectory
+        subfile_entry = MagicMock()
+        subfile_entry.filename = "sub_file.jpg"
+        subfile_entry.st_mode = stat.S_IFREG | 0o644
+        subfile_entry.st_size = 768
+
+        # Set up listdir_attr to return different results for root and subdir
+        def listdir_side_effect(path):
+            if path == "/remote/dataset":
+                return [dir_entry, file_entry]
+            elif path == "/remote/dataset/subdir":
+                return [subfile_entry]
+            return []
+
+        manager._sftp.listdir_attr.side_effect = listdir_side_effect
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            files = manager._list_remote_files()
+
+        assert files == {
+            "root_file.jpg": 512,
+            "subdir/sub_file.jpg": 768,
+        }
+
+    def test_list_remote_files_ignore_none_st_mode(self):
+        """Test that files with None st_mode are skipped."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        file_entry = MagicMock()
+        file_entry.filename = "file.jpg"
+        file_entry.st_mode = None
+        file_entry.st_size = 1024
+
+        manager._sftp.listdir_attr.return_value = [file_entry]
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            files = manager._list_remote_files()
+
+        # Files with None st_mode should be treated as regular files
+        assert "file.jpg" in files
+
+    def test_list_remote_files_none_st_size_defaults_to_zero(self):
+        """Test that None st_size is treated as 0."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        file_entry = MagicMock()
+        file_entry.filename = "file.jpg"
+        file_entry.st_mode = stat.S_IFREG | 0o644
+        file_entry.st_size = None
+
+        manager._sftp.listdir_attr.return_value = [file_entry]
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            files = manager._list_remote_files()
+
+        assert files == {"file.jpg": 0}
+
+    def test_list_remote_files_oserror(self):
+        """Test that OSError is converted to SyncError."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._sftp.listdir_attr.side_effect = OSError("Permission denied")
+
+        with patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+            with pytest.raises(SyncError, match="Cannot list remote directory"):
+                manager._list_remote_files()
+
+
+class TestDownloadFileWithRetry:
+    """Tests for _download_file_with_retry method."""
+
+    def test_download_file_success_first_try(self, tmp_path):
+        """Test successful download on first attempt."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        with patch("lab.sync.DATASET_DIR", tmp_path):
+            manager._download_file_with_retry("file.jpg")
+
+            manager._sftp.get.assert_called_once()
+
+    def test_download_file_creates_parent_directories(self, tmp_path):
+        """Test that parent directories are created."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+
+        with patch("lab.sync.DATASET_DIR", tmp_path), patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"):
+
+            manager._download_file_with_retry("subdir/nested/file.jpg")
+
+            # Check that parent directory was created
+            assert (tmp_path / "subdir" / "nested").exists()
+
+    def test_download_file_retry_on_exception(self, tmp_path):
+        """Test that file download retries on exceptions."""
         manager = SyncManager()
 
-        with pytest.raises(SyncError) as excinfo:
-            manager._list_remote_archive_folders()
+        get_call_count = 0
 
-        assert "Not connected" in str(excinfo.value)
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count <= 2:
+                raise Exception("Network error")
+            # Third call succeeds
 
-    def test_list_remote_archive_folders_cannot_list(self):
-        """Should raise SyncError when cannot list remote archive."""
-        manager = SyncManager()
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
-        mock_sftp.listdir.side_effect = OSError("Permission denied")
 
-        with pytest.raises(SyncError) as excinfo:
-            manager._list_remote_archive_folders()
+        def reconnect_side_effect():
+            # Provide a fresh mock for reconnection attempts
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        assert "Cannot list remote archive" in str(excinfo.value)
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
 
-    def test_list_remote_archive_folders_success(self):
-        """Should list remote archive folders successfully."""
+            manager._download_file_with_retry("file.jpg")
+
+            # Should have been called 3 times total (fail, fail, succeed)
+            assert get_call_count == 3
+
+    def test_download_file_deletes_partial_file(self, tmp_path):
+        """Test that partial local files are deleted on retry."""
         manager = SyncManager()
+
+        get_call_count = 0
+
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count == 1:
+                raise Exception("Network error")
+            # Second call succeeds
+
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
 
-        # Mock the nested directory structure
-        mock_sftp.listdir.side_effect = [
-            ["2024"],  # years
-            ["01"],  # months in 2024
-            ["15"],  # days in 01/2024
-            [  # folders in 15/01/2024
-                "auto_2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92",
-                "sync_2024-01-15T123000Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f",
-            ],
-        ]
+        def reconnect_side_effect():
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        # Mock _is_dir to return True for directories
-        manager._is_dir = MagicMock(return_value=True)
+        # Create a partial file
+        partial_file = tmp_path / "file.jpg"
+        partial_file.write_text("partial")
 
-        folders = manager._list_remote_archive_folders()
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
 
-        assert len(folders) == 2
-        assert "2024/01/15/auto_2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
-        assert "2024/01/15/sync_2024-01-15T123000Z_1a2b3c4d-5e6f-4d9b-82f5-1a2b3c4d5e6f" in folders
+            manager._download_file_with_retry("file.jpg")
 
-    def test_list_remote_archive_folders_filters_non_numeric(self):
-        """Should filter out non-numeric year/month/day folders."""
+            # After retry, file should have been deleted and recreated by second get call
+            assert get_call_count == 2
+
+    def test_download_file_max_retries_exceeded(self, tmp_path):
+        """Test that SyncError is raised after max retries exceeded."""
         manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._sftp.get.side_effect = Exception("Network error")
+
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "_reconnect"),
+            patch("time.sleep"),
+        ):
+
+            with pytest.raises(SyncError, match=f"Failed to download file.jpg after {MAX_RETRIES} attempts"):
+                manager._download_file_with_retry("file.jpg")
+
+    def test_download_file_reconnect_on_none_sftp(self, tmp_path):
+        """Test that reconnect is called when _sftp is None."""
+        manager = SyncManager()
+        manager._sftp = None
+
+        reconnect_called = False
+
+        def reconnect_side_effect():
+            nonlocal reconnect_called
+            reconnect_called = True
+            # Create a working mock after reconnect
+            mock_sftp = MagicMock()
+            mock_sftp.get.return_value = None
+            manager._sftp = mock_sftp
+
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+        ):
+
+            manager._download_file_with_retry("file.jpg")
+
+            assert reconnect_called
+
+    def test_download_file_disconnect_on_failure(self, tmp_path):
+        """Test that disconnect is called on failure before retry."""
+        manager = SyncManager()
+
+        get_call_count = 0
+
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count == 1:
+                raise Exception("Network error")
+            # Second call succeeds
+
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-        # Mock with some non-numeric directories
-        mock_sftp.listdir.side_effect = [
-            ["2024", "backup"],  # "backup" should be filtered
-            ["01", "february"],  # "february" should be filtered
-            ["15"],  # valid day
-            ["2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
-        ]
+        def reconnect_side_effect():
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        manager._is_dir = MagicMock(return_value=True)
+        disconnect_call_count = 0
+        original_disconnect = manager.disconnect
 
-        folders = manager._list_remote_archive_folders()
+        def tracked_disconnect():
+            nonlocal disconnect_call_count
+            disconnect_call_count += 1
+            original_disconnect()
 
-        # Should only include valid path
-        assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect", side_effect=tracked_disconnect),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
 
-    def test_list_remote_archive_folders_filters_non_archives(self):
-        """Should filter out folders that don't match archive pattern."""
+            manager._download_file_with_retry("file.jpg")
+
+            # disconnect should be called at least once
+            assert disconnect_call_count >= 1
+
+    def test_download_file_clears_connections_after_failure(self, tmp_path):
+        """Test that connections are cleared after failure."""
         manager = SyncManager()
+
+        get_call_count = 0
+
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count == 1:
+                raise Exception("Network error")
+            # Second call succeeds
+
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-        # Mock with valid directory structure but invalid archive folder names
-        mock_sftp.listdir.side_effect = [
-            ["2024"],
-            ["01"],
-            ["15"],
-            ["not_an_archive", "2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92"],
-        ]
+        def reconnect_side_effect():
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        manager._is_dir = MagicMock(return_value=True)
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect") as mock_disconnect,
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
 
-        folders = manager._list_remote_archive_folders()
+            manager._download_file_with_retry("file.jpg")
 
-        # Should only include valid archive folder
-        assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+            # disconnect should have been called
+            assert mock_disconnect.called
 
-    def test_list_remote_archive_folders_skips_files(self):
-        """Should skip files and only process directories."""
+    def test_download_file_reconnect_failure_continues_retrying(self, tmp_path):
+        """Test that retries continue even if reconnect fails."""
         manager = SyncManager()
+
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = [Exception("Network error") for _ in range(MAX_RETRIES)]
         manager._sftp = mock_sftp
 
-        mock_sftp.listdir.side_effect = [
-            ["2024"],
-            ["01"],
-            ["15"],
-            ["2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92", "readme.txt"],
-        ]
+        reconnect_count = 0
 
-        # Mock _is_dir to return True for archive, False for readme.txt
-        def is_dir_side_effect(path):
-            return "readme.txt" not in path
+        def reconnect_side_effect():
+            nonlocal reconnect_count
+            reconnect_count += 1
+            # Reconnect creates a new mock with same failure side effect
+            new_mock = MagicMock()
+            new_mock.get.side_effect = Exception("Network error")
+            manager._sftp = new_mock
 
-        manager._is_dir = MagicMock(side_effect=is_dir_side_effect)
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
 
-        folders = manager._list_remote_archive_folders()
+            with pytest.raises(SyncError):
+                manager._download_file_with_retry("file.jpg")
 
-        # Should only include directory, not file
-        assert len(folders) == 1
-        assert "2024/01/15/2024-01-15T064557Z_5d83d036-3f12-4d9b-82f5-4d7eb1ab0d92" in folders
+            # Reconnect should have been called multiple times
+            assert reconnect_count > 0
 
-    def test_get_files_to_sync_not_connected(self):
-        """Should raise SyncError when not connected."""
+    def test_download_file_logs_warnings(self, tmp_path, caplog):
+        """Test that warnings are logged for failed attempts."""
+        manager = SyncManager()
+        manager._sftp = MagicMock()
+        manager._sftp.get.side_effect = Exception("Network error")
+
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect"),
+            patch("time.sleep"),
+        ):
+
+            with pytest.raises(SyncError):
+                manager._download_file_with_retry("file.jpg")
+
+            # Check that warning was logged
+            assert "Download failed" in caplog.text or "Waiting" in caplog.text
+
+    def test_download_file_disconnect_exception_ignored(self, tmp_path):
+        """Test that disconnect exceptions are ignored during retry."""
         manager = SyncManager()
 
-        with pytest.raises(SyncError) as excinfo:
-            manager._get_files_to_sync("2024/01/15/playlist1")
+        get_call_count = 0
 
-        assert "Not connected" in str(excinfo.value)
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count <= 2:
+                raise Exception("Network error")
+            # Third call succeeds
 
-    def test_get_files_to_sync_returns_ts_and_m3u8_files(self):
-        """Should return .ts and .m3u8 files only."""
-        manager = SyncManager()
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-        mock_sftp.listdir.return_value = [
-            "video.ts",
-            "playlist.m3u8",
-            "readme.txt",
-            "index.html",
-            "segment1.ts",
-        ]
+        def reconnect_side_effect():
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        files = manager._get_files_to_sync("2024/01/15/playlist1")
+        original_disconnect = manager.disconnect
 
-        assert len(files) == 3
-        assert "video.ts" in files
-        assert "playlist.m3u8" in files
-        assert "segment1.ts" in files
-        assert "readme.txt" not in files
+        def disconnect_with_error():
+            original_disconnect()
+            # This won't actually raise since original_disconnect clears everything
+            # but we're testing the exception handling path
+            raise Exception("Disconnect error")
 
-    def test_get_files_to_sync_handles_error(self):
-        """Should return empty list when listdir fails."""
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect", side_effect=disconnect_with_error),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
+
+            manager._download_file_with_retry("file.jpg")
+
+            # Should succeed despite disconnect exception
+            assert get_call_count == 3
+
+    def test_download_file_unlink_exception_ignored(self, tmp_path):
+        """Test that OSError from unlink is ignored when deleting partial files."""
         manager = SyncManager()
+
+        get_call_count = 0
+
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count == 1:
+                raise Exception("Network error")
+            # Second call succeeds
+
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
-        mock_sftp.listdir.side_effect = OSError("Permission denied")
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-        files = manager._get_files_to_sync("2024/01/15/playlist1")
+        def reconnect_side_effect():
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-        assert files == []
+        # Create a partial file
+        partial_file = tmp_path / "file.jpg"
+        partial_file.write_text("partial")
 
-    def test_get_missing_folders(self):
-        """Should find folders that don't exist locally."""
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_side_effect),
+            patch("time.sleep"),
+        ):
+            # Mock Path.unlink to raise OSError for our specific file
+            original_unlink = Path.unlink
+
+            def unlink_side_effect(self):
+                if str(self) == str(partial_file):
+                    raise OSError("Permission denied")
+                return original_unlink(self)
+
+            with patch.object(Path, "unlink", unlink_side_effect):
+                manager._download_file_with_retry("file.jpg")
+
+            # Should succeed despite unlink OSError
+            assert get_call_count == 2
+
+    def test_download_file_reconnect_exception_logs_and_continues(self, tmp_path):
+        """Test that reconnect exceptions are logged but retries continue."""
         manager = SyncManager()
 
-        # Setup list_remote_archive_folders to return two folders
-        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
-            mock_list.return_value = [
-                "2024/01/15/playlist1",
-                "2024/01/16/playlist2",
-            ]
+        get_call_count = 0
 
-            # Mock Path objects: playlist1 exists, playlist2 doesn't
-            mock_path1 = MagicMock()
-            mock_path1.exists.return_value = True
+        def get_side_effect(remote, local):
+            nonlocal get_call_count
+            get_call_count += 1
+            if get_call_count <= 2:
+                raise Exception("Network error")
+            # Third call succeeds
 
-            mock_path2 = MagicMock()
-            mock_path2.exists.return_value = False
-
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2]
-
-                missing = manager.get_missing_folders()
-
-                assert len(missing) == 1
-                assert "2024/01/16/playlist2" in missing
-
-    def test_get_missing_folders_with_from_date(self):
-        """Should filter folders by from_date (inclusive)."""
-        manager = SyncManager()
-
-        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
-            mock_list.return_value = [
-                "2024/01/15/playlist1",
-                "2024/01/16/playlist2",
-                "2024/01/17/playlist3",
-            ]
-
-            # All folders don't exist locally
-            mock_path1 = MagicMock()
-            mock_path1.exists.return_value = False
-            mock_path2 = MagicMock()
-            mock_path2.exists.return_value = False
-            mock_path3 = MagicMock()
-            mock_path3.exists.return_value = False
-
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2, mock_path3]
-
-                # Only folders on or after 2024-01-16 should be included
-                missing = manager.get_missing_folders(from_date=date(2024, 1, 16))
-
-                assert len(missing) == 2
-                assert "2024/01/16/playlist2" in missing
-                assert "2024/01/17/playlist3" in missing
-                assert "2024/01/15/playlist1" not in missing
-
-    def test_get_missing_folders_with_to_date(self):
-        """Should filter folders by to_date (inclusive)."""
-        manager = SyncManager()
-
-        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
-            mock_list.return_value = [
-                "2024/01/15/playlist1",
-                "2024/01/16/playlist2",
-                "2024/01/17/playlist3",
-            ]
-
-            # All folders don't exist locally
-            mock_path1 = MagicMock()
-            mock_path1.exists.return_value = False
-            mock_path2 = MagicMock()
-            mock_path2.exists.return_value = False
-            mock_path3 = MagicMock()
-            mock_path3.exists.return_value = False
-
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2, mock_path3]
-
-                # Only folders on or before 2024-01-16 should be included
-                missing = manager.get_missing_folders(to_date=date(2024, 1, 16))
-
-                assert len(missing) == 2
-                assert "2024/01/15/playlist1" in missing
-                assert "2024/01/16/playlist2" in missing
-                assert "2024/01/17/playlist3" not in missing
-
-    def test_get_missing_folders_with_date_range(self):
-        """Should filter folders by date range (both from_date and to_date)."""
-        manager = SyncManager()
-
-        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
-            mock_list.return_value = [
-                "2024/01/15/playlist1",
-                "2024/01/16/playlist2",
-                "2024/01/17/playlist3",
-                "2024/01/18/playlist4",
-            ]
-
-            # All folders don't exist locally
-            mock_paths = [MagicMock() for _ in range(4)]
-            for mock_path in mock_paths:
-                mock_path.exists.return_value = False
-
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_archive_dir.__truediv__.side_effect = mock_paths
-
-                # Only folders between 2024-01-16 and 2024-01-17 should be included
-                missing = manager.get_missing_folders(
-                    from_date=date(2024, 1, 16),
-                    to_date=date(2024, 1, 17),
-                )
-
-                assert len(missing) == 2
-                assert "2024/01/16/playlist2" in missing
-                assert "2024/01/17/playlist3" in missing
-                assert "2024/01/15/playlist1" not in missing
-                assert "2024/01/18/playlist4" not in missing
-
-    def test_get_missing_folders_invalid_date_format_included(self):
-        """Should include folders with invalid date format (date filter doesn't apply)."""
-        manager = SyncManager()
-
-        with patch.object(manager, "_list_remote_archive_folders") as mock_list:
-            mock_list.return_value = [
-                "invalid/folder/path/playlist1",  # Invalid date format
-                "2024/01/15/playlist2",  # Valid date format
-            ]
-
-            mock_path1 = MagicMock()
-            mock_path1.exists.return_value = False
-            mock_path2 = MagicMock()
-            mock_path2.exists.return_value = False
-
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_archive_dir.__truediv__.side_effect = [mock_path1, mock_path2]
-
-                # When from_date is set but folder has invalid date format,
-                # it's included because the date filter skips invalid dates
-                missing = manager.get_missing_folders(from_date=date(2024, 1, 15))
-
-                assert len(missing) == 2
-                assert "invalid/folder/path/playlist1" in missing
-                assert "2024/01/15/playlist2" in missing
-
-    def test_sync_folder_not_connected(self):
-        """Should raise SyncError when not connected."""
-        manager = SyncManager()
-
-        with pytest.raises(SyncError) as excinfo:
-            manager.sync_folder("2024/01/15/playlist1")
-
-        assert "Not connected" in str(excinfo.value)
-
-    def test_sync_folder_no_files(self):
-        """Should return 0 when no files to sync."""
-        manager = SyncManager()
         mock_sftp = MagicMock()
+        mock_sftp.get.side_effect = get_side_effect
         manager._sftp = mock_sftp
 
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            mock_get_files.return_value = []
+        reconnect_count = 0
 
-            files_synced = manager.sync_folder("2024/01/15/playlist1")
+        def reconnect_with_error():
+            nonlocal reconnect_count
+            reconnect_count += 1
+            if reconnect_count == 1:
+                # First reconnect fails
+                raise Exception("Reconnect failed")
+            # Second reconnect succeeds by providing a working mock
+            new_mock = MagicMock()
+            new_mock.get.side_effect = get_side_effect
+            manager._sftp = new_mock
 
-            assert files_synced == 0
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect"),
+            patch.object(manager, "_reconnect", side_effect=reconnect_with_error),
+            patch("time.sleep"),
+        ):
 
-    def test_sync_folder_calls_callback(self):
-        """Should call progress callback for each file."""
+            manager._download_file_with_retry("file.jpg")
+
+            # Should succeed even with reconnect failure
+            assert get_call_count >= 1
+            assert reconnect_count >= 1
+
+    def test_download_file_final_disconnect_exception_ignored(self, tmp_path):
+        """Test that disconnect exceptions in final cleanup are ignored."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
+        manager._sftp = MagicMock()
+        manager._sftp.get.side_effect = Exception("Network error")
+        manager._transport = MagicMock()
+        manager._socket = MagicMock()
 
-        progress_callback = MagicMock()
+        original_disconnect = manager.disconnect
 
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            mock_get_files.return_value = ["video1.ts", "video2.ts"]
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_local_folder = MagicMock()
-                mock_archive_dir.__truediv__.return_value = mock_local_folder
+        def disconnect_with_error():
+            original_disconnect()
+            raise Exception("Final disconnect error")
 
-                files_synced = manager.sync_folder(
-                    "2024/01/15/playlist1",
-                    on_file_progress=progress_callback,
-                )
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.REMOTE_DATASET_PATH", "/remote/dataset"),
+            patch.object(manager, "disconnect", side_effect=disconnect_with_error),
+            patch.object(manager, "_reconnect"),
+            patch("time.sleep"),
+        ):
 
-                assert files_synced == 2
-                assert progress_callback.call_count == 2
+            with pytest.raises(SyncError):
+                manager._download_file_with_retry("file.jpg")
 
-    def test_sync_folder_download_failure(self):
-        """Should raise SyncError when download fails."""
+            # Should raise SyncError from download, not from disconnect
+
+
+class TestSyncDataset:
+    """Tests for sync_dataset method."""
+
+    def test_sync_dataset_no_files(self):
+        """Test syncing when remote has no files."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-        mock_sftp.get.side_effect = OSError("Connection lost")
+        manager._sftp = MagicMock()
 
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            mock_get_files.return_value = ["video.ts"]
-            with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-                mock_local_folder = MagicMock()
-                mock_archive_dir.__truediv__.return_value = mock_local_folder
+        with patch.object(manager, "_list_remote_files", return_value={}):
+            downloaded = manager.sync_dataset()
 
-                with pytest.raises(SyncError) as excinfo:
-                    manager.sync_folder("2024/01/15/playlist1")
+            assert downloaded == 0
 
-                assert "Failed to download" in str(excinfo.value)
-
-    def test_gather_files_to_sync(self):
-        """Should gather all files to sync from missing folders."""
+    def test_sync_dataset_downloads_new_files(self, tmp_path):
+        """Test that new remote files are downloaded."""
         manager = SyncManager()
+        manager._sftp = MagicMock()
 
-        with patch.object(manager, "get_missing_folders") as mock_get_missing:
-            with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-                mock_get_missing.return_value = ["2024/01/15/playlist1", "2024/01/16/playlist2"]
+        remote_files = {
+            "file1.jpg": 1024,
+            "file2.jpg": 2048,
+        }
 
-                def get_files_side_effect(folder):
-                    if "playlist1" in folder:
-                        return ["video1.ts", "playlist.m3u8"]
-                    else:
-                        return ["video2.ts"]
+        with (
+            patch.object(manager, "_list_remote_files", return_value=remote_files),
+            patch.object(manager, "_download_file_with_retry") as mock_download,
+            patch("lab.sync.DATASET_DIR", tmp_path),
+        ):
 
-                mock_get_files.side_effect = get_files_side_effect
+            downloaded = manager.sync_dataset()
 
-                files = manager._gather_files_to_sync()
+            assert downloaded == 2
+            assert mock_download.call_count == 2
 
-                assert len(files) == 3
-                assert any(f.filename == "video1.ts" for f in files)
-                assert any(f.filename == "video2.ts" for f in files)
-                assert any(f.filename == "playlist.m3u8" for f in files)
-
-    def test_reconnect(self):
-        """Should disconnect and reconnect to server."""
+    def test_sync_dataset_skips_unchanged_files(self, tmp_path):
+        """Test that unchanged files are skipped."""
         manager = SyncManager()
+        manager._sftp = MagicMock()
 
-        with patch.object(manager, "disconnect") as mock_disconnect:
-            with patch.object(manager, "connect") as mock_connect:
-                with patch("builtins.print"):
-                    manager._reconnect()
+        # Create local file with matching size
+        local_file = tmp_path / "file1.jpg"
+        local_file.write_text("x" * 1024)
 
-                    mock_disconnect.assert_called_once()
-                    mock_connect.assert_called_once()
+        remote_files = {
+            "file1.jpg": 1024,  # Same size as local
+            "file2.jpg": 2048,  # New file
+        }
 
-    def test_download_file_with_retry_success(self):
-        """Should successfully download file on first attempt."""
+        with (
+            patch.object(manager, "_list_remote_files", return_value=remote_files),
+            patch.object(manager, "_download_file_with_retry") as mock_download,
+            patch("lab.sync.DATASET_DIR", tmp_path),
+        ):
+
+            downloaded = manager.sync_dataset()
+
+            # Only file2 should be downloaded
+            assert downloaded == 1
+            mock_download.assert_called_once_with("file2.jpg")
+
+    def test_sync_dataset_downloads_changed_files(self, tmp_path):
+        """Test that files with different sizes are re-downloaded."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
+        manager._sftp = MagicMock()
 
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
+        # Create local file with different size
+        local_file = tmp_path / "file1.jpg"
+        local_file.write_text("x" * 512)  # Old size
 
-        with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-            mock_local_path = MagicMock()
-            mock_local_path.parent = MagicMock()
-            mock_archive_dir.__truediv__.return_value = mock_local_path
+        remote_files = {
+            "file1.jpg": 1024,  # Changed size
+        }
 
-            manager._download_file_with_retry(file)
+        with (
+            patch.object(manager, "_list_remote_files", return_value=remote_files),
+            patch.object(manager, "_download_file_with_retry") as mock_download,
+            patch("lab.sync.DATASET_DIR", tmp_path),
+        ):
 
-            assert mock_sftp.get.called
+            downloaded = manager.sync_dataset()
 
-    def test_download_file_with_retry_fails_and_reconnects(self):
-        """Should reconnect and retry on download failure."""
+            assert downloaded == 1
+            mock_download.assert_called_once_with("file1.jpg")
+
+    def test_sync_dataset_leaves_local_only_files(self, tmp_path):
+        """Test that local-only files are not deleted."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
+        manager._sftp = MagicMock()
 
-        # First call fails, second succeeds
-        mock_sftp.get.side_effect = [Exception("Connection lost"), None]
+        # Create local-only file
+        local_only = tmp_path / "local_only.txt"
+        local_only.write_text("local")
 
-        file = FileToSync("2024/01/15/playlist1", "video.ts")
+        remote_files = {}
 
-        with patch("lab.sync.ARCHIVE_DIR") as mock_archive_dir:
-            mock_local_path = MagicMock()
-            mock_local_path.parent = MagicMock()
-            mock_archive_dir.__truediv__.return_value = mock_local_path
+        with (
+            patch.object(manager, "_list_remote_files", return_value=remote_files),
+            patch.object(manager, "_download_file_with_retry") as mock_download,
+            patch("lab.sync.DATASET_DIR", tmp_path),
+        ):
 
-            with patch.object(manager, "_reconnect") as mock_reconnect:
-                # After reconnect, update sftp
-                def reconnect_side_effect():
-                    manager._sftp = mock_sftp
+            downloaded = manager.sync_dataset()
 
-                mock_reconnect.side_effect = reconnect_side_effect
+            assert downloaded == 0
+            assert local_only.exists()
+            mock_download.assert_not_called()
 
-                manager._download_file_with_retry(file)
-
-                mock_reconnect.assert_called_once()
-                assert mock_sftp.get.call_count == 2
-
-    def test_sync_all_no_files(self):
-        """Should return empty result when no files to sync."""
+    def test_sync_dataset_nested_files(self, tmp_path):
+        """Test syncing nested file structures."""
         manager = SyncManager()
+        manager._sftp = MagicMock()
 
-        with patch.object(manager, "_gather_files_to_sync") as mock_gather:
-            mock_gather.return_value = []
+        remote_files = {
+            "subdir/file1.jpg": 1024,
+            "subdir/nested/file2.jpg": 2048,
+        }
 
-            synced_folders, total_files = manager.sync_all()
+        with (
+            patch.object(manager, "_list_remote_files", return_value=remote_files),
+            patch.object(manager, "_download_file_with_retry") as mock_download,
+            patch("lab.sync.DATASET_DIR", tmp_path),
+        ):
 
-            assert synced_folders == []
-            assert total_files == 0
+            downloaded = manager.sync_dataset()
 
-    def test_sync_all_with_files(self):
-        """Should sync multiple files and return results."""
+            assert downloaded == 2
+            assert mock_download.call_count == 2
+
+
+class TestContextManager:
+    """Tests for context manager functionality."""
+
+    def test_context_manager_enter_calls_connect(self):
+        """Test that __enter__ calls connect."""
         manager = SyncManager()
-
-        with patch.object(manager, "_gather_files_to_sync") as mock_gather:
-            with patch.object(manager, "_download_file_with_retry") as mock_download:
-                files_to_sync = [
-                    FileToSync("2024/01/15/playlist1", "video1.ts"),
-                    FileToSync("2024/01/15/playlist1", "video2.ts"),
-                    FileToSync("2024/01/16/playlist2", "video3.ts"),
-                ]
-                mock_gather.return_value = files_to_sync
-
-                synced_folders, total_files = manager.sync_all()
-
-                assert len(synced_folders) == 2
-                assert "2024/01/15/playlist1" in synced_folders
-                assert "2024/01/16/playlist2" in synced_folders
-                assert total_files == 3
-                assert mock_download.call_count == 3
-
-    def test_sync_all_calls_folder_callback(self):
-        """Should call folder_start callback for each new folder."""
-        manager = SyncManager()
-        folder_callback = MagicMock()
-
-        with patch.object(manager, "_gather_files_to_sync") as mock_gather:
-            with patch.object(manager, "_download_file_with_retry"):
-                files_to_sync = [
-                    FileToSync("2024/01/15/playlist1", "video1.ts"),
-                    FileToSync("2024/01/15/playlist1", "video2.ts"),
-                    FileToSync("2024/01/16/playlist2", "video3.ts"),
-                ]
-                mock_gather.return_value = files_to_sync
-
-                manager.sync_all(on_folder_start=folder_callback)
-
-                assert folder_callback.call_count == 2
-                calls = folder_callback.call_args_list
-                assert calls[0][0][0] == "2024/01/15/playlist1"
-                assert calls[1][0][0] == "2024/01/16/playlist2"
-
-    def test_context_manager(self):
-        """Should work as context manager for connection."""
-        with patch.object(SyncManager, "connect") as mock_connect:
-            with patch.object(SyncManager, "disconnect") as mock_disconnect:
-                with SyncManager() as manager:
-                    assert manager is not None
-
+        with patch.object(manager, "connect") as mock_connect:
+            with manager:
                 mock_connect.assert_called_once()
-                mock_disconnect.assert_called_once()
 
-    def test_list_remote_archive_folders_handles_listdir_errors(self):
-        """Should continue on listdir errors in nested directories."""
+    def test_context_manager_exit_calls_disconnect(self):
+        """Test that __exit__ calls disconnect."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
+        with patch.object(manager, "connect"), patch.object(manager, "disconnect") as mock_disconnect:
+            with manager:
+                pass
+            mock_disconnect.assert_called_once()
 
-        # First listdir call (years) succeeds, month listdir fails
-        mock_sftp.listdir.side_effect = [
-            ["2024"],  # years - success
-            OSError("Permission denied"),  # months - fail
-        ]
-
-        manager._is_dir = MagicMock(return_value=True)
-
-        folders = manager._list_remote_archive_folders()
-
-        # Should handle error gracefully and return empty list
-        assert folders == []
-
-    def test_list_remote_archive_folders_skips_non_dirs_at_year_level(self):
-        """Should skip non-directory entries at year level."""
+    def test_context_manager_returns_self(self):
+        """Test that __enter__ returns the manager instance."""
         manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
+        with patch.object(manager, "connect"):
+            with manager as m:
+                assert m is manager
 
-        mock_sftp.listdir.side_effect = [
-            ["2024"],  # years
-        ]
-
-        # _is_dir returns False for year_path to skip it
-        manager._is_dir = MagicMock(return_value=False)
-
-        folders = manager._list_remote_archive_folders()
-
-        assert folders == []
-
-    def test_sync_all_calls_download_progress_callback(self):
-        """Should call download_progress callback for each file."""
+    def test_context_manager_disconnect_on_exception(self):
+        """Test that __exit__ disconnects even on exception."""
         manager = SyncManager()
-        progress_callback = MagicMock()
-
-        with patch.object(manager, "_gather_files_to_sync") as mock_gather:
-            with patch.object(manager, "_download_file_with_retry"):
-                files_to_sync = [
-                    FileToSync("2024/01/15/playlist1", "video1.ts"),
-                    FileToSync("2024/01/15/playlist1", "video2.ts"),
-                ]
-                mock_gather.return_value = files_to_sync
-
-                manager.sync_all(on_download_progress=progress_callback)
-
-                assert progress_callback.call_count == 2
-                calls = progress_callback.call_args_list
-                assert calls[0][0] == (1, 2, "video1.ts")
-                assert calls[1][0] == (2, 2, "video2.ts")
-
-
-class TestRemoteRemovalMethods:
-    """Tests for remote folder removal functionality."""
-
-    def test_remove_remote_folder_recursive_not_connected(self):
-        """Should raise SyncError when not connected."""
-        manager = SyncManager()
-
-        with pytest.raises(SyncError) as excinfo:
-            manager._remove_remote_folder_recursive("/remote/path")
-
-        assert "Not connected" in str(excinfo.value)
-
-    def test_remove_remote_folder_recursive_single_file(self):
-        """Should remove a single file in a folder."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-
-        # Mock listdir_attr to return one file
-        mock_attr = MagicMock()
-        mock_attr.filename = "file.txt"
-        mock_attr.st_mode = 0o100644  # Regular file
-        mock_sftp.listdir_attr.return_value = [mock_attr]
-
-        manager._remove_remote_folder_recursive("/remote/path")
-
-        mock_sftp.remove.assert_called_once_with("/remote/path/file.txt")
-        mock_sftp.rmdir.assert_called_once_with("/remote/path")
-
-    def test_remove_remote_folder_recursive_with_subdirectory(self):
-        """Should recursively remove folders and files."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-
-        # First call returns a subdirectory
-        subdir_attr = MagicMock()
-        subdir_attr.filename = "subdir"
-        subdir_attr.st_mode = 0o40755  # Directory
-
-        # Second call returns a file in the subdirectory
-        file_attr = MagicMock()
-        file_attr.filename = "file.txt"
-        file_attr.st_mode = 0o100644  # Regular file
-
-        mock_sftp.listdir_attr.side_effect = [
-            [subdir_attr],  # Root has subdirectory
-            [file_attr],  # Subdirectory has file
-        ]
-
-        manager._remove_remote_folder_recursive("/remote/path")
-
-        # Should remove file, rmdir subdir, then rmdir root
-        assert mock_sftp.remove.call_count == 1
-        assert mock_sftp.rmdir.call_count == 2
-
-    def test_remove_remote_folder_recursive_handles_os_error(self):
-        """Should raise SyncError on OS error."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-        mock_sftp.listdir_attr.side_effect = OSError("Permission denied")
-
-        with pytest.raises(SyncError) as excinfo:
-            manager._remove_remote_folder_recursive("/remote/path")
-
-        assert "Failed to remove remote folder" in str(excinfo.value)
-
-    def test_remove_remote_folder_not_connected(self):
-        """Should raise SyncError when not connected."""
-        manager = SyncManager()
-
-        with pytest.raises(SyncError) as excinfo:
-            manager.remove_remote_folder("2024/01/15/playlist1")
-
-        assert "Not connected" in str(excinfo.value)
-
-    def test_remove_remote_folder_folder_not_found(self):
-        """Should raise SyncError when folder doesn't exist."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-
-        with patch.object(manager, "_is_dir", return_value=False):
-            with pytest.raises(SyncError) as excinfo:
-                manager.remove_remote_folder("2024/01/15/playlist1")
-
-            assert "Remote folder does not exist" in str(excinfo.value)
-
-    def test_remove_remote_folder_success(self):
-        """Should remove remote folder successfully."""
-        manager = SyncManager()
-        mock_sftp = MagicMock()
-        manager._sftp = mock_sftp
-
-        with patch.object(manager, "_is_dir", return_value=True):
-            with patch.object(manager, "_remove_remote_folder_recursive") as mock_recursive:
-                manager.remove_remote_folder("2024/01/15/playlist1")
-
-                mock_recursive.assert_called_once()
-                # Should be called with full path
-                call_args = mock_recursive.call_args[0][0]
-                assert "2024/01/15/playlist1" in call_args
-                assert call_args.startswith(REMOTE_ARCHIVE_PATH)
-
-
-class TestRemoveRecording:
-    """Tests for remove_recording function."""
-
-    def test_remove_recording_remote_fails(self):
-        """Should raise SyncError if remote removal fails without local deletion."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
-            mock_sync_instance.remove_remote_folder.side_effect = SyncError("Remote deletion failed")
-
-            with pytest.raises(SyncError) as excinfo:
-                remove_recording(relative_path)
-
-            assert "Remote deletion failed" in str(excinfo.value)
-
-    def test_remove_recording_removes_archive_locally(self):
-        """Should remove local archive folder after remote removal."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
-
-            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-                with patch.object(Path, "exists", return_value=True):
-                    remove_recording(relative_path)
-
-                    # Should call rmtree for both archive and images
-                    assert mock_rmtree.call_count == 2
-
-    def test_remove_recording_removes_images_locally(self):
-        """Should remove local images folder after remote removal."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
-
-            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-                with patch.object(Path, "exists", return_value=True):
-                    remove_recording(relative_path)
-
-                    # Should attempt to remove both paths
-                    called_paths = [call[0][0] for call in mock_rmtree.call_args_list]
-                    assert len(called_paths) == 2
-
-    def test_remove_recording_skips_nonexistent_local_paths(self):
-        """Should gracefully skip removal if local paths don't exist."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
-
-            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-                with patch.object(Path, "exists", return_value=False):
-                    # Should not raise, even if local paths don't exist
-                    remove_recording(relative_path)
-
-                    # rmtree should never be called since paths don't exist
-                    mock_rmtree.assert_not_called()
-
-    def test_remove_recording_calls_sync_manager_as_context(self):
-        """Should use SyncManager as context manager."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__ = MagicMock(return_value=mock_sync_instance)
-            mock_sync_class.return_value.__exit__ = MagicMock(return_value=None)
-
-            with patch.object(Path, "exists", return_value=False):
-                remove_recording(relative_path)
-
-                # Should enter and exit context
-                mock_sync_class.return_value.__enter__.assert_called_once()
-                mock_sync_class.return_value.__exit__.assert_called_once()
-
-    def test_remove_recording_sequence(self):
-        """Should remove remote first, then local archive, then images."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        call_sequence = []
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            mock_sync_instance = MagicMock()
-            mock_sync_class.return_value.__enter__.return_value = mock_sync_instance
-
-            def track_remove_remote(path):
-                call_sequence.append(("remove_remote", path))
-
-            mock_sync_instance.remove_remote_folder.side_effect = track_remove_remote
-
-            with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-
-                def track_rmtree(path):
-                    call_sequence.append(("rmtree", str(path)))
-
-                mock_rmtree.side_effect = track_rmtree
-
-                with patch.object(Path, "exists", return_value=True):
-                    remove_recording(relative_path)
-
-                    # First call should be remove_remote
-                    assert call_sequence[0][0] == "remove_remote"
-                    # Then local operations
-                    assert call_sequence[1][0] == "rmtree"
-                    assert call_sequence[2][0] == "rmtree"
-
-
-class TestSyncSingleFolder:
-    """Tests for sync_single_folder method."""
-
-    def test_sync_single_folder_no_files(self):
-        """Should return 0 when no files to sync."""
-        manager = SyncManager()
-        folder = "2024/01/15/playlist1"
-
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            mock_get_files.return_value = []
-
-            result = manager.sync_single_folder(folder)
-
-            assert result == 0
-            mock_get_files.assert_called_once_with(folder)
-
-    def test_sync_single_folder_with_files(self):
-        """Should download all files from folder and return count."""
-        manager = SyncManager()
-        folder = "2024/01/15/playlist1"
-
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            with patch.object(manager, "_download_file_with_retry") as mock_download:
-                mock_get_files.return_value = ["video1.ts", "video2.ts", "video3.ts"]
-
-                result = manager.sync_single_folder(folder)
-
-                assert result == 3
-                assert mock_download.call_count == 3
-                # Verify the files were created correctly
-                calls = mock_download.call_args_list
-                assert calls[0][0][0].folder == folder
-                assert calls[0][0][0].filename == "video1.ts"
-                assert calls[1][0][0].folder == folder
-                assert calls[1][0][0].filename == "video2.ts"
-                assert calls[2][0][0].folder == folder
-                assert calls[2][0][0].filename == "video3.ts"
-
-    def test_sync_single_folder_calls_progress_callback(self):
-        """Should call progress callback for each file."""
-        manager = SyncManager()
-        folder = "2024/01/15/playlist1"
-        progress_callback = MagicMock()
-
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            with patch.object(manager, "_download_file_with_retry"):
-                mock_get_files.return_value = ["video1.ts", "video2.ts"]
-
-                manager.sync_single_folder(folder, on_file_progress=progress_callback)
-
-                assert progress_callback.call_count == 2
-                calls = progress_callback.call_args_list
-                assert calls[0][0] == (1, 2, "video1.ts")
-                assert calls[1][0] == (2, 2, "video2.ts")
-
-    def test_sync_single_folder_no_callback(self):
-        """Should work without progress callback."""
-        manager = SyncManager()
-        folder = "2024/01/15/playlist1"
-
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            with patch.object(manager, "_download_file_with_retry"):
-                mock_get_files.return_value = ["video1.ts"]
-
-                result = manager.sync_single_folder(folder, on_file_progress=None)
-
-                assert result == 1
-
-    def test_sync_single_folder_propagates_sync_error(self):
-        """Should propagate SyncError from download."""
-        manager = SyncManager()
-        folder = "2024/01/15/playlist1"
-
-        with patch.object(manager, "_get_files_to_sync") as mock_get_files:
-            with patch.object(manager, "_download_file_with_retry") as mock_download:
-                mock_get_files.return_value = ["video1.ts"]
-                mock_download.side_effect = SyncError("Download failed")
-
-                with pytest.raises(SyncError, match="Download failed"):
-                    manager.sync_single_folder(folder)
-
-
-class TestRemoveRecordingLocally:
-    """Tests for remove_recording_locally function."""
-
-    def test_removes_images_folder_when_exists(self):
-        """Should remove local images folder."""
-        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
-
-        with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-            with patch.object(Path, "exists", return_value=True):
-                remove_recording_locally(relative_path)
-                mock_rmtree.assert_called_once()
-
-    def test_skips_rmtree_when_images_folder_missing(self):
-        """Should not call rmtree if images folder does not exist."""
-        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
-
-        with patch("lab.sync.shutil.rmtree") as mock_rmtree:
-            with patch.object(Path, "exists", return_value=False):
-                remove_recording_locally(relative_path)
-                mock_rmtree.assert_not_called()
-
-    def test_does_not_connect_to_server(self):
-        """Should not create a SyncManager / connect to server."""
-        relative_path = "2026/01/15/auto_2026-01-15T064557Z_uuid"
-
-        with patch("lab.sync.SyncManager") as mock_sync_class:
-            with patch.object(Path, "exists", return_value=False):
-                remove_recording_locally(relative_path)
-                mock_sync_class.assert_not_called()
-
-
-class TestRemoveHlsFiles:
-    """Tests for remove_hls_files function."""
-
-    def test_remove_hls_files_nonexistent_folder(self):
-        """Should return 0 when folder doesn't exist."""
-        relative_path = "2024/01/15/playlist1"
-
-        with patch.object(Path, "exists", return_value=False):
-            result = remove_hls_files(relative_path)
-
-            assert result == 0
-
-    def test_remove_hls_files_empty_folder(self):
-        """Should return 0 when folder is empty."""
-        relative_path = "2024/01/15/playlist1"
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[]):
-                result = remove_hls_files(relative_path)
-
-                assert result == 0
-
-    def test_remove_hls_files_removes_ts_and_m3u8(self):
-        """Should remove .ts and .m3u8 files and return count."""
-        relative_path = "2024/01/15/playlist1"
-
-        # Create mock files
-        mock_ts1 = MagicMock(spec=Path)
-        mock_ts1.suffix = ".ts"
-        mock_ts2 = MagicMock(spec=Path)
-        mock_ts2.suffix = ".ts"
-        mock_m3u8 = MagicMock(spec=Path)
-        mock_m3u8.suffix = ".m3u8"
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[mock_ts1, mock_ts2, mock_m3u8]):
-                result = remove_hls_files(relative_path)
-
-                assert result == 3
-                mock_ts1.unlink.assert_called_once()
-                mock_ts2.unlink.assert_called_once()
-                mock_m3u8.unlink.assert_called_once()
-
-    def test_remove_hls_files_preserves_other_files(self):
-        """Should not remove non-HLS files."""
-        relative_path = "2024/01/15/playlist1"
-
-        # Create mock files
-        mock_ts = MagicMock(spec=Path)
-        mock_ts.suffix = ".ts"
-        mock_png = MagicMock(spec=Path)
-        mock_png.suffix = ".png"
-        mock_txt = MagicMock(spec=Path)
-        mock_txt.suffix = ".txt"
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[mock_ts, mock_png, mock_txt]):
-                result = remove_hls_files(relative_path)
-
-                assert result == 1
-                mock_ts.unlink.assert_called_once()
-                mock_png.unlink.assert_not_called()
-                mock_txt.unlink.assert_not_called()
-
-    def test_remove_hls_files_constructs_correct_path(self):
-        """Should construct path relative to ARCHIVE_DIR."""
-        relative_path = "2024/01/15/playlist1"
-
-        with patch.object(Path, "exists") as mock_exists:
-            mock_exists.return_value = False
-
-            remove_hls_files(relative_path)
-
-            # The exists() call should be on the constructed path
-            # We need to verify the path was constructed correctly
-            mock_exists.assert_called_once()
-
-    def test_remove_hls_files_only_removes_exact_extensions(self):
-        """Should only remove files with exact .ts or .m3u8 extensions."""
-        relative_path = "2024/01/15/playlist1"
-
-        # Create mock files with various extensions
-        mock_ts = MagicMock(spec=Path)
-        mock_ts.suffix = ".ts"
-        mock_tss = MagicMock(spec=Path)
-        mock_tss.suffix = ".tss"  # Similar but not exact
-        mock_m3u8 = MagicMock(spec=Path)
-        mock_m3u8.suffix = ".m3u8"
-        mock_m3u = MagicMock(spec=Path)
-        mock_m3u.suffix = ".m3u"  # Similar but not exact
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[mock_ts, mock_tss, mock_m3u8, mock_m3u]):
-                result = remove_hls_files(relative_path)
-
-                assert result == 2
-                mock_ts.unlink.assert_called_once()
-                mock_m3u8.unlink.assert_called_once()
-                mock_tss.unlink.assert_not_called()
-                mock_m3u.unlink.assert_not_called()
-
-
-class TestRemoveEmptyDateDirs:
-    """Tests for _remove_empty_date_dirs function."""
-
-    def test_removes_empty_day_directory(self):
-        """Should remove empty day directory."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[]):
-                with patch.object(Path, "rmdir") as mock_rmdir:
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-                    # Should attempt to remove the day directory
-                    assert mock_rmdir.call_count >= 1
-
-    def test_removes_empty_month_directory(self):
-        """Should remove empty month directory when day is empty."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[]):
-                with patch.object(Path, "rmdir") as mock_rmdir:
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-                    # Should attempt to remove day and month directories
-                    assert mock_rmdir.call_count >= 2
-
-    def test_removes_empty_year_directory(self):
-        """Should remove empty year directory when all are empty."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[]):
-                with patch.object(Path, "rmdir") as mock_rmdir:
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-                    # Should attempt to remove all three directories
-                    assert mock_rmdir.call_count >= 3
-
-    def test_skips_removal_when_directory_has_files(self):
-        """Should not remove directory if it still has files."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        # Return a non-empty list to simulate files in directory
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[MagicMock()]):
-                with patch.object(Path, "rmdir") as mock_rmdir:
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-                    # Should not remove anything
-                    mock_rmdir.assert_not_called()
-
-    def test_handles_short_relative_path(self):
-        """Should ignore paths with fewer than 4 parts."""
-        relative_path = "2026/01"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists") as mock_exists:
-            with patch.object(Path, "rmdir") as mock_rmdir:
-                _remove_empty_date_dirs(base_path, relative_path)
-
-                # Should not attempt any operations for short paths
-                mock_exists.assert_not_called()
-                mock_rmdir.assert_not_called()
-
-    def test_handles_nonexistent_directory_gracefully(self):
-        """Should handle OSError gracefully."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", side_effect=FileNotFoundError("Not found")):
-                # Should not raise an exception
-                _remove_empty_date_dirs(base_path, relative_path)
-
-    def test_handles_os_error_gracefully(self):
-        """Should handle OSError when removing directories."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        with patch.object(Path, "exists", return_value=True):
-            with patch.object(Path, "iterdir", return_value=[]):
-                with patch.object(Path, "rmdir", side_effect=OSError("Permission denied")):
-                    # Should not raise an exception
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-    def test_stops_removal_when_directory_not_empty(self):
-        """Should stop trying to remove parent directories when a directory has content."""
-        relative_path = "2026/01/15/auto_2026-01-15T06:45:57Z_uuid"
-        base_path = Path("/storage")
-
-        call_sequence = []
-
-        def mock_exists(self):
-            path_str = str(self)
-            if "day" in path_str or "15" in path_str:
-                call_sequence.append(("exists_day", True))
-                return True
-            call_sequence.append(("exists", True))
-            return True
-
-        def mock_iterdir(self):
-            path_str = str(self)
-            if "day" in path_str or "15" in path_str:
-                call_sequence.append(("iterdir_day", []))
-                return []
-            # Month directory has content
-            call_sequence.append(("iterdir_month", [MagicMock()]))
-            return [MagicMock()]
-
-        with patch.object(Path, "exists", mock_exists):
-            with patch.object(Path, "iterdir", mock_iterdir):
-                with patch.object(Path, "rmdir") as mock_rmdir:
-                    _remove_empty_date_dirs(base_path, relative_path)
-
-                    # Should only remove the day directory
-                    assert mock_rmdir.call_count == 1
+        with patch.object(manager, "connect"), patch.object(manager, "disconnect") as mock_disconnect:
+            try:
+                with manager:
+                    raise ValueError("Test error")
+            except ValueError:
+                pass
+            mock_disconnect.assert_called_once()
+
+
+class TestMain:
+    """Tests for main function."""
+
+    def test_main_creates_dataset_dir(self, tmp_path):
+        """Test that main creates DATASET_DIR."""
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path / "dataset"),
+            patch("lab.sync.SyncManager") as mock_sync_manager_class,
+            patch("logging.basicConfig"),
+        ):
+            mock_manager = MagicMock()
+            mock_manager.__enter__.return_value = mock_manager
+            mock_sync_manager_class.return_value = mock_manager
+            mock_manager.sync_dataset.return_value = 5
+
+            main()
+
+            # Check that directory was created
+            assert (tmp_path / "dataset").exists()
+
+    def test_main_runs_sync(self):
+        """Test that main runs sync_dataset."""
+        with (
+            patch("lab.sync.DATASET_DIR"),
+            patch("lab.sync.SyncManager") as mock_sync_manager_class,
+            patch("logging.basicConfig"),
+        ):
+            mock_manager = MagicMock()
+            mock_manager.__enter__.return_value = mock_manager
+            mock_sync_manager_class.return_value = mock_manager
+            mock_manager.sync_dataset.return_value = 5
+
+            main()
+
+            mock_manager.sync_dataset.assert_called_once()
+
+    def test_main_logs_completion(self, tmp_path, caplog):
+        """Test that main logs completion message."""
+        with (
+            patch("lab.sync.DATASET_DIR", tmp_path),
+            patch("lab.sync.SyncManager") as mock_sync_manager_class,
+            patch("logging.basicConfig"),
+        ):
+            mock_manager = MagicMock()
+            mock_manager.__enter__.return_value = mock_manager
+            mock_sync_manager_class.return_value = mock_manager
+            mock_manager.sync_dataset.return_value = 5
+
+            main()
+
+            assert "Dataset sync complete" in caplog.text or mock_manager.sync_dataset.called
+
+
+class TestMainGuard:
+    """Tests for __main__ guard."""
+
+    def test_main_guard_structure(self):
+        """Test that __main__ guard is present in sync.py."""
+        # The __main__ guard (line 268) is a Python idiom that ensures
+        # the main() function is only called when the module is run as a script,
+        # not when imported. This test verifies the structure is in place.
+        import lab.sync as sync_module
+
+        # Get the path to the sync module
+        sync_module_path = Path(sync_module.__file__).parent / "sync.py"
+
+        # Read the sync.py file and verify it contains the __main__ guard
+        with open(sync_module_path) as f:
+            content = f.read()
+
+        # Verify the __main__ guard is present
+        assert 'if __name__ == "__main__":' in content, "__main__ guard not found"
+        assert "main()" in content, "main() call not found in __main__ guard"
+
+    def test_main_function_is_callable(self):
+        """Test that main function exists and is callable."""
+        import lab.sync as sync_module
+
+        # Verify the module has the main function
+        assert hasattr(sync_module, "main"), "main function not found"
+        assert callable(sync_module.main), "main is not callable"

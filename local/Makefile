@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-run lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check cron-build cron-format cron-check cron-test cron-cleanup
+.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-sync lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check cron-build cron-format cron-check cron-test cron-cleanup
 
 help:
 	@echo "SparrowCam Local Development"
@@ -20,7 +20,7 @@ help:
 	@echo "    MODEL=yolo26n.pt         - Model filename in models/ directory"
 	@echo "  make e2e                   - Run end-to-end integration tests"
 	@echo "  make lab-build             - Build the lab Docker image"
-	@echo "  make lab-run               - Launch lab GUI (files auto-update)"
+	@echo "  make lab-sync              - Sync the YOLO dataset from the Raspberry Pi"
 	@echo "  make lab-format            - Format lab code with black and ruff"
 	@echo "  make lab-check             - Run lint, type and security checks for lab"
 	@echo "  make lab-test              - Run unit tests for lab package"
@@ -119,8 +119,8 @@ e2e:
 lab-build:
 	docker compose -f docker-compose.lab.yml build
 
-lab-run:
-	docker compose -f docker-compose.lab.yml run --rm lab
+lab-sync:
+	docker compose -f docker-compose.lab.yml run --rm --no-deps lab python -m lab.sync
 
 lab-format:
 	docker compose -f docker-compose.lab.yml run --rm --no-deps lab bash -lc "\

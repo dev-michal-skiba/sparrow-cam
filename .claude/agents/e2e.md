@@ -18,6 +18,12 @@ Review implemented changes and update `local/e2e-test.sh` only if necessary.
 
 **WARNING**: A successful e2e run can take up to 10 minutes. Be very skeptical about making changes — only do so when there is strong evidence they are required.
 
+## 0. Skip Packages Out of Scope for E2E
+
+- **lab**: requires a live SSH/SFTP connection to a Raspberry Pi and has no dockerized, user-facing behavior the e2e suite can exercise.
+
+If the only package affected by the changes is one listed above, immediately report that e2e is out of scope for this change and quit — do not proceed to step 1.
+
 ## 1. Understand Changes
 
 - Examine unstaged and staged changes (use `git diff`)

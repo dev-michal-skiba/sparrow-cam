@@ -4,23 +4,28 @@
 
 ## Purpose
 
-Desktop GUI for managing the bird detection dataset, fine-tuning models, and evaluating results.
+Downloads the YOLO dataset from the Raspberry Pi to local storage for use in model fine-tuning.
+The dataset is built incrementally on the Pi by archive_api's annotation worker (see archive_api.md
+"Dataset Generation" section for how images and labels are produced).
 
-## Dataset Splitting
+## Dataset Sync Behavior
 
-The train/val split targets an 80/20 ratio with per-class balancing. Positive and negative frames
-are balanced independently of each other.
+The sync is one-way and additive — it never deletes files. A remote file is downloaded if:
+- It does not exist locally, OR
+- Its size differs from the local copy (indicates re-annotation on the Pi)
 
-## Crop Filtering Rules
+Local-only files (e.g., a manually maintained dataset.yaml) are left untouched. This design
+allows local dataset customization without sync interference.
 
-When a detection region is applied before training, positive frames are kept only if every
-annotation box falls entirely within the crop region. Any frame where even one box extends
-outside is excluded entirely — the frame is not trimmed, it is dropped. Partial overlap
-breaks annotation integrity.
+## Connection Resilience
 
-Negative frames (no annotations) are randomly subsampled after the crop filter runs to
-preserve the same positive-to-negative ratio that existed before filtering.
+Syncs via SFTP using an SSH key mounted from the host (parameterized by ansible_target_host
+and ansible_target_user read from the mounted config file, using the same convention as other
+components). The sync has aggressive retry logic to tolerate flaky Pi connections: if any
+network operation fails, the connection drops, reconnects, and retries the failed file up to 15
+times before giving up.
 
-## Testing Notes
+## Invocation
 
-The GUI has no unit tests and is excluded from coverage. Do not write tests for it.
+Manually invoked via `make -C local lab-sync`, which runs the entry point `python -m lab.sync`
+inside the lab container. No scheduled automation exists yet.

@@ -1,33 +1,18 @@
-"""Sync manager for downloading archive files from production server via SFTP."""
+"""Sync manager for downloading the YOLO dataset from the Raspberry Pi via SFTP."""
 
 from __future__ import annotations
 
-import re
-import shutil
+import logging
 import socket
 import stat
 import time
-from collections.abc import Callable
-from datetime import date
-from pathlib import Path
 
 import paramiko
 import yaml
 
-from lab.constants import (
-    ARCHIVE_DIR,
-    ARCHIVE_FOLDER_PATTERN,
-    CONFIG_PATH,
-    IMAGES_DIR,
-    REMOTE_ARCHIVE_PATH,
-    SSH_KEY_PATH,
-)
+from lab.constants import CONFIG_PATH, DATASET_DIR, REMOTE_DATASET_PATH, SSH_KEY_PATH
 
-# Pattern for date folders: YYYY, MM, DD (numeric)
-DATE_FOLDER_PATTERN = re.compile(r"^\d+$")
-
-
-ProgressCallback = Callable[[int, int, str], None]
+logger = logging.getLogger(__name__)
 
 # Maximum retry attempts for reconnection
 MAX_RETRIES = 15
@@ -43,27 +28,8 @@ class SyncError(Exception):
     """Raised when sync operation fails."""
 
 
-class FileToSync:
-    """Represents a file to be synced from remote to local."""
-
-    def __init__(self, folder: str, filename: str) -> None:
-        self.folder = folder
-        self.filename = filename
-
-    @property
-    def remote_path(self) -> str:
-        return f"{REMOTE_ARCHIVE_PATH}/{self.folder}/{self.filename}"
-
-    @property
-    def local_path(self) -> Path:
-        return ARCHIVE_DIR / self.folder / self.filename
-
-    def __repr__(self) -> str:
-        return f"FileToSync({self.folder}/{self.filename})"
-
-
 class SyncManager:
-    """Manages syncing archive files from remote server via SFTP."""
+    """Manages syncing the dataset directory from the Raspberry Pi via SFTP."""
 
     def __init__(self) -> None:
         self._sftp: paramiko.SFTPClient | None = None
@@ -145,270 +111,9 @@ class SyncManager:
                 pass  # Ignore errors if already closed/broken
             self._socket = None
 
-    def _is_dir(self, path: str) -> bool:
-        """Check if remote path is a directory."""
-        if self._sftp is None:
-            raise SyncError("Not connected")
-        try:
-            stat_result = self._sftp.stat(path)
-            return stat_result.st_mode is not None and (stat_result.st_mode & 0o40000 != 0)
-        except OSError:
-            return False
-
-    def _remove_remote_folder_recursive(self, path: str) -> None:
-        """
-        Recursively remove a remote folder and all its contents.
-
-        Args:
-            path: Full remote path to the folder to remove.
-
-        Raises:
-            SyncError: If not connected or removal fails.
-        """
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        try:
-            for entry in self._sftp.listdir_attr(path):
-                entry_path = f"{path}/{entry.filename}"
-                if entry.st_mode is not None and stat.S_ISDIR(entry.st_mode):
-                    self._remove_remote_folder_recursive(entry_path)
-                else:
-                    self._sftp.remove(entry_path)
-            self._sftp.rmdir(path)
-        except OSError as e:
-            raise SyncError(f"Failed to remove remote folder {path}: {e}") from e
-
-    def _remove_empty_remote_date_dirs(self, relative_path: str) -> None:
-        """Remove empty day/month/year directories on remote after recording removal."""
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        parts = Path(relative_path).parts
-        if len(parts) < 4:
-            return
-        year, month, day = parts[0], parts[1], parts[2]
-
-        try:
-            day_path = f"{REMOTE_ARCHIVE_PATH}/{year}/{month}/{day}"
-            if not self._sftp.listdir(day_path):
-                self._sftp.rmdir(day_path)
-
-                month_path = f"{REMOTE_ARCHIVE_PATH}/{year}/{month}"
-                if not self._sftp.listdir(month_path):
-                    self._sftp.rmdir(month_path)
-
-                    year_path = f"{REMOTE_ARCHIVE_PATH}/{year}"
-                    if not self._sftp.listdir(year_path):
-                        self._sftp.rmdir(year_path)
-        except OSError:
-            pass  # Best effort - don't fail if cleanup fails
-
-    def remove_remote_folder(self, relative_path: str) -> None:
-        """
-        Remove a folder and its contents from the remote server.
-
-        Args:
-            relative_path: Path relative to REMOTE_ARCHIVE_PATH
-                          (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
-
-        Raises:
-            SyncError: If not connected or removal fails.
-        """
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        full_path = f"{REMOTE_ARCHIVE_PATH}/{relative_path}"
-
-        # Verify the folder exists before attempting removal
-        if not self._is_dir(full_path):
-            raise SyncError(f"Remote folder does not exist: {relative_path}")
-
-        self._remove_remote_folder_recursive(full_path)
-
-    def _list_remote_archive_folders(self) -> list[str]:
-        """
-        List all archive folders on remote server.
-
-        Returns paths relative to REMOTE_ARCHIVE_PATH in format:
-        {year}/{month}/{day}/{folder_name}
-        """
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        folders: list[str] = []
-
-        try:
-            years = self._sftp.listdir(REMOTE_ARCHIVE_PATH)
-        except OSError as e:
-            raise SyncError(f"Cannot list remote archive: {e}") from e
-
-        for year in years:
-            if not DATE_FOLDER_PATTERN.match(year):
-                continue
-            year_path = f"{REMOTE_ARCHIVE_PATH}/{year}"
-            if not self._is_dir(year_path):
-                continue
-
-            try:
-                months = self._sftp.listdir(year_path)
-            except OSError:
-                continue
-
-            for month in months:
-                if not DATE_FOLDER_PATTERN.match(month):
-                    continue
-                month_path = f"{year_path}/{month}"
-                if not self._is_dir(month_path):
-                    continue
-
-                try:
-                    days = self._sftp.listdir(month_path)
-                except OSError:
-                    continue
-
-                for day in days:
-                    if not DATE_FOLDER_PATTERN.match(day):
-                        continue
-                    day_path = f"{month_path}/{day}"
-                    if not self._is_dir(day_path):
-                        continue
-
-                    try:
-                        archive_folders = self._sftp.listdir(day_path)
-                    except OSError:
-                        continue
-
-                    for folder in archive_folders:
-                        if ARCHIVE_FOLDER_PATTERN.match(folder):
-                            folder_path = f"{day_path}/{folder}"
-                            if self._is_dir(folder_path):
-                                # Return relative path
-                                folders.append(f"{year}/{month}/{day}/{folder}")
-
-        return folders
-
-    def _get_files_to_sync(self, remote_folder: str) -> list[str]:
-        """
-        Get list of .ts and .m3u8 files in a remote folder.
-
-        Returns filenames (not full paths).
-        """
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        full_path = f"{REMOTE_ARCHIVE_PATH}/{remote_folder}"
-        files: list[str] = []
-
-        try:
-            entries = self._sftp.listdir(full_path)
-            for entry in entries:
-                if entry.endswith(".ts") or entry.endswith(".m3u8"):
-                    files.append(entry)
-        except OSError:
-            pass
-
-        return files
-
-    def get_missing_folders(
-        self,
-        from_date: date | None = None,
-        to_date: date | None = None,
-    ) -> list[str]:
-        """
-        Find remote folders that don't exist locally.
-
-        Args:
-            from_date: If set, only include folders on or after this date (inclusive).
-            to_date: If set, only include folders on or before this date (inclusive).
-
-        Returns list of relative paths like: {year}/{month}/{day}/{folder}
-        """
-        remote_folders = self._list_remote_archive_folders()
-        missing: list[str] = []
-
-        for folder in remote_folders:
-            if from_date is not None or to_date is not None:
-                parts = folder.split("/")
-                if len(parts) >= 3:
-                    try:
-                        folder_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
-                    except ValueError:
-                        pass
-                    else:
-                        if from_date is not None and folder_date < from_date:
-                            continue
-                        if to_date is not None and folder_date > to_date:
-                            continue
-
-            local_path = ARCHIVE_DIR / folder
-            if not local_path.exists():
-                missing.append(folder)
-
-        return missing
-
-    def sync_folder(
-        self,
-        folder: str,
-        on_file_progress: ProgressCallback | None = None,
-    ) -> int:
-        """
-        Download all .ts and .m3u8 files from a remote folder.
-
-        Args:
-            folder: Relative path like {year}/{month}/{day}/{folder_name}
-            on_file_progress: Callback(current_file, total_files, filename)
-
-        Returns:
-            Number of files downloaded.
-        """
-        if self._sftp is None:
-            raise SyncError("Not connected")
-
-        files = self._get_files_to_sync(folder)
-        if not files:
-            return 0
-
-        local_folder = ARCHIVE_DIR / folder
-        local_folder.mkdir(parents=True, exist_ok=True)
-
-        remote_base = f"{REMOTE_ARCHIVE_PATH}/{folder}"
-
-        for idx, filename in enumerate(files):
-            remote_file = f"{remote_base}/{filename}"
-            local_file = local_folder / filename
-
-            if on_file_progress:
-                on_file_progress(idx + 1, len(files), filename)
-
-            try:
-                self._sftp.get(remote_file, str(local_file))
-            except OSError as e:
-                raise SyncError(f"Failed to download {filename}: {e}") from e
-
-        return len(files)
-
-    def _gather_files_to_sync(self) -> list[FileToSync]:
-        """
-        Gather all files that need to be synced.
-
-        Returns:
-            List of FileToSync objects for all missing files.
-        """
-        missing_folders = self.get_missing_folders()
-
-        files_to_sync: list[FileToSync] = []
-
-        for folder in missing_folders:
-            files = self._get_files_to_sync(folder)
-            for filename in files:
-                files_to_sync.append(FileToSync(folder, filename))
-
-        return files_to_sync
-
     def _reconnect(self) -> None:
         """Disconnect and reconnect to the server."""
-        print("Reconnecting to server...")
+        logger.info("Reconnecting to server...")
         # Force cleanup of any stale connections
         try:
             self.disconnect()
@@ -424,14 +129,44 @@ class SyncManager:
         time.sleep(0.5)
         self.connect()
 
-    def _download_file_with_retry(self, file: FileToSync) -> None:
+    def _list_remote_files(self) -> dict[str, int]:
         """
-        Download a single file with retry logic.
+        Recursively list all files under the remote dataset directory.
+
+        Returns:
+            Dict mapping file paths (relative to REMOTE_DATASET_PATH) to their size in bytes.
+        """
+        if self._sftp is None:
+            raise SyncError("Not connected")
+
+        files: dict[str, int] = {}
+
+        def _walk(remote_dir: str, relative_prefix: str) -> None:
+            try:
+                entries = self._sftp.listdir_attr(remote_dir)
+            except OSError as e:
+                raise SyncError(f"Cannot list remote directory {remote_dir}: {e}") from e
+
+            for entry in entries:
+                entry_path = f"{remote_dir}/{entry.filename}"
+                relative_path = f"{relative_prefix}{entry.filename}"
+                if entry.st_mode is not None and stat.S_ISDIR(entry.st_mode):
+                    _walk(entry_path, f"{relative_path}/")
+                else:
+                    files[relative_path] = entry.st_size or 0
+
+        _walk(REMOTE_DATASET_PATH, "")
+        return files
+
+    def _download_file_with_retry(self, relative_path: str) -> None:
+        """
+        Download a single dataset file with retry logic.
 
         If download fails, reconnects and retries up to MAX_RETRIES times.
         """
-        # Ensure local directory exists
-        file.local_path.parent.mkdir(parents=True, exist_ok=True)
+        remote_path = f"{REMOTE_DATASET_PATH}/{relative_path}"
+        local_path = DATASET_DIR / relative_path
+        local_path.parent.mkdir(parents=True, exist_ok=True)
 
         last_error: Exception | None = None
 
@@ -440,11 +175,11 @@ class SyncManager:
                 if self._sftp is None:
                     self._reconnect()
 
-                self._sftp.get(file.remote_path, str(file.local_path))
+                self._sftp.get(remote_path, str(local_path))
                 return  # Success
             except Exception as e:
                 last_error = e
-                print(f"Download failed (attempt {attempt + 1}/{MAX_RETRIES}): {file.filename} - {e}")
+                logger.warning(f"Download failed (attempt {attempt + 1}/{MAX_RETRIES}): {relative_path} - {e}")
 
                 # Properly close all connections before retrying
                 try:
@@ -458,22 +193,22 @@ class SyncManager:
                     self._socket = None
 
                 # Delete partial file if it exists
-                if file.local_path.exists():
+                if local_path.exists():
                     try:
-                        file.local_path.unlink()
+                        local_path.unlink()
                     except OSError:
                         pass
 
                 if attempt < MAX_RETRIES - 1:
                     # Wait before retrying to give the network/server time to recover
-                    print(f"Waiting {RETRY_DELAY}s before retry...")
+                    logger.info(f"Waiting {RETRY_DELAY}s before retry...")
                     time.sleep(RETRY_DELAY)
 
                     # Reconnect and retry
                     try:
                         self._reconnect()
                     except Exception as reconnect_error:
-                        print(f"Reconnect failed: {reconnect_error}")
+                        logger.warning(f"Reconnect failed: {reconnect_error}")
                         # Continue to next attempt, will try reconnect again
 
         # All retries exhausted - ensure cleanup before raising
@@ -481,85 +216,30 @@ class SyncManager:
             self.disconnect()
         except Exception:  # nosec B110
             pass
-        raise SyncError(f"Failed to download {file.filename} after {MAX_RETRIES} attempts") from last_error
+        raise SyncError(f"Failed to download {relative_path} after {MAX_RETRIES} attempts") from last_error
 
-    def sync_single_folder(
-        self,
-        folder: str,
-        on_file_progress: ProgressCallback | None = None,
-    ) -> int:
+    def sync_dataset(self) -> int:
         """
-        Download all .ts and .m3u8 files from a single remote folder with retry logic.
+        Download new or changed dataset files from the Raspberry Pi.
 
-        Args:
-            folder: Relative path like {year}/{month}/{day}/{folder_name}
-            on_file_progress: Callback(current_file, total_files, filename)
+        A remote file is downloaded if it doesn't exist locally, or if its size
+        differs from the local copy (e.g. re-annotated samples that were rewritten
+        on the Pi). Local-only files are left untouched.
 
         Returns:
             Number of files downloaded.
-
-        Raises:
-            SyncError: If download fails after all retries.
         """
-        files = self._get_files_to_sync(folder)
-        if not files:
-            return 0
+        remote_files = self._list_remote_files()
 
-        # Download files one by one with retry
-        for idx, filename in enumerate(files):
-            if on_file_progress:
-                on_file_progress(idx + 1, len(files), filename)
+        downloaded = 0
+        for relative_path, remote_size in remote_files.items():
+            local_path = DATASET_DIR / relative_path
+            if local_path.exists() and local_path.stat().st_size == remote_size:
+                continue
+            self._download_file_with_retry(relative_path)
+            downloaded += 1
 
-            file = FileToSync(folder, filename)
-            self._download_file_with_retry(file)
-
-        return len(files)
-
-    def sync_all(
-        self,
-        on_download_progress: ProgressCallback | None = None,
-        on_folder_start: Callable[[str], None] | None = None,
-    ) -> tuple[list[str], int]:
-        """
-        Sync all missing folders from remote server.
-
-        Downloads files one by one with retry logic. If a download fails,
-        the connection is reset and download resumes from the failed file.
-
-        Args:
-            on_download_progress: Callback(current_file, total_files, filename)
-            on_folder_start: Callback(folder_name) when starting a new folder
-
-        Returns:
-            Tuple of (list of synced folder paths, total files downloaded)
-        """
-        # First, gather all files to download
-        files_to_sync = self._gather_files_to_sync()
-
-        if not files_to_sync:
-            return [], 0
-
-        total_files = len(files_to_sync)
-        synced_folders: set[str] = set()
-        current_folder: str | None = None
-
-        # Download files one by one
-        for idx, file in enumerate(files_to_sync):
-            # Notify when starting a new folder
-            if file.folder != current_folder:
-                current_folder = file.folder
-                if on_folder_start:
-                    on_folder_start(file.folder)
-
-            # Update progress
-            if on_download_progress:
-                on_download_progress(idx + 1, total_files, file.filename)
-
-            # Download with retry
-            self._download_file_with_retry(file)
-            synced_folders.add(file.folder)
-
-        return list(synced_folders), total_files
+        return downloaded
 
     def __enter__(self) -> SyncManager:
         self.connect()
@@ -569,103 +249,20 @@ class SyncManager:
         self.disconnect()
 
 
-def _remove_empty_date_dirs(base_path: Path, relative_path: str) -> None:
-    """Remove empty day/month/year directories under base_path after recording removal."""
-    parts = Path(relative_path).parts
-    if len(parts) < 4:
-        return
-    year, month, day = parts[0], parts[1], parts[2]
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
 
-    try:
-        day_dir = base_path / year / month / day
-        if day_dir.exists() and not any(day_dir.iterdir()):
-            day_dir.rmdir()
+    DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
-            month_dir = base_path / year / month
-            if month_dir.exists() and not any(month_dir.iterdir()):
-                month_dir.rmdir()
-
-                year_dir = base_path / year
-                if year_dir.exists() and not any(year_dir.iterdir()):
-                    year_dir.rmdir()
-    except (FileNotFoundError, OSError):
-        # Best effort - don't fail if cleanup fails (directory already removed or in use)
-        pass
-
-
-def remove_recording(relative_path: str) -> None:
-    """
-    Remove a recording from remote server and local storage.
-
-    Remote removal happens first. Local removal only proceeds if remote succeeds.
-    Removes both the archive folder (HLS files) and images folder (PNG frames).
-    Empty day/month/year directories are cleaned up after removal.
-
-    Args:
-        relative_path: Path relative to archive/images root
-                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
-
-    Raises:
-        SyncError: If remote removal fails (local data is preserved).
-    """
-    # Step 1: Remove from remote server first
     with SyncManager() as sync:
-        sync.remove_remote_folder(relative_path)
-        sync._remove_empty_remote_date_dirs(relative_path)
+        downloaded = sync.sync_dataset()
 
-    # Step 2: Remote removal succeeded, now remove local archive folder
-    local_archive_path = ARCHIVE_DIR / relative_path
-    if local_archive_path.exists():
-        shutil.rmtree(local_archive_path)
-    _remove_empty_date_dirs(ARCHIVE_DIR, relative_path)
-
-    # Step 3: Remove local images folder
-    local_images_path = IMAGES_DIR / relative_path
-    if local_images_path.exists():
-        shutil.rmtree(local_images_path)
-    _remove_empty_date_dirs(IMAGES_DIR, relative_path)
+    logger.info(f"Dataset sync complete: {downloaded} file(s) downloaded")
 
 
-def remove_recording_locally(relative_path: str) -> None:
-    """
-    Remove a recording from local images storage only.
-
-    Preserves the local archive folder as a marker to prevent re-syncing.
-    Does not touch the remote server.
-    Empty day/month/year directories are cleaned up after removal.
-
-    Args:
-        relative_path: Path relative to archive/images root
-                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
-    """
-    local_images_path = IMAGES_DIR / relative_path
-    if local_images_path.exists():
-        shutil.rmtree(local_images_path)
-    _remove_empty_date_dirs(IMAGES_DIR, relative_path)
-
-
-def remove_hls_files(relative_path: str) -> int:
-    """
-    Remove .ts and .m3u8 files from a local archive folder.
-
-    The folder itself is preserved as a marker that the stream was already synced.
-    This prevents re-downloading on the next sync operation.
-
-    Args:
-        relative_path: Path relative to ARCHIVE_DIR
-                      (e.g., "2026/01/15/auto_2026-01-15T064557Z_uuid")
-
-    Returns:
-        Number of files removed.
-    """
-    folder = ARCHIVE_DIR / relative_path
-    if not folder.exists():
-        return 0
-
-    count = 0
-    for file in folder.iterdir():
-        if file.suffix in (".ts", ".m3u8"):
-            file.unlink()
-            count += 1
-
-    return count
+if __name__ == "__main__":
+    main()

@@ -713,3 +713,36 @@ class TestHLSSegmentProcessor:
 
             expected_prune_calls = [call(dummy_watchtower.seen_segments) for _ in dummy_watchtower.segments]
             mock_stream_archiver.prune_detections.assert_has_calls(expected_prune_calls)
+
+        def test_run_skips_segment_during_maintenance_window(
+            self, hls_processor, mock_bird_annotator, mock_stream_archiver, monkeypatch, dummy_watchtower
+        ):
+            """Test that segments are skipped during maintenance window."""
+            hls_processor.process_segment = MagicMock(return_value=False)
+            monkeypatch.setattr("processor.hls_segment_processor.is_maintenance_window", lambda: True)
+
+            hls_processor.run()
+
+            # Both process_segment and on_segment should not be called when in maintenance window
+            hls_processor.process_segment.assert_not_called()
+            mock_stream_archiver.on_segment.assert_not_called()
+
+    class TestProcessSegmentExceptionHandling:
+        """Tests for exception handling in process_segment."""
+
+        def test_process_segment_handles_general_exception(
+            self, hls_processor, mock_bird_detector, mock_bird_annotator, setup_video_capture, caplog
+        ):
+            """Test that process_segment handles general exceptions gracefully."""
+            # Setup capture to work, but detector will raise an exception
+            capture = setup_video_capture(opened=True, read_return=(True, None), total_frames=30)
+            mock_bird_detector.detect_boxes.side_effect = RuntimeError("Detection error")
+
+            result = hls_processor.process_segment("/tmp/segment_001.ts", "segment_001.ts")
+
+            # Should return False when exception occurs
+            assert result is False
+            # Capture should be released even after exception
+            assert capture.release_called is True
+            # Exception should be logged
+            assert "Error processing segment" in caplog.text

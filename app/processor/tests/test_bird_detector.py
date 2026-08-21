@@ -297,3 +297,14 @@ class TestBirdDetector:
             assert len(result) == 1
             assert result[0].class_id == BIRD_CLASS_ID
             assert result[0].confidence == 0.95
+
+    def test_init_with_non_pt_model_path_does_not_fuse(self):
+        """Test that BirdDetector does not call fuse() for non-.pt model files."""
+        with patch("processor.bird_detector.YOLO") as mock_yolo:
+            mock_model = MagicMock()
+            mock_yolo.return_value = mock_model
+
+            BirdDetector(model_path="/path/to/model.onnx")
+
+            mock_yolo.assert_called_once_with("/path/to/model.onnx")
+            mock_model.fuse.assert_not_called()

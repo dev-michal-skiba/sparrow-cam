@@ -60,3 +60,61 @@ class TestBirdAnnotator:
                 "keep.ts": [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
             },
         }
+
+    def test_prune_no_changes(self):
+        """Test prune when no segments are removed (removed stays False)."""
+        annotator = bird_annotator.BirdAnnotator()
+        annotator._write(
+            {
+                "version": 1,
+                "detections": {
+                    "keep.ts": [
+                        {"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
+                    ],
+                },
+            }
+        )
+
+        # Prune with same segments - nothing should be written
+        annotator.prune({"keep.ts"})
+
+        annotations = annotator._load()
+        assert annotations == {
+            "version": 1,
+            "detections": {
+                "keep.ts": [{"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}],
+            },
+        }
+
+    def test_load_corrupt_json(self, tmp_path, monkeypatch):
+        """Test loading a file with invalid JSON."""
+        path = tmp_path / "bird.json"
+        path.write_text("{invalid json}")
+        monkeypatch.setattr(bird_annotator, "ANNOTATIONS_PATH", str(path))
+
+        annotator = bird_annotator.BirdAnnotator()
+        result = annotator._load()
+
+        assert result == {"version": 1, "detections": {}}
+
+    def test_load_invalid_format(self, tmp_path, monkeypatch):
+        """Test loading a file with valid JSON but invalid format."""
+        path = tmp_path / "bird.json"
+        path.write_text('{"version": 1}')  # Missing "detections" key
+        monkeypatch.setattr(bird_annotator, "ANNOTATIONS_PATH", str(path))
+
+        annotator = bird_annotator.BirdAnnotator()
+        result = annotator._load()
+
+        assert result == {"version": 1, "detections": {}}
+
+    def test_load_invalid_format_not_dict(self, tmp_path, monkeypatch):
+        """Test loading a file with JSON that's not a dict."""
+        path = tmp_path / "bird.json"
+        path.write_text('["list", "not", "dict"]')
+        monkeypatch.setattr(bird_annotator, "ANNOTATIONS_PATH", str(path))
+
+        annotator = bird_annotator.BirdAnnotator()
+        result = annotator._load()
+
+        assert result == {"version": 1, "detections": {}}
