@@ -39,14 +39,6 @@
         path: /opt/sparrow_cam_app/source/app/stream/stream.sh
         mode: '0755'
 
-    - name: Update HLS directory owner to sparrow_cam_app
-      file:
-        path: /var/www/html/hls
-        state: directory
-        owner: sparrow_cam_app
-        group: sparrow_cam
-        mode: '0775'
-
     - name: Create stream systemd service file
       copy:
         content: |

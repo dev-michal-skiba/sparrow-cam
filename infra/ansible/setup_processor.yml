@@ -17,14 +17,6 @@
         app_user: sparrow_cam_app
         app_home: /opt/sparrow_cam_app
 
-    - name: Create annotations directory
-      file:
-        path: /var/www/html/annotations
-        state: directory
-        owner: sparrow_cam_app
-        group: sparrow_cam
-        mode: '0775'
-
     - name: Create stream archive storage directory
       file:
         path: /var/www/html/storage/sparrow_cam/archive

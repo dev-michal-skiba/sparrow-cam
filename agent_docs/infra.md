@@ -30,6 +30,13 @@ survives USB resets and device renaming. The ext4 filesystem must be
 pre-formatted manually before the storage setup playbook is run — the playbook
 will fail with guidance if the partition is unformatted.
 
+## Ephemeral Storage (tmpfs)
+
+HLS segments and annotations use tmpfs to reduce SD card wear; mounts persist
+via /etc/fstab. The setup_tmpfs.yml playbook manages these exclusively with
+ownership and permissions in mount options (uid/gid/mode). Service playbooks
+no longer create these directories, which must be managed by setup_tmpfs first.
+
 ## Secrets Management
 
 All credentials and SSH keys are stored under `infra/ansible/.secrets/` (git-ignored):

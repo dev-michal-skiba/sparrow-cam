@@ -1,4 +1,4 @@
-.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream setup_cron run_archive_stream cleanup_recordings all web_build check_git_state
+.PHONY: help build ping setup_users setup_web setup_processor setup_archive_api setup_storage setup_stream setup_tmpfs setup_cron run_archive_stream cleanup_recordings all web_build check_git_state
 
 help:
 	@echo "Available infrastructure targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make setup_users          - Setup users and groups"
 	@echo "  make setup_storage        - Mount external hard drive"
 	@echo "    DEVICE=<path>           - Override device path (default: /dev/sda1)"
+	@echo "  make setup_tmpfs          - Mount tmpfs over HLS and annotations directories"
 	@echo "  make setup_processor      - Deploy processor service"
 	@echo "  make setup_archive_api    - Deploy archive API service"
 	@echo "  make setup_stream         - Deploy stream service"
@@ -30,6 +31,9 @@ setup_users:
 
 setup_storage:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_storage.yml $(if $(DEVICE),-e "device_to_mount=$(DEVICE)",)
+
+setup_tmpfs:
+	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_tmpfs.yml
 
 setup_processor:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_processor.yml
@@ -71,8 +75,8 @@ web_build:
 setup_web: check_git_state web_build
 	docker-compose run --rm infra ansible-playbook -i inventory.yml setup_web.yml
 
-setup_all: setup_users setup_storage setup_processor setup_archive_api setup_stream setup_web setup_cron
-	@echo "Users, hard drive, processor service, archive API, stream service, web server, and cron cleanup service deployed successfully"
+setup_all: setup_users setup_storage setup_tmpfs setup_processor setup_archive_api setup_stream setup_web setup_cron
+	@echo "Users, hard drive, tmpfs mounts, processor service, archive API, stream service, web server, and cron cleanup service deployed successfully"
 
 archive:
 	docker-compose run --rm infra ansible-playbook -i inventory.yml archive.yml $(if $(LIMIT),-e "limit=$(LIMIT)",)

@@ -1,0 +1,50 @@
+---
+- name: Mount tmpfs for HLS and Annotations
+  hosts: all
+  become: yes
+  vars:
+    hls_tmpfs_size_mb: 64
+    annotations_tmpfs_size_mb: 16
+
+  tasks:
+    - name: Get sparrow_cam_app UID
+      getent:
+        database: passwd
+        key: sparrow_cam_app
+
+    - name: Get sparrow_cam GID
+      getent:
+        database: group
+        key: sparrow_cam
+
+    - name: Create HLS directory
+      file:
+        path: /var/www/html/hls
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam
+        mode: '0775'
+
+    - name: Create annotations directory
+      file:
+        path: /var/www/html/annotations
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam
+        mode: '0775'
+
+    - name: Mount tmpfs over HLS directory
+      mount:
+        path: /var/www/html/hls
+        src: tmpfs
+        fstype: tmpfs
+        state: mounted
+        opts: "defaults,size={{ hls_tmpfs_size_mb }}M,uid={{ ansible_facts.getent_passwd.sparrow_cam_app[1] }},gid={{ ansible_facts.getent_group.sparrow_cam[1] }},mode=0775"
+
+    - name: Mount tmpfs over annotations directory
+      mount:
+        path: /var/www/html/annotations
+        src: tmpfs
+        fstype: tmpfs
+        state: mounted
+        opts: "defaults,size={{ annotations_tmpfs_size_mb }}M,uid={{ ansible_facts.getent_passwd.sparrow_cam_app[1] }},gid={{ ansible_facts.getent_group.sparrow_cam[1] }},mode=0775"

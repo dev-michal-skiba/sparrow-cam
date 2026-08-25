@@ -32,14 +32,6 @@
       community.general.ufw:
         state: enabled
 
-    - name: Create HLS directory
-      file:
-        path: /var/www/html/hls
-        state: directory
-        owner: sparrow_cam_app
-        group: sparrow_cam
-        mode: '0775'
-
     - name: Copy nginx configuration
       copy:
         src: /app/nginx.conf
