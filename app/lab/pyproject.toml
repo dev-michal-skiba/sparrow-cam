@@ -9,6 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     "paramiko",
     "pyyaml",
+    "ultralytics==8.4.76",
 ]
 
 [tool.setuptools.packages.find]

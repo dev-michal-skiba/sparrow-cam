@@ -1,4 +1,4 @@
-.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-sync lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check cron-build cron-format cron-check cron-test cron-cleanup
+.PHONY: help build start stream stop clean-archive processor-build processor-format processor-check processor-test processor-export-ncnn e2e lab-build lab-sync lab-fine-tune lab-format lab-check lab-test archive-api-build archive-api-format archive-api-check archive-api-test web-test web-format web-check cron-build cron-format cron-check cron-test cron-cleanup
 
 help:
 	@echo "SparrowCam Local Development"
@@ -21,6 +21,8 @@ help:
 	@echo "  make e2e                   - Run end-to-end integration tests"
 	@echo "  make lab-build             - Build the lab Docker image"
 	@echo "  make lab-sync              - Sync the YOLO dataset from the Raspberry Pi"
+	@echo "  make lab-fine-tune         - Fine tune the base YOLO model on the synced dataset"
+	@echo "    ARGS=\"..."              - Pass --version and --description (e.g. ARGS=\"--version v1.0.0 --description ...\")"
 	@echo "  make lab-format            - Format lab code with black and ruff"
 	@echo "  make lab-check             - Run lint, type and security checks for lab"
 	@echo "  make lab-test              - Run unit tests for lab package"
@@ -121,6 +123,9 @@ lab-build:
 
 lab-sync:
 	docker compose -f docker-compose.lab.yml run --rm --no-deps lab python -m lab.sync
+
+lab-fine-tune:
+	docker compose -f docker-compose.lab.yml run --rm --no-deps lab python -m lab.fine_tune $(ARGS)
 
 lab-format:
 	docker compose -f docker-compose.lab.yml run --rm --no-deps lab bash -lc "\
