@@ -11,10 +11,10 @@ from processor.types import DetectionBox
 logger = logging.getLogger(__name__)
 
 # Model path: env var for deployment flexibility, default to standard PT model for local development
-_model_filename = os.getenv("YOLO_MODEL_PATH", "yolo26n.pt")
+_model_filename = os.getenv("YOLO_MODEL_PATH", "yolo26n_v0.1.0.pt")
 DEFAULT_MODEL_PATH = str(Path(__file__).parent / "models" / _model_filename)
 
-BIRD_CLASS_ID = 14  # COCO class ID for bird
+BIRD_CLASS_ID = 0  # Fine-tuned model class ID for bird
 
 CLASS_ID_TO_SLUG: dict[int, str] = {
     BIRD_CLASS_ID: "bird",
