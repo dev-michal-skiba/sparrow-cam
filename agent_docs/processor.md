@@ -3,12 +3,9 @@
 - Purpose: per-segment bird detection, annotation, optional archival
 
 ## Model Strategy
-Uses a fine-tuned yolo26n model (v0.1.0) trained specifically on bird detection, deployed
-as yolo26n_v0.1.0.pt. The fine-tuned model has bird as class ID 0 (not COCO class 14).
-Model is created by the Lab package via fine-tuning on a balanced subset of synced field
-annotations. For Raspberry Pi deployment, NCNN export of the fine-tuned model can be
-generated locally via scripts/export_ncnn.py; deployment path controlled via YOLO_MODEL_PATH
-env var.
+Using yolo26n model with COCO class 14 for bird. Detects generic birds across full frame.
+For Raspberry Pi, NCNN export can be built locally via scripts/export_ncnn.py;
+deployment via YOLO_MODEL_PATH env var.
 
 ## Detection Parameters
 Detection uses class confidence threshold from preset JSON. Per-class thresholds remain
@@ -40,9 +37,8 @@ Shared contract with archive_api and web:
 {"version": 1, "detections": {"segment.ts": [{"class": "bird", "confidence": 0.87, "roi": {...}}]}}
 
 ## Bird Type Slugs
-Maps fine-tuned model's bird class (ID 0) to "bird" slug. Processor owns authoritative
-slug mapping. All written annotation data contains slugs — raw class IDs never leave the
-processor.
+Currently maps COCO bird class to "bird" slug. Processor owns authoritative slug mapping.
+All written annotation data contains slugs — raw class IDs never leave the processor.
 
 ## Maintenance Window
 Between 23:00 (11 PM) and 03:00 (3 AM) local time, the processor skips segment processing
