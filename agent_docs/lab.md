@@ -4,10 +4,10 @@
 
 ## Purpose
 
-Downloads the YOLO dataset from the Raspberry Pi to local storage for use in model fine-tuning.
-The dataset is built incrementally on the Pi by archive_api's annotation worker (see archive_api.md
-"Dataset Generation" section for how images and labels are produced). Provides tooling to select
-a balanced training subset from the synced dataset and fine-tune a generic bird detector.
+Downloads the YOLO dataset from the Raspberry Pi for two-stage detection training. Built
+incrementally by archive_api's annotation worker (see archive_api.md Dataset Generation). Provides
+tooling to select balanced subsets and train: a generic bird detector (stage 1) and a species
+classifier on detector crops (stage 2).
 
 ## Dataset Sync Behavior
 
@@ -31,22 +31,18 @@ times before giving up.
 Manually invoked via `make -C local lab-sync`, which runs the entry point `python -m lab.sync`
 inside the lab container. No scheduled automation exists yet.
 
-## Fine-Tuning
+## Stage-1 Fine-Tuning (Generic Bird Detector)
 
 Trains a generic bird detector (single class, remaps all original annotations to that class)
 by fine-tuning yolo26n on a balanced subset of the synced dataset. This is the first stage
-of a two-stage detection pipeline; species classification runs as a separate downstream model.
+of a two-stage detection pipeline; species classification runs as stage 2.
 
 ### Frame Selection and Balancing
 
-Automatically selects up to 365 positive (bird-containing) frames and 55 negative frames from
-the synced dataset, deterministically and balancedly. Selection is seeded from a SHA256 hash
-of the dataset's file contents and sizes, ensuring the same dataset always yields the same
-selection (re-annotation on the Pi changes file sizes and reseeds selection). The algorithm
-spreads frames evenly across day-of-year slots to handle multi-year datasets without clustering
-on a single year, honors the dataset's hour-of-day and bird-species distributions, and
-guarantees every species present appears at least once in the selection. Fewer than target
-frames are clamped with a logged warning if the dataset is smaller.
+Selects up to 365 positive and 55 negative frames, deterministically seeded from dataset file
+contents and sizes (re-annotation reseeds). Spreads frames evenly across day-of-year slots,
+honors hour-of-day and species distributions, and guarantees each species appears. Clamps with
+warning if dataset is smaller than target.
 
 ### Annotation Remapping and Training
 
@@ -57,11 +53,15 @@ training parameters are fixed; versions and descriptions vary by invocation.
 
 ### Invocation
 
-Invoked via `make -C local lab-fine-tune ARGS="--version v1.0.0 --description 'Fine-tuned
-on 2026 dataset'"` (or interactively without ARGS, which prompts for version and description).
-Version must match the pattern v\d+\.\d+\.\d+ and is validated before training begins.
-Description is limited to 1024 characters. Saves the fine-tuned weights, dataset.yaml, and
-metadata.json (version, description, created_at timestamp) under /.storage/fine_tuned/. The
-lab Docker image must be rebuilt (`make -C local lab-build`) after updating dependencies (e.g.,
-ultralytics pinned version) for the new dependencies to take effect; a stale image will silently
-retain its baked-in dependencies and may crash during training (e.g., YOLO signature mismatches).
+Invoked via `make -C local lab-fine-tune ARGS="--version v1.0.0 --description '...'"` (or
+interactively). Version matches v\d+\.\d+\.\d+; description limited to 1024 chars. Saves weights,
+dataset.yaml, and metadata.json under /.storage/fine_tuned/. Rebuild the lab image after updating
+dependencies so new versions take effect; a stale image may crash during training.
+
+## Stage-2 Species Classification
+
+Trains yolo26n-cls on crops from stage-1 detections using frame selection with a different salt
+for a distinct subset. Extracts crops per labelled bird; generates background crops from bird-free
+frames (random crops and false positives from stage-1 base model). Balances per-class crop counts.
+Invoked via `make -C local lab-classify ARGS="--version v1.0.0 --description '...'"`.
+Saves weights, classes.json, and metadata.json under /.storage/fine_tuned/.

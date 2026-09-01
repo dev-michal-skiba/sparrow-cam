@@ -57,12 +57,16 @@ def load_frames(dataset_dir: Path) -> list[Frame]:
     return frames
 
 
-def dataset_seed(frames: list[Frame]) -> int:
+def dataset_seed(frames: list[Frame], salt: str = "") -> int:
     """Derive a seed from the dataset itself so the same dataset always selects the same frames.
 
     File sizes are folded in so re-annotation on the Pi, which rewrites label files, reseeds.
+    An optional salt lets a second pipeline stage pick a different subset from the same dataset;
+    the empty default leaves the seed identical to the unsalted call.
     """
     digest = hashlib.sha256()
+    if salt:
+        digest.update(f"salt:{salt}\n".encode())
     for frame in sorted(frames, key=lambda frame: frame.image_path.name):
         digest.update(f"{frame.image_path.name}:{frame.image_path.stat().st_size}\n".encode())
         digest.update(f"{frame.label_path.name}:{frame.label_path.stat().st_size}\n".encode())

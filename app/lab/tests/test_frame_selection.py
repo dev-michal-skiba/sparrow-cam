@@ -441,6 +441,78 @@ class TestDatasetSeed:
         seed = dataset_seed([])
         assert isinstance(seed, int)
 
+    def test_dataset_seed_with_salt_is_deterministic(self, tmp_path):
+        """Test that dataset seed with salt is deterministic."""
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        image_path = images_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.jpg"
+        label_path = labels_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.txt"
+        image_path.write_text("image")
+        label_path.write_text("0 0.5 0.5 0.2 0.2\n")
+
+        frames = load_frames(tmp_path)
+        seed1 = dataset_seed(frames, salt="stage2")
+        seed2 = dataset_seed(frames, salt="stage2")
+
+        assert seed1 == seed2
+
+    def test_dataset_seed_with_salt_differs_from_unsalted(self, tmp_path):
+        """Test that salt produces different seed from unsalted."""
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        image_path = images_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.jpg"
+        label_path = labels_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.txt"
+        image_path.write_text("image")
+        label_path.write_text("0 0.5 0.5 0.2 0.2\n")
+
+        frames = load_frames(tmp_path)
+        seed_unsalted = dataset_seed(frames)
+        seed_salted = dataset_seed(frames, salt="stage2")
+
+        assert seed_unsalted != seed_salted
+
+    def test_dataset_seed_different_salts_produce_different_seeds(self, tmp_path):
+        """Test that different salt values produce different seeds."""
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        image_path = images_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.jpg"
+        label_path = labels_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.txt"
+        image_path.write_text("image")
+        label_path.write_text("0 0.5 0.5 0.2 0.2\n")
+
+        frames = load_frames(tmp_path)
+        seed_salt1 = dataset_seed(frames, salt="stage2")
+        seed_salt2 = dataset_seed(frames, salt="stage3")
+
+        assert seed_salt1 != seed_salt2
+
+    def test_dataset_seed_empty_salt_same_as_no_salt(self, tmp_path):
+        """Test that empty salt produces same seed as no salt."""
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        image_path = images_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.jpg"
+        label_path = labels_dir / "2026-06-25_auto_2026-06-25T085519Z_uuid_sparrow_cam-4031.txt"
+        image_path.write_text("image")
+        label_path.write_text("0 0.5 0.5 0.2 0.2\n")
+
+        frames = load_frames(tmp_path)
+        seed_no_salt = dataset_seed(frames)
+        seed_empty_salt = dataset_seed(frames, salt="")
+
+        assert seed_no_salt == seed_empty_salt
+
 
 class TestRepairBirdTypes:
     """Tests for _repair_bird_types function."""
