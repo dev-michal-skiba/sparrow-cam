@@ -1,6 +1,9 @@
 # Lab
 
 - Source: app/lab/lab/ | Tests: app/lab/tests/
+- `local/Dockerfile.lab` builds `FROM sparrow_cam_processor:latest` and resets `ENTRYPOINT []`,
+  since it would otherwise inherit processor's index-db init script and fail (lab doesn't mount
+  `/var/lib/sparrow_cam`).
 
 ## Purpose
 
