@@ -14,4 +14,8 @@ RUN pip install --no-cache-dir -e .
 COPY local/requirements.dev.txt /tmp/requirements.dev.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.dev.txt
 
+COPY local/processor-entrypoint.sh /usr/local/bin/processor-entrypoint.sh
+RUN chmod +x /usr/local/bin/processor-entrypoint.sh
+
+ENTRYPOINT ["processor-entrypoint.sh"]
 CMD ["python3", "-u", "processor"]

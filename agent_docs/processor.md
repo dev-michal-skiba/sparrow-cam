@@ -32,6 +32,13 @@ When extending an existing archive, the existing meta.json is read and merged
 with in-memory detections. This ensures data for segments already pruned from
 the live playlist is not lost.
 
+## Index Database
+All archives are persisted to SQLite (index.db) keyed on (date, stream). The recordings table
+is upserted after each archive or extension, with date in YYYY-MM-DD format and stream as the
+archive directory name. On conflict, only the detections column is updated; manual_annotations
+are preserved. The database mirrors detections from meta.json—both are written from the same
+merged dict in a single transaction, so they remain in sync.
+
 ## Detection Metadata Format
 Shared contract with archive_api and web:
 {"version": 1, "detections": {"segment.ts": [{"class": "bird", "confidence": 0.87, "roi": {...}}]}}

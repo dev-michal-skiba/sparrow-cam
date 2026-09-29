@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import cv2
 import pytest
@@ -41,3 +42,13 @@ def caplog(caplog):
     """Configure caplog for all tests."""
     caplog.set_level(logging.INFO)
     return caplog
+
+
+@pytest.fixture(autouse=True)
+def mock_index_db(monkeypatch):
+    """Mock index_db.write_recording to prevent database access in tests."""
+    from processor import index_db
+
+    mock_write = MagicMock()
+    monkeypatch.setattr(index_db, "write_recording", mock_write)
+    return mock_write

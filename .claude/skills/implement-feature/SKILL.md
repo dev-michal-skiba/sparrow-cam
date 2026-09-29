@@ -41,16 +41,14 @@ Implement a feature based on a Notion task page.
 
 ### 5. Verify, Update Documentation & E2E
 
-Use the Agent tool to run subagents **in parallel** — one `verify`, one `update-docs`, and one `e2e` per package.
+Use the Agent tool to run subagents **in parallel** — one `verify` and one `update-docs` per package.
 
 These are **project-specific subagents** defined in `.claude/agents/`. You **must** use `subagent_type` matching their filenames exactly:
 - `subagent_type: "verify"` → `.claude/agents/verify.md`
 - `subagent_type: "update-docs"` → `.claude/agents/update-docs.md`
-- `subagent_type: "e2e"` → `.claude/agents/e2e.md`
 
 Do **not** use `subagent_type: "claude"` or any other generic agent for these tasks.
 
 Agents to spawn:
 - For each package: a `verify` subagent targeting that package
 - For each package: an `update-docs` subagent targeting that package
-- One `e2e` subagent (run once, not per package)

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from processor import index_db
 from processor.constants import ARCHIVING_DISABLED_FLAG_PATH, LOG_FORMAT
 
 logger = logging.getLogger(__name__)
@@ -216,7 +217,8 @@ class StreamArchiver:
 
         copy_result = self.copy_stream(playlist_data, prefix)
         self.write_playlist(copy_result.destination_path, playlist_data)
-        self.write_meta(copy_result.destination_path, playlist_data)
+        detections = self.write_meta(copy_result.destination_path, playlist_data)
+        self._write_index_db(copy_result.destination_path, detections)
 
         logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
         return copy_result.destination_path
@@ -400,11 +402,12 @@ class StreamArchiver:
             segments_data=existing_playlist.segments_data + new_segments,
         )
         self.write_playlist(archive_path, updated_playlist)
-        self.write_meta(archive_path, updated_playlist)
+        detections = self.write_meta(archive_path, updated_playlist)
+        self._write_index_db(archive_path, detections)
 
         logger.info(f"Extended archive {archive_path} with {len(new_segments)} new segment(s)")
 
-    def write_meta(self, destination_path: str | Path, playlist_data: PlaylistData) -> None:
+    def write_meta(self, destination_path: str | Path, playlist_data: PlaylistData) -> dict:
         """Write meta.json alongside archive files with detection info for each segment.
 
         When meta.json already exists (e.g. on archive extension), existing detections
@@ -414,6 +417,9 @@ class StreamArchiver:
         Args:
             destination_path: Path to the archive directory.
             playlist_data: PlaylistData object describing the archived segments.
+
+        Returns:
+            The merged detections dict that was written to meta.json.
         """
         segment_names = {s.name for s in playlist_data.segments_data}
 
@@ -433,6 +439,19 @@ class StreamArchiver:
         meta = {"version": 1, "detections": detections}
         with open(meta_path, "w") as f:
             json.dump(meta, f, indent=2)
+
+        return detections
+
+    def _write_index_db(self, destination_path: str | Path, detections: dict) -> None:
+        """Write the recording's detections to the index database.
+
+        Args:
+            destination_path: Path to the archive directory, used to derive the
+                recording's date and stream name.
+            detections: Merged detection data, as written to meta.json.
+        """
+        year, month, day, stream = Path(destination_path).relative_to(ARCHIVE_PATH).parts
+        index_db.write_recording(date=f"{year}-{month}-{day}", stream=stream, detections=detections)
 
     def write_playlist(self, destination_path: str | Path, playlist_data: PlaylistData) -> None:
         """Write the archive playlist file with only the archived segments.
