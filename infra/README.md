@@ -66,6 +66,7 @@ make -C infra ping
 make -C infra setup_users       # Setup users, groups, and passwordless sudo
 make -C infra setup_storage     # Mount external hard drive
 make -C infra setup_tmpfs       # Mount tmpfs over HLS and annotations directories
+make -C infra setup_index_db    # Provision SQLite metadata database
 make -C infra setup_processor   # Processor service
 make -C infra setup_archive_api # Archive API service (port 5001, proxied via nginx)
 make -C infra setup_stream      # Stream service (ffmpeg HLS stream)

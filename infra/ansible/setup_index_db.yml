@@ -1,0 +1,50 @@
+---
+- name: Provision SQLite Metadata Database
+  hosts: all
+  become: yes
+  vars:
+    index_db_path: /var/lib/sparrow_cam/index.db
+
+  tasks:
+    - name: Update apt cache
+      include_tasks: tasks/apt_update.yml
+
+    - name: Install sqlite3
+      apt:
+        name: sqlite3
+        state: present
+
+    - name: Create index database directory
+      file:
+        path: /var/lib/sparrow_cam
+        state: directory
+        owner: sparrow_cam_app
+        group: sparrow_cam
+        mode: '0775'
+
+    - name: Check if index database already exists
+      stat:
+        path: "{{ index_db_path }}"
+      register: index_db_stat
+
+    - name: Initialize index database schema and WAL mode
+      command: >-
+        sqlite3 {{ index_db_path }}
+        "PRAGMA journal_mode=WAL;
+        CREATE TABLE IF NOT EXISTS recordings (
+          date TEXT NOT NULL,
+          stream TEXT NOT NULL,
+          detections TEXT,
+          manual_annotations TEXT,
+          birds TEXT,
+          PRIMARY KEY (date, stream)
+        );
+        CREATE INDEX IF NOT EXISTS idx_recordings_date ON recordings(date);"
+      become_user: sparrow_cam_app
+      changed_when: not index_db_stat.stat.exists
+
+    - name: Set index database file group and permissions
+      file:
+        path: "{{ index_db_path }}"
+        group: sparrow_cam
+        mode: '0664'

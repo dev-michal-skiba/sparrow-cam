@@ -45,6 +45,18 @@ All credentials and SSH keys are stored under `infra/ansible/.secrets/` (git-ign
 
 Example credential files are provided with `.example` suffix for reference during setup.
 
+## Metadata Database
+
+The `setup_index_db.yml` playbook provisions a SQLite database at
+`/var/lib/sparrow_cam/index.db`, outside any directory served by nginx. It
+holds a `recordings` table (primary key `(date, stream)`, plus `detections`,
+`manual_annotations`, and `birds` columns) with an index on `date`, and is
+initialized in WAL mode. The database file follows the existing shared-group
+permission pattern (`sparrow_cam_app` owner, `sparrow_cam` group) so the
+processor, Archive API, and cron users — which all run as `sparrow_cam_app` —
+can write to it. This is groundwork only: no service reads from or writes to
+the database yet.
+
 ## Cron Jobs
 
 The `setup_cron.yml` playbook installs and schedules cron jobs for the
