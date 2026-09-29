@@ -30,7 +30,9 @@ Implement a feature based on a Notion task page.
 - Follow existing code style and patterns in the package
 - For new business features prefer creating new files over of editing existing ones
 - Keep changes minimal and focused on the task
-- DO NOT implement or fix any tests, lint and formatting issues
+- DO NOT implement or fix any tests, lint and formatting issues — this is intentional: the
+  `verify` subagent in step 5 owns implementing/fixing tests, lint, and formatting for the
+  package. Do not tell it otherwise when spawning it.
 
 ### 4. Human Review
 
@@ -52,3 +54,8 @@ Do **not** use `subagent_type: "claude"` or any other generic agent for these ta
 Agents to spawn:
 - For each package: a `verify` subagent targeting that package
 - For each package: an `update-docs` subagent targeting that package
+
+When prompting the `verify` subagent, do not tell it that tests were skipped or that it
+should skip writing tests — per `.claude/agents/verify.md`, it is responsible for running
+lint and checks, and for implementing/fixing tests (including writing tests for new
+functions/features) until coverage requirements are met.
