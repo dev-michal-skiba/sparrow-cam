@@ -96,9 +96,13 @@ class TestUpdateMeta:
         stream_path.mkdir(parents=True, exist_ok=True)
         insert_recording(archive_root, "2025", "01", "15", "stream_a")
         old_roi = {"bird_class": "pigeon", "bbox": {"x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1}}
-        meta_path = stream_path / "meta.json"
-        with meta_path.open("w") as f:
-            json.dump({"manual_annotations": {"seg2.ts": [old_roi]}}, f)
+        conn = sqlite3.connect(archive_root / "index.db")
+        conn.execute(
+            "UPDATE recordings SET manual_annotations = ? WHERE date = ? AND stream = ?",
+            (json.dumps({"seg2.ts": [old_roi]}), "2025-01-15", "stream_a"),
+        )
+        conn.commit()
+        conn.close()
 
         resp = c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=VALID_BODY)
         assert resp.status_code == 200
@@ -112,28 +116,12 @@ class TestUpdateMeta:
         stream_path.mkdir(parents=True, exist_ok=True)
         detections = {"seg1.ts": [{"class": "great_tit"}]}
         insert_recording(archive_root, "2025", "01", "15", "stream_a", detections)
-        meta_path = stream_path / "meta.json"
-        with meta_path.open("w") as f:
-            json.dump({"detections": detections}, f)
 
         resp = c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=VALID_BODY)
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["detections"] == detections
         assert data["manual_annotations"] == {"seg1.ts": [VALID_ROI]}
-
-    def test_meta_file_persisted_to_disk(self, client):
-        c, archive_root = client
-        stream_path = archive_root / "2025" / "01" / "15" / "stream_a"
-        stream_path.mkdir(parents=True, exist_ok=True)
-        insert_recording(archive_root, "2025", "01", "15", "stream_a")
-
-        c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=VALID_BODY)
-
-        meta_path = stream_path / "meta.json"
-        with meta_path.open() as f:
-            saved = json.load(f)
-        assert saved["manual_annotations"] == {"seg1.ts": [VALID_ROI]}
 
     def test_empty_manual_annotations_allowed(self, client):
         c, archive_root = client
@@ -197,6 +185,95 @@ class TestUpdateMeta:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["manual_annotations"]["seg1.ts"][0]["bird_class"] == "eurasian_nuthatch"
+
+    def test_birds_column_updated_from_annotations(self, client):
+        c, archive_root = client
+        stream_path = archive_root / "2025" / "01" / "15" / "stream_a"
+        stream_path.mkdir(parents=True, exist_ok=True)
+        insert_recording(archive_root, "2025", "01", "15", "stream_a")
+        body = {
+            "manual_annotations": {
+                "seg1.ts": [
+                    {"bird_class": "great_tit", "bbox": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.3}},
+                    {"bird_class": "pigeon", "bbox": {"x": 0.3, "y": 0.3, "width": 0.2, "height": 0.3}},
+                ],
+                "seg2.ts": [
+                    {"bird_class": "great_tit", "bbox": {"x": 0.4, "y": 0.4, "width": 0.1, "height": 0.1}},
+                ],
+            }
+        }
+
+        resp = c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=body)
+        assert resp.status_code == 200
+
+        # Verify birds column is sorted and unique
+        conn = sqlite3.connect(archive_root / "index.db")
+        row = conn.execute("SELECT birds FROM recordings WHERE date = '2025-01-15' AND stream = 'stream_a'").fetchone()
+        conn.close()
+        birds = json.loads(row[0])
+        assert birds == ["great_tit", "pigeon"], f"Expected ['great_tit', 'pigeon'], got {birds}"
+
+    def test_patch_updates_database_not_just_response(self, client):
+        c, archive_root = client
+        stream_path = archive_root / "2025" / "01" / "15" / "stream_a"
+        stream_path.mkdir(parents=True, exist_ok=True)
+        insert_recording(archive_root, "2025", "01", "15", "stream_a")
+
+        c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=VALID_BODY)
+
+        # Verify the database was updated by querying it directly
+        conn = sqlite3.connect(archive_root / "index.db")
+        row = conn.execute(
+            "SELECT manual_annotations, birds FROM recordings WHERE date = '2025-01-15' AND stream = 'stream_a'"
+        ).fetchone()
+        conn.close()
+
+        assert row is not None
+        annotations = json.loads(row[0])
+        birds = json.loads(row[1])
+        assert annotations == {"seg1.ts": [VALID_ROI]}
+        assert "great_tit" in birds
+
+    def test_update_replaces_annotations_and_birds(self, client):
+        c, archive_root = client
+        stream_path = archive_root / "2025" / "01" / "15" / "stream_a"
+        stream_path.mkdir(parents=True, exist_ok=True)
+
+        # Insert a recording with initial annotations
+        date = "2025-01-15"
+        conn = sqlite3.connect(archive_root / "index.db")
+        old_annotations = {
+            "seg1.ts": [{"bird_class": "pigeon", "bbox": {"x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1}}]
+        }
+        conn.execute(
+            "INSERT INTO recordings (date, stream, detections, manual_annotations, birds) VALUES (?, ?, ?, ?, ?)",
+            (date, "stream_a", "{}", json.dumps(old_annotations), json.dumps(["pigeon"])),
+        )
+        conn.commit()
+        conn.close()
+
+        # Update with new annotations
+        new_body = {
+            "manual_annotations": {
+                "seg2.ts": [{"bird_class": "great_tit", "bbox": {"x": 0.2, "y": 0.2, "width": 0.3, "height": 0.3}}]
+            }
+        }
+        resp = c.patch("/meta?year=2025&month=01&day=15&stream=stream_a", json=new_body)
+        assert resp.status_code == 200
+
+        # Verify database has new annotations and birds
+        conn = sqlite3.connect(archive_root / "index.db")
+        row = conn.execute(
+            "SELECT manual_annotations, birds FROM recordings WHERE date = '2025-01-15' AND stream = 'stream_a'"
+        ).fetchone()
+        conn.close()
+
+        annotations = json.loads(row[0])
+        birds = json.loads(row[1])
+        assert "seg1.ts" not in annotations
+        assert "seg2.ts" in annotations
+        assert "pigeon" not in birds
+        assert "great_tit" in birds
 
 
 class TestGetMeta:

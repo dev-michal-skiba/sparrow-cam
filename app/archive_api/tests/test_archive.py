@@ -72,13 +72,6 @@ def make_stream_with_birds_and_annotations(archive_root, year, month, day, strea
     conn.commit()
     conn.close()
 
-    # Also write meta.json for compatibility with update_meta endpoint
-    meta_file = stream_path / "meta.json"
-    with meta_file.open("w") as f:
-        json.dump(
-            {"detections": {"segment1.ts": [{"class": bird} for bird in birds]}, "manual_annotations": annotations}, f
-        )
-
     return stream_path
 
 

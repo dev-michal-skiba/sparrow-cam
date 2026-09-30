@@ -43,6 +43,23 @@ def db_setup(tmp_path, monkeypatch):
     return db_path
 
 
+def insert_annotations(db_path, manual_annotations):
+    """Insert the recording used by the dataset tests with the given manual_annotations (None for NULL)."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO recordings (date, stream, detections, manual_annotations, birds) VALUES (?, ?, ?, ?, ?)",
+        (
+            "2025-01-15",
+            "stream_a",
+            json.dumps({}),
+            json.dumps(manual_annotations) if manual_annotations is not None else None,
+            json.dumps([]),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture
 def stream_path(tmp_path, db_setup):
     """Create a temporary stream path with a segment file and database setup."""
@@ -365,29 +382,19 @@ class TestUpdateStreamDataset:
         images_path.rmdir()
         labels_path.rmdir()
 
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {}}))
-
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 
         assert images_path.exists()
         assert labels_path.exists()
 
-    def test_update_stream_dataset_no_meta_file(self, dataset_paths, stream_path):
+    def test_update_stream_dataset_no_recording(self, dataset_paths, stream_path):
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 
-        # Should handle missing meta.json gracefully
+        # Should handle a missing database row gracefully
         assert True  # No exception raised
 
-    def test_update_stream_dataset_corrupted_meta_json(self, dataset_paths, stream_path):
-        (stream_path / "meta.json").write_text("{invalid json")
-
-        dataset._update_stream_dataset("2025", "01", "15", stream_path)
-
-        # Should handle corrupted JSON gracefully
-        assert True  # No exception raised
-
-    def test_update_stream_dataset_no_manual_annotations(self, dataset_paths, stream_path):
-        (stream_path / "meta.json").write_text(json.dumps({"detections": {}}))
+    def test_update_stream_dataset_no_manual_annotations(self, dataset_paths, stream_path, db_setup):
+        insert_annotations(db_setup, None)
 
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 
@@ -432,9 +439,9 @@ class TestUpdateStreamDataset:
         assert kwargs.get("positive", args[3] if len(args) > 3 else None) is True  # positive parameter
 
     @patch("archive_api.dataset._write_sample")
-    def test_update_stream_dataset_missing_segment_file(self, mock_write, dataset_paths, stream_path):
+    def test_update_stream_dataset_missing_segment_file(self, mock_write, dataset_paths, stream_path, db_setup):
         rois = [{"bird_class": "great_tit", "bbox": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2}}]
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {"nonexistent.ts": rois}}))
+        insert_annotations(db_setup, {"nonexistent.ts": rois})
 
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 
@@ -442,7 +449,7 @@ class TestUpdateStreamDataset:
         mock_write.assert_not_called()
 
     @patch("archive_api.dataset._write_sample")
-    def test_update_stream_dataset_cleans_old_files(self, mock_write, dataset_paths, stream_path):
+    def test_update_stream_dataset_cleans_old_files(self, mock_write, dataset_paths, stream_path, db_setup):
         images_path, labels_path = dataset_paths
 
         # Create old files
@@ -450,7 +457,7 @@ class TestUpdateStreamDataset:
         (labels_path / "2025-01-15_stream_a_old.txt").touch()
 
         rois = [{"bird_class": "great_tit", "bbox": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2}}]
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {"seg1.ts": rois}}))
+        insert_annotations(db_setup, {"seg1.ts": rois})
 
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 
@@ -482,8 +489,6 @@ class TestScheduleUpdate:
 class TestWorkerThread:
     def test_worker_processes_queue(self, dataset_paths, stream_path):
         # Test the worker logic by directly calling it with mocked update function
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {"seg1.ts": []}}))
-
         with patch("archive_api.dataset._update_stream_dataset") as mock_update:
             # Simulate what the worker does
             year, month, day, path = ("2025", "01", "15", stream_path)

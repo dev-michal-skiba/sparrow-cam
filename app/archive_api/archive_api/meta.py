@@ -64,7 +64,6 @@ def update_meta():
 
     manual_annotations = body.model_dump()["manual_annotations"]
     date = f"{year}-{month}-{day}"
-    meta_path = stream_path / "meta.json"
 
     conn = index_db.get_connection()
     try:
@@ -80,15 +79,7 @@ def update_meta():
             )
             if cursor.rowcount == 0:
                 return jsonify({"error": "Recording not found"}), 404
-
-            try:
-                with meta_path.open() as f:
-                    meta = json.load(f)
-            except (OSError, json.JSONDecodeError):
-                meta = {}
-            meta["manual_annotations"] = manual_annotations
-            with meta_path.open("w") as f:
-                json.dump(meta, f)
+        meta = index_db.get_meta(conn, date, stream)
     finally:
         conn.close()
 
