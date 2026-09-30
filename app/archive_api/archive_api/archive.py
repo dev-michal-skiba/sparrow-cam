@@ -1,8 +1,8 @@
-from datetime import timedelta
+import json
 
 from flask import Blueprint, jsonify, request
 
-from archive_api import utils
+from archive_api import index_db, utils
 
 archive_bp = Blueprint("archive", __name__)
 
@@ -31,44 +31,25 @@ def get_adjacent():
     if err:
         return jsonify(err), 400
 
-    all_streams = []
-    if utils.ARCHIVE_PATH.is_dir():
-        for year_dir in sorted(utils.ARCHIVE_PATH.iterdir()):
-            if not year_dir.is_dir():
-                continue
-            for month_dir in sorted(year_dir.iterdir()):
-                if not month_dir.is_dir():
-                    continue
-                for day_dir in sorted(month_dir.iterdir()):
-                    if not day_dir.is_dir():
-                        continue
-                    for stream_dir in sorted(day_dir.iterdir()):
-                        if stream_dir.is_dir():
-                            all_streams.append(
-                                {
-                                    "year": year_dir.name,
-                                    "month": month_dir.name,
-                                    "day": day_dir.name,
-                                    "stream": stream_dir.name,
-                                }
-                            )
-
-    current = {"year": year, "month": month, "day": day, "stream": stream}
+    date = f"{year}-{month}-{day}"
+    conn = index_db.get_connection()
     try:
-        idx = all_streams.index(current)
-    except ValueError:
-        return jsonify({"error": "Recording not found"}), 404
-
-    def matches_filter(entry: dict) -> bool:
-        stream_path = utils.ARCHIVE_PATH / entry["year"] / entry["month"] / entry["day"] / entry["stream"]
-        return utils.stream_matches_filter(stream_path, bird_filter) and utils.stream_matches_annotations_filter(
-            stream_path, exclude_false_positives, exclude_annotated
+        if not index_db.recording_exists(conn, date, stream):
+            return jsonify({"error": "Recording not found"}), 404
+        previous, next_recording = index_db.find_adjacent(
+            conn, date, stream, bird_filter, exclude_false_positives, exclude_annotated
         )
+    finally:
+        conn.close()
 
-    previous = next((s for s in reversed(all_streams[:idx]) if matches_filter(s)), None)
-    next_recording = next((s for s in all_streams[idx + 1 :] if matches_filter(s)), None)
+    return jsonify({"previous": _to_entry(previous), "next": _to_entry(next_recording)})
 
-    return jsonify({"previous": previous, "next": next_recording})
+
+def _to_entry(row) -> dict | None:
+    if row is None:
+        return None
+    year, month, day = row["date"].split("-")
+    return {"year": year, "month": month, "day": day, "stream": row["stream"]}
 
 
 @archive_bp.get("/")
@@ -94,29 +75,23 @@ def list_archive():
     if err:
         return jsonify(err), 400
 
+    conn = index_db.get_connection()
+    try:
+        rows = index_db.list_recordings(
+            conn,
+            from_date.isoformat(),
+            to_date.isoformat(),
+            bird_filter,
+            exclude_false_positives,
+            exclude_annotated,
+        )
+    finally:
+        conn.close()
+
     result: dict = {}
-    current = from_date
-    while current <= to_date:
-        year_str = current.strftime("%Y")
-        month_str = current.strftime("%m")
-        day_str = current.strftime("%d")
-
-        day_path = utils.ARCHIVE_PATH / year_str / month_str / day_str
-        if day_path.is_dir():
-            streams = {
-                d.name: {"birds": utils.get_stream_birds(d)}
-                for d in sorted(day_path.iterdir())
-                if d.is_dir()
-                and utils.stream_matches_filter(d, bird_filter)
-                and utils.stream_matches_annotations_filter(d, exclude_false_positives, exclude_annotated)
-            }
-            if streams:
-                if year_str not in result:
-                    result[year_str] = {}
-                if month_str not in result[year_str]:
-                    result[year_str][month_str] = {}
-                result[year_str][month_str][day_str] = streams
-
-        current += timedelta(days=1)
+    for row in rows:
+        year_str, month_str, day_str = row["date"].split("-")
+        streams = result.setdefault(year_str, {}).setdefault(month_str, {}).setdefault(day_str, {})
+        streams[row["stream"]] = {"birds": json.loads(row["birds"] or "[]")}
 
     return jsonify(result)

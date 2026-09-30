@@ -1,4 +1,3 @@
-import json
 import logging
 import queue
 import random
@@ -6,6 +5,7 @@ import subprocess  # nosec B404
 import threading
 from pathlib import Path
 
+from archive_api import index_db
 from archive_api.models import BirdClass
 
 logger = logging.getLogger(__name__)
@@ -55,14 +55,7 @@ def _update_stream_dataset(year: str, month: str, day: str, stream_path: Path) -
     prefix = f"{year}-{month}-{day}_{stream_path.name}"
     _remove_stream_files(prefix)
 
-    meta_path = stream_path / "meta.json"
-    try:
-        with meta_path.open() as f:
-            meta = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return
-
-    manual_annotations = meta.get("manual_annotations")
+    manual_annotations = index_db.get_manual_annotations(f"{year}-{month}-{day}", stream_path.name)
     if manual_annotations is None:
         return
 

@@ -1,5 +1,6 @@
 import json
 import queue
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,8 +21,31 @@ def dataset_paths(tmp_path):
 
 
 @pytest.fixture
-def stream_path(tmp_path):
-    """Create a temporary stream path with a segment file."""
+def db_setup(tmp_path, monkeypatch):
+    """Set up a temporary SQLite database for dataset tests."""
+    db_path = tmp_path / "index.db"
+    monkeypatch.setattr("archive_api.index_db.INDEX_DB_PATH", db_path)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE recordings (
+            date TEXT NOT NULL,
+            stream TEXT NOT NULL,
+            detections TEXT,
+            manual_annotations TEXT,
+            birds TEXT,
+            PRIMARY KEY (date, stream)
+        )
+        """)
+    conn.commit()
+    conn.close()
+
+    return db_path
+
+
+@pytest.fixture
+def stream_path(tmp_path, db_setup):
+    """Create a temporary stream path with a segment file and database setup."""
     stream = tmp_path / "stream_a"
     stream.mkdir(parents=True, exist_ok=True)
 
@@ -372,17 +396,32 @@ class TestUpdateStreamDataset:
         assert len(list(images_path.glob("*.jpg"))) == 0
 
     @patch("archive_api.dataset._write_sample")
-    def test_update_stream_dataset_empty_manual_annotations(self, mock_write, dataset_paths, stream_path):
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {}}))
+    def test_update_stream_dataset_empty_manual_annotations(self, mock_write, dataset_paths, stream_path, db_setup):
+        # Insert empty manual_annotations into database
+        conn = sqlite3.connect(db_setup)
+        conn.execute(
+            "INSERT INTO recordings (date, stream, detections, manual_annotations, birds) VALUES (?, ?, ?, ?, ?)",
+            ("2025-01-15", "stream_a", json.dumps({}), json.dumps({}), json.dumps([])),
+        )
+        conn.commit()
+        conn.close()
 
         with patch("archive_api.dataset._add_negative_sample") as mock_negative:
             dataset._update_stream_dataset("2025", "01", "15", stream_path)
             mock_negative.assert_called_once()
 
     @patch("archive_api.dataset._write_sample")
-    def test_update_stream_dataset_positive_samples(self, mock_write, dataset_paths, stream_path):
+    def test_update_stream_dataset_positive_samples(self, mock_write, dataset_paths, stream_path, db_setup):
         rois = [{"bird_class": "great_tit", "bbox": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2}}]
-        (stream_path / "meta.json").write_text(json.dumps({"manual_annotations": {"seg1.ts": rois}}))
+
+        # Insert manual_annotations into database
+        conn = sqlite3.connect(db_setup)
+        conn.execute(
+            "INSERT INTO recordings (date, stream, detections, manual_annotations, birds) VALUES (?, ?, ?, ?, ?)",
+            ("2025-01-15", "stream_a", json.dumps({}), json.dumps({"seg1.ts": rois}), json.dumps(["great_tit"])),
+        )
+        conn.commit()
+        conn.close()
 
         dataset._update_stream_dataset("2025", "01", "15", stream_path)
 

@@ -14,11 +14,17 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def get_birds(detections: dict) -> list[str]:
+    """Return the sorted unique bird class slugs found in detections."""
+    return sorted({det["class"] for segment in detections.values() for det in segment if "class" in det})
+
+
 def write_recording(date: str, stream: str, detections: dict) -> None:
     """Insert or update a recordings row with detections, in a single transaction.
 
     Uses an upsert keyed on (date, stream) so extending an archive updates the
-    existing row's detections without touching manual_annotations.
+    existing row's detections without touching manual_annotations. The birds column
+    is derived from detections, unless manual_annotations exist (they take precedence).
 
     Args:
         date: Recording date in YYYY-MM-DD format.
@@ -30,11 +36,13 @@ def write_recording(date: str, stream: str, detections: dict) -> None:
         with conn:
             conn.execute(
                 """
-                INSERT INTO recordings (date, stream, detections)
-                VALUES (?, ?, ?)
-                ON CONFLICT(date, stream) DO UPDATE SET detections = excluded.detections
+                INSERT INTO recordings (date, stream, detections, birds)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(date, stream) DO UPDATE SET
+                    detections = excluded.detections,
+                    birds = CASE WHEN manual_annotations IS NULL THEN excluded.birds ELSE birds END
                 """,
-                (date, stream, json.dumps(detections)),
+                (date, stream, json.dumps(detections), json.dumps(get_birds(detections))),
             )
     finally:
         conn.close()

@@ -35,6 +35,7 @@ services:
       - ../app/archive_api:/app/archive_api
       - ../.storage/processor/sparrow_cam/archive:/var/www/html/storage/sparrow_cam/archive
       - ../.storage/processor/sparrow_cam/dataset:/var/www/html/storage/sparrow_cam/dataset
+      - ../.storage/processor/sparrow_cam/index_db:/var/lib/sparrow_cam
 
   cron:
     build:

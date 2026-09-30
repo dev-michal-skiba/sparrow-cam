@@ -1,34 +1,84 @@
 import json
+import sqlite3
 
 import pytest
 
 
+def get_db_connection(archive_root):
+    """Get connection to the test database."""
+    conn = sqlite3.connect(archive_root / "index.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def make_stream(archive_root, year, month, day, stream_name):
-    """Create a stream directory in the archive structure."""
+    """Create a stream directory in the archive structure and insert a database record."""
     path = archive_root / year / month / day / stream_name
     path.mkdir(parents=True, exist_ok=True)
+
+    date = f"{year}-{month}-{day}"
+    conn = get_db_connection(archive_root)
+    conn.execute(
+        "INSERT OR IGNORE INTO recordings (date, stream, detections, birds) VALUES (?, ?, ?, ?)",
+        (date, stream_name, json.dumps({}), json.dumps([])),
+    )
+    conn.commit()
+    conn.close()
+
     return path
 
 
 def make_stream_with_birds(archive_root, year, month, day, stream_name, birds):
-    """Create a stream directory with bird detection metadata."""
+    """Create a stream directory with bird detection metadata in the database."""
     stream_path = make_stream(archive_root, year, month, day, stream_name)
-    meta = {"detections": {"segment1.ts": [{"class": bird} for bird in birds]}}
-    meta_file = stream_path / "meta.json"
-    with meta_file.open("w") as f:
-        json.dump(meta, f)
+    date = f"{year}-{month}-{day}"
+
+    # Create detections structure
+    detections = {"segment1.ts": [{"class": bird} for bird in birds]}
+    birds_sorted = sorted(set(birds))
+
+    # Update database with birds and detections (record already exists from make_stream)
+    conn = get_db_connection(archive_root)
+    conn.execute(
+        "UPDATE recordings SET detections = ?, birds = ? WHERE date = ? AND stream = ?",
+        (json.dumps(detections), json.dumps(birds_sorted), date, stream_name),
+    )
+    conn.commit()
+    conn.close()
+
     return stream_path
 
 
 def make_stream_with_birds_and_annotations(archive_root, year, month, day, stream_name, birds, annotations):
-    """Create a stream directory with bird detection metadata and manual annotations."""
+    """Create a stream directory with bird detection metadata and manual annotations in the database."""
     stream_path = make_stream_with_birds(archive_root, year, month, day, stream_name, birds)
+    date = f"{year}-{month}-{day}"
+
+    # Extract birds from manual annotations - handle both old string format and new ROI format
+    birds_from_annotations = set()
+    for annotation_list in annotations.values():
+        if isinstance(annotation_list, list):
+            for ann in annotation_list:
+                if isinstance(ann, dict) and "bird_class" in ann:
+                    birds_from_annotations.add(ann["bird_class"])
+    birds_from_annotations = sorted(birds_from_annotations) if birds_from_annotations else sorted(birds)
+
+    # Update database with annotations
+    conn = get_db_connection(archive_root)
+    conn.execute(
+        "UPDATE recordings SET manual_annotations = ?, birds = ? WHERE date = ? AND stream = ?",
+        (json.dumps(annotations), json.dumps(birds_from_annotations), date, stream_name),
+    )
+    conn.commit()
+    conn.close()
+
+    # Also write meta.json for compatibility with update_meta endpoint
     meta_file = stream_path / "meta.json"
-    with meta_file.open("r") as f:
-        meta = json.load(f)
-    meta["manual_annotations"] = annotations
     with meta_file.open("w") as f:
-        json.dump(meta, f)
+        json.dump(
+            {"detections": {"segment1.ts": [{"class": bird} for bird in birds]}, "manual_annotations": annotations}, f
+        )
+
     return stream_path
 
 

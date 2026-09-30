@@ -1,4 +1,3 @@
-import json
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -19,39 +18,10 @@ def parse_date(value: str | None, param_name: str) -> tuple[date | None, dict | 
         return None, {"error": f"Invalid date value for '{param_name}': {value}"}
 
 
-def get_stream_birds(stream_path: Path) -> list[str]:
-    meta_path = stream_path / "meta.json"
-    try:
-        with meta_path.open() as f:
-            meta = json.load(f)
-        birds: set[str] = set()
-        manual_annotations = meta.get("manual_annotations")
-        if manual_annotations is not None:
-            for annotations in manual_annotations.values():
-                for ann in annotations:
-                    if "bird_class" in ann:
-                        birds.add(ann["bird_class"])
-        else:
-            for detections in meta.get("detections", {}).values():
-                for det in detections:
-                    if "class" in det:
-                        birds.add(det["class"])
-        return sorted(birds)
-    except (OSError, json.JSONDecodeError, KeyError):
-        return []
-
-
 def parse_bird_filter(birds_param: str | None) -> list[str]:
     if not birds_param:
         return []
     return [b.strip() for b in birds_param.split(",") if b.strip()]
-
-
-def stream_matches_filter(stream_path: Path, bird_filter: list[str]) -> bool:
-    if not bird_filter:
-        return True
-    birds = get_stream_birds(stream_path)
-    return any(b in bird_filter for b in birds)
 
 
 def parse_bool_filter(value: str | None) -> bool:
@@ -67,31 +37,6 @@ def parse_annotations_filter(
     if exclude_false_positives and exclude_annotated:
         return False, False, {"error": "exclude_false_positives and exclude_annotated cannot both be set"}
     return exclude_false_positives, exclude_annotated, None
-
-
-def get_stream_manual_annotations(stream_path: Path) -> dict | None:
-    meta_path = stream_path / "meta.json"
-    try:
-        with meta_path.open() as f:
-            meta = json.load(f)
-        return meta.get("manual_annotations")
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def stream_matches_annotations_filter(
-    stream_path: Path,
-    exclude_false_positives: bool,
-    exclude_annotated: bool,
-) -> bool:
-    if not exclude_false_positives and not exclude_annotated:
-        return True
-    manual_annotations = get_stream_manual_annotations(stream_path)
-    if exclude_annotated and manual_annotations is not None:
-        return False
-    if exclude_false_positives and manual_annotations == {}:
-        return False
-    return True
 
 
 def is_safe_path_component(component: str) -> bool:
