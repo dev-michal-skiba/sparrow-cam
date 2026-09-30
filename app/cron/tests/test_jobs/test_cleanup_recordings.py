@@ -87,72 +87,31 @@ class TestParseTimestamp:
 class TestIsManuallyAnnotated:
     """Test suite for RecordingsCleaner.is_manually_annotated method."""
 
-    def test_is_manually_annotated_true_with_empty_dict(self):
-        """Test recording is marked annotated even with empty dict."""
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", Path("/archive"))
+    def test_is_manually_annotated_true(self, mock_db_is_annotated):
+        """Test recording is marked annotated when database indicates so."""
+        mock_db_is_annotated.return_value = True
         cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_recording_annotated")
-        temp_dir.mkdir(exist_ok=True)
-        meta_file = temp_dir / "meta.json"
-        meta_file.write_text(json.dumps({"manual_annotations": {}}))
+        recording_path = Path("/archive/2024/01/15/sparrow_stream")
 
-        result = cleaner.is_manually_annotated(temp_dir)
+        result = cleaner.is_manually_annotated(recording_path)
 
         assert result is True
-        meta_file.unlink()
-        temp_dir.rmdir()
+        mock_db_is_annotated.assert_called_once_with("2024-01-15", "sparrow_stream")
 
-    def test_is_manually_annotated_true_with_annotations(self):
-        """Test recording with actual annotations is marked annotated."""
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", Path("/archive"))
+    def test_is_manually_annotated_false(self, mock_db_is_annotated):
+        """Test recording is not marked annotated when database indicates so."""
+        mock_db_is_annotated.return_value = False
         cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_recording_with_data")
-        temp_dir.mkdir(exist_ok=True)
-        meta_file = temp_dir / "meta.json"
-        meta_file.write_text(json.dumps({"manual_annotations": {"0": {"type": "bird"}}}))
+        recording_path = Path("/archive/2024/01/15/sparrow_stream")
 
-        result = cleaner.is_manually_annotated(temp_dir)
-
-        assert result is True
-        meta_file.unlink()
-        temp_dir.rmdir()
-
-    def test_is_manually_annotated_false_no_meta(self):
-        """Test recording without meta.json is not marked annotated."""
-        cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_recording_no_meta")
-        temp_dir.mkdir(exist_ok=True)
-
-        result = cleaner.is_manually_annotated(temp_dir)
+        result = cleaner.is_manually_annotated(recording_path)
 
         assert result is False
-        temp_dir.rmdir()
-
-    def test_is_manually_annotated_false_no_key(self):
-        """Test recording without manual_annotations key is not marked annotated."""
-        cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_recording_no_key")
-        temp_dir.mkdir(exist_ok=True)
-        meta_file = temp_dir / "meta.json"
-        meta_file.write_text(json.dumps({"other_field": "value"}))
-
-        result = cleaner.is_manually_annotated(temp_dir)
-
-        assert result is False
-        meta_file.unlink()
-        temp_dir.rmdir()
-
-    def test_is_manually_annotated_false_invalid_json(self):
-        """Test recording with invalid JSON returns False."""
-        cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_recording_invalid_json")
-        temp_dir.mkdir(exist_ok=True)
-        meta_file = temp_dir / "meta.json"
-        meta_file.write_text("invalid json {]")
-
-        result = cleaner.is_manually_annotated(temp_dir)
-
-        assert result is False
-        meta_file.unlink()
-        temp_dir.rmdir()
+        mock_db_is_annotated.assert_called_once_with("2024-01-15", "sparrow_stream")
 
 
 class TestGroupByTimestamp:
@@ -251,11 +210,16 @@ class TestGroupByTimestamp:
 class TestLoadRecording:
     """Test suite for RecordingsCleaner.load_recording method."""
 
-    def test_load_recording_basic(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    def test_load_recording_basic(self, mock_db_is_annotated, tmp_path, monkeypatch):
         """Test loading recording info from path."""
+        archive_path = tmp_path / "archive"
+        temp_dir = archive_path / "2024" / "01" / "15" / "sparrow_2024-01-15T143022Z_uuid"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path)
+
+        mock_db_is_annotated.return_value = False
         cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/sparrow_2024-01-15T143022Z_uuid")
-        temp_dir.mkdir(exist_ok=True)
 
         # Create some segment files
         (temp_dir / "segment1.ts").touch()
@@ -268,20 +232,16 @@ class TestLoadRecording:
         assert recording.segment_count == 2
         assert recording.is_manually_annotated is False
 
-        # Cleanup
-        (temp_dir / "segment1.ts").unlink()
-        (temp_dir / "segment2.ts").unlink()
-        temp_dir.rmdir()
-
-    def test_load_recording_with_annotation(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    def test_load_recording_with_annotation(self, mock_db_is_annotated, tmp_path, monkeypatch):
         """Test loading recording that is manually annotated."""
-        cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/sparrow_2024-01-15T143022Z_abc123")
-        temp_dir.mkdir(exist_ok=True)
+        archive_path = tmp_path / "archive"
+        temp_dir = archive_path / "2024" / "01" / "15" / "sparrow_2024-01-15T143022Z_abc123"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path)
 
-        # Create meta file with manual annotations
-        meta_file = temp_dir / "meta.json"
-        meta_file.write_text(json.dumps({"manual_annotations": {}}))
+        mock_db_is_annotated.return_value = True
+        cleaner = RecordingsCleaner()
 
         # Create segments
         (temp_dir / "segment1.ts").touch()
@@ -291,50 +251,59 @@ class TestLoadRecording:
         assert recording.is_manually_annotated is True
         assert recording.segment_count == 1
 
-        # Cleanup
-        meta_file.unlink()
-        (temp_dir / "segment1.ts").unlink()
-        temp_dir.rmdir()
-
-    def test_load_recording_no_segments(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    def test_load_recording_no_segments(self, mock_db_is_annotated, tmp_path, monkeypatch):
         """Test loading recording with no segments."""
+        archive_path = tmp_path / "archive"
+        temp_dir = archive_path / "2024" / "01" / "15" / "sparrow_2024-01-15T143022Z_xyz789"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path)
+
+        mock_db_is_annotated.return_value = False
         cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/sparrow_2024-01-15T143022Z_xyz789")
-        temp_dir.mkdir(exist_ok=True)
 
         recording = cleaner.load_recording(temp_dir)
 
         assert recording.segment_count == 0
 
-        temp_dir.rmdir()
-
 
 class TestRemoveRecording:
     """Test suite for RecordingsCleaner.remove_recording method."""
 
-    def test_remove_recording_deletes_directory(self):
-        """Test remove_recording deletes the recording directory."""
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_remove_recording_deletes_directory_and_db_row(self, mock_delete_db, tmp_path, caplog):
+        """Test remove_recording deletes the recording directory and database row."""
+        archive_path = tmp_path / "archive" / "2024" / "01" / "15" / "sparrow_stream"
+        archive_path.mkdir(parents=True, exist_ok=True)
+        (archive_path / "segment.ts").touch()
+
+        recording = Recording(archive_path, "2024-01-15T143022Z", 1, False)
+
         cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_remove_2024-01-15T143022Z_uuid")
-        temp_dir.mkdir(exist_ok=True)
-        (temp_dir / "segment.ts").touch()
-
-        recording = Recording(temp_dir, "2024-01-15T143022Z", 1, False)
-
-        cleaner.remove_recording(recording)
-
-        assert not temp_dir.exists()
-
-    def test_remove_recording_logs_info(self, caplog):
-        """Test remove_recording logs the removal."""
-        cleaner = RecordingsCleaner()
-        temp_dir = Path("/tmp/test_remove_log_2024-01-15T143022Z_uuid")
-        temp_dir.mkdir(exist_ok=True)
-
-        recording = Recording(temp_dir, "2024-01-15T143022Z", 5, False)
-
         with caplog.at_level(logging.INFO):
-            cleaner.remove_recording(recording)
+            with patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path / "archive"):
+                cleaner.remove_recording(recording)
+
+        # Verify database row was deleted
+        mock_delete_db.assert_called_once_with("2024-01-15", "sparrow_stream")
+        # Verify directory was deleted
+        assert not archive_path.exists()
+        # Verify logging
+        assert "Removing recording" in caplog.text
+        assert "1 segments" in caplog.text
+
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_remove_recording_logs_info(self, mock_delete_db, tmp_path, caplog):
+        """Test remove_recording logs the removal with segment count."""
+        archive_path = tmp_path / "archive" / "2024" / "01" / "15" / "pigeon_stream"
+        archive_path.mkdir(parents=True, exist_ok=True)
+
+        recording = Recording(archive_path, "2024-01-15T143022Z", 5, False)
+
+        cleaner = RecordingsCleaner()
+        with caplog.at_level(logging.INFO):
+            with patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", tmp_path / "archive"):
+                cleaner.remove_recording(recording)
 
         assert "Removing recording" in caplog.text
         assert "5 segments" in caplog.text
@@ -391,9 +360,14 @@ class TestCleanupDay:
 
         shutil.rmtree(archive_path.parent.parent.parent)
 
-    def test_cleanup_day_with_actual_files(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_with_actual_files(self, mock_delete_db, mock_is_annotated):
         """Test cleanup_day with actual archive structure."""
         import shutil
+
+        # Mock all recordings as not annotated
+        mock_is_annotated.return_value = False
 
         cleaner = RecordingsCleaner()
         archive_path = Path("/tmp/test_archive/2024/01/15")
@@ -418,9 +392,17 @@ class TestCleanupDay:
         # Cleanup
         shutil.rmtree(archive_path.parent.parent.parent)
 
-    def test_cleanup_day_preserves_annotated_recordings(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_preserves_annotated_recordings(self, mock_delete_db, mock_is_annotated):
         """Test cleanup_day never removes manually annotated recordings."""
         import shutil
+
+        # Mock the first recording as annotated, all others as not annotated
+        def is_annotated_side_effect(date_str, stream):
+            return stream == "sparrow_2024-01-15T000000Z_annotated"
+
+        mock_is_annotated.side_effect = is_annotated_side_effect
 
         cleaner = RecordingsCleaner()
         archive_path = Path("/tmp/test_archive_annotated/2024/01/15")
@@ -429,8 +411,6 @@ class TestCleanupDay:
         # Create one annotated recording with oversized segments (would normally be removed)
         annotated_dir = archive_path / "sparrow_2024-01-15T000000Z_annotated"
         annotated_dir.mkdir()
-        meta_file = annotated_dir / "meta.json"
-        meta_file.write_text(json.dumps({"manual_annotations": {"0": "bird"}}))
         # Create more than MAX_SEGMENTS files (would be oversized)
         for i in range(MAX_SEGMENTS + 5):
             (annotated_dir / f"segment{i}.ts").touch()
@@ -452,9 +432,17 @@ class TestCleanupDay:
         # Cleanup
         shutil.rmtree(archive_path.parent.parent.parent)
 
-    def test_cleanup_day_reduces_keep_budget_by_annotated_count(self):
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_reduces_keep_budget_by_annotated_count(self, mock_delete_db, mock_is_annotated):
         """Test cleanup_day reduces keep budget by annotated recording count."""
         import shutil
+
+        # Mock the first 3 recordings as annotated, all others as not annotated
+        def is_annotated_side_effect(date_str, stream):
+            return "annotated" in stream
+
+        mock_is_annotated.side_effect = is_annotated_side_effect
 
         cleaner = RecordingsCleaner()
         archive_path = Path("/tmp/test_archive_budget/2024/01/15")
@@ -464,8 +452,6 @@ class TestCleanupDay:
         for i in range(3):
             annotated_dir = archive_path / f"sparrow_2024-01-15T{i:02d}0000Z_annotated{i}"
             annotated_dir.mkdir()
-            meta_file = annotated_dir / "meta.json"
-            meta_file.write_text(json.dumps({"manual_annotations": {}}))
             for j in range(5):
                 (annotated_dir / f"segment{j}.ts").touch()
 

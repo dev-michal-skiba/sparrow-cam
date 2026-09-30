@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from cron import index_db
 from cron.constants import ARCHIVE_PATH, LAST_CLEANED_UP_DAY_PATH, LOG_FORMAT
 
 logger = logging.getLogger(__name__)
@@ -95,16 +96,13 @@ class RecordingsCleaner:
         return directory_name.split("_")[1]
 
     def is_manually_annotated(self, path: Path) -> bool:
-        """Return True if the recording's meta.json has manual annotations."""
-        meta_path = path / "meta.json"
-        if not meta_path.exists():
-            return False
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return False
-        return meta.get("manual_annotations") is not None
+        """Return True if the recording has manual annotations in the index database."""
+        return index_db.is_manually_annotated(*self.recording_key(path))
+
+    def recording_key(self, path: Path) -> tuple[str, str]:
+        """Return the (date, stream) index database key for a recording directory."""
+        year, month, day, stream = path.relative_to(ARCHIVE_PATH).parts
+        return f"{year}-{month}-{day}", stream
 
     def group_by_timestamp(self, candidates: list[Recording], group_count: int) -> list[list[Recording]]:
         """Split candidates into group_count contiguous, time-ordered groups.
@@ -127,8 +125,9 @@ class RecordingsCleaner:
         return groups
 
     def remove_recording(self, recording: Recording) -> None:
-        """Delete a recording directory from the archive."""
+        """Delete a recording from the index database and its directory from the archive."""
         logger.info(f"Removing recording {recording.path} ({recording.segment_count} segments)")
+        index_db.delete_recording(*self.recording_key(recording.path))
         shutil.rmtree(recording.path)
 
 

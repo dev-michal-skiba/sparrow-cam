@@ -32,9 +32,9 @@ watermark—it prunes exactly the specified day(s) directly.
 The following logic applies when pruning any day, whether as part of the sweep or via
 manual invocation:
 
-- A recording counts as manually annotated when its meta.json has a `manual_annotations`
-  key, even if the value is an empty object (reviewed as containing no birds). Manually
-  annotated recordings are never removed.
+- A recording counts as manually annotated when its database row has a non-null
+  `manual_annotations` field, even if the value is an empty object (reviewed as containing
+  no birds). Manually annotated recordings are never removed.
 - Recordings with more than 60 segments are always removed, regardless of the keep budget
   below. This does not apply to manually annotated recordings.
 - Of the remaining non-annotated recordings, up to 10 are kept. This budget is reduced
