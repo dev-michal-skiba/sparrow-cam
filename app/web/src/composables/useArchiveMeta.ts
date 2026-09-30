@@ -8,7 +8,6 @@ interface Detection {
 }
 
 interface ArchiveMeta {
-  version: number
   detections: Record<string, Detection[]>
   manual_annotations?: ManualAnnotationsMap | null
 }

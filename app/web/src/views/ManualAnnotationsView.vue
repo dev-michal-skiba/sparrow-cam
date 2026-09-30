@@ -72,7 +72,7 @@ const router = useRouter()
 const { year, month, day, stream } = route.params as Record<string, string>
 
 const playlistUrl = `/archive/storage/${year}/${month}/${day}/${stream}/sparrow_cam.m3u8`
-const metaUrl = `/archive/storage/${year}/${month}/${day}/${stream}/meta.json`
+const metaUrl = `/archive/api/meta?year=${year}&month=${month}&day=${day}&stream=${encodeURIComponent(stream)}`
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const videoReady = ref(false)

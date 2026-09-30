@@ -54,8 +54,9 @@ holds a `recordings` table (primary key `(date, stream)`, plus `detections`,
 initialized in WAL mode. The database file follows the existing shared-group
 permission pattern (`sparrow_cam_app` owner, `sparrow_cam` group) so the
 processor, Archive API, and cron users — which all run as `sparrow_cam_app` —
-can write to it. This is groundwork only: no service reads from or writes to
-the database yet.
+can write to it. The processor writes detections on every archive, the Archive
+API writes manual_annotations, and cron reads manual_annotations to determine
+which recordings to keep during cleanup.
 
 ## Cron Jobs
 
