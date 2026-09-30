@@ -27,21 +27,14 @@ of a single visit across segment boundaries.
 Archiving can be disabled via a flag file with no service restart needed.
 Detection and live annotation continue normally while the flag file is present.
 
-## Extend Merges meta.json
-When extending an existing archive, the existing meta.json is read and merged
-with in-memory detections. This ensures data for segments already pruned from
-the live playlist is not lost.
-
 ## Index Database
 All archives are persisted to SQLite (index.db) keyed on (date, stream). The recordings table
 is upserted after each archive or extension, with date in YYYY-MM-DD format and stream as the
 archive directory name. On conflict, the detections column is always updated, while birds and
 manual_annotations are preserved via conditional logic: birds is updated only when
 manual_annotations is null (archive_api owns the birds column when manual annotations exist);
-manual_annotations themselves are never overwritten. The database mirrors detections from
-meta.json—both are written from the same merged dict in a single transaction, so they remain
-in sync. The birds column is derived from detections via extracting and sorting unique bird
-class slugs.
+manual_annotations themselves are never overwritten. The birds column is derived from
+detections via extracting and sorting unique bird class slugs.
 
 ## Detection Metadata Format
 Shared contract with archive_api and web:

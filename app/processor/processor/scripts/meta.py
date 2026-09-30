@@ -6,24 +6,27 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 
+from processor.index_db import get_birds, get_connection
+
 ARCHIVE_PATH = Path("/var/www/html/storage/sparrow_cam/archive")
 ARCHIVE_BASE_URL = "http://rpi.local/archive"
 
 
-def get_stream_url(meta_path: Path) -> str:
-    relative = meta_path.parent.relative_to(ARCHIVE_PATH)
-    return f"{ARCHIVE_BASE_URL}/{relative}"
+def get_stream_url(date: str, stream: str) -> str:
+    return f"{ARCHIVE_BASE_URL}/{date.replace('-', '/')}/{stream}"
 
 
-def find_meta_files() -> list[Path]:
-    return sorted(ARCHIVE_PATH.rglob("meta.json"))
+def find_recordings() -> list[tuple[str, str, dict]]:
+    """Return (date, stream, detections) for every recording in the database."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT date, stream, detections FROM recordings ORDER BY date, stream").fetchall()
+    finally:
+        conn.close()
+    return [(date, stream, json.loads(detections or "{}")) for date, stream, detections in rows]
 
 
-def get_max_confidence_per_class(meta_path: Path) -> dict[str, float]:
-    with open(meta_path) as f:
-        meta = json.load(f)
-
-    detections = meta.get("detections", {})
+def get_max_confidence_per_class(detections: dict) -> dict[str, float]:
     max_confidence: dict[str, float] = {}
 
     for segment_detections in detections.values():
@@ -43,11 +46,11 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     # bird_class -> percentage (int) -> list of stream URLs
     data: dict[str, dict[int, list[str]]] = defaultdict(lambda: defaultdict(list))
 
-    for meta_path in find_meta_files():
-        max_conf = get_max_confidence_per_class(meta_path)
+    for date, stream, detections in find_recordings():
+        max_conf = get_max_confidence_per_class(detections)
         if not max_conf:
             continue
-        stream_url = get_stream_url(meta_path)
+        stream_url = get_stream_url(date, stream)
         for cls, confidence in max_conf.items():
             if filter_class is not None and cls != filter_class:
                 continue
@@ -72,36 +75,46 @@ def cmd_delete(args: argparse.Namespace) -> None:
     threshold = args.threshold
     dry_run = args.dry_run
 
-    for meta_path in find_meta_files():
-        with open(meta_path) as f:
-            meta = json.load(f)
+    conn = get_connection()
+    try:
+        for date, stream, detections in find_recordings():
+            new_detections: dict[str, list[dict]] = {}
+            modified = False
 
-        detections = meta.get("detections", {})
-        modified = False
-        new_detections: dict[str, list[dict]] = {}
+            for segment, segment_detections in detections.items():
+                filtered = [
+                    d for d in segment_detections if d["class"] != bird_class or d["confidence"] * 100 >= threshold
+                ]
+                if len(filtered) != len(segment_detections):
+                    modified = True
+                if filtered:
+                    new_detections[segment] = filtered
 
-        for segment, segment_detections in detections.items():
-            filtered = [d for d in segment_detections if d["class"] != bird_class or d["confidence"] * 100 >= threshold]
-            if len(filtered) != len(segment_detections):
-                modified = True
-            if filtered:
-                new_detections[segment] = filtered
+            if not modified:
+                continue
 
-        if not modified:
-            continue
+            stream_url = get_stream_url(date, stream)
 
-        stream_url = get_stream_url(meta_path)
-
-        if new_detections:
-            print(f"Removed detections from: {stream_url}")
-            if not dry_run:
-                meta["detections"] = new_detections
-                with open(meta_path, "w") as f:
-                    json.dump(meta, f, indent=2)
-        else:
-            print(f"Removed stream: {stream_url}")
-            if not dry_run:
-                shutil.rmtree(meta_path.parent)
+            if new_detections:
+                print(f"Removed detections from: {stream_url}")
+                if not dry_run:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE recordings SET detections = ?,
+                                birds = CASE WHEN manual_annotations IS NULL THEN ? ELSE birds END
+                            WHERE date = ? AND stream = ?
+                            """,
+                            (json.dumps(new_detections), json.dumps(get_birds(new_detections)), date, stream),
+                        )
+            else:
+                print(f"Removed stream: {stream_url}")
+                if not dry_run:
+                    with conn:
+                        conn.execute("DELETE FROM recordings WHERE date = ? AND stream = ?", (date, stream))
+                    shutil.rmtree(ARCHIVE_PATH / date.replace("-", "/") / stream)
+    finally:
+        conn.close()
 
 
 def main() -> None:

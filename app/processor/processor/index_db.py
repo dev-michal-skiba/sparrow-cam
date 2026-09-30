@@ -19,6 +19,16 @@ def get_birds(detections: dict) -> list[str]:
     return sorted({det["class"] for segment in detections.values() for det in segment if "class" in det})
 
 
+def get_detections(date: str, stream: str) -> dict:
+    """Return the stored detections for a recording, or an empty dict if it has no row."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT detections FROM recordings WHERE date = ? AND stream = ?", (date, stream)).fetchone()
+    finally:
+        conn.close()
+    return json.loads(row[0] or "{}") if row else {}
+
+
 def write_recording(date: str, stream: str, detections: dict) -> None:
     """Insert or update a recordings row with detections, in a single transaction.
 

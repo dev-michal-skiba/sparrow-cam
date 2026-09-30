@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import shutil
 from dataclasses import dataclass
@@ -68,7 +67,7 @@ class StreamArchiver:
         self._last_archive_path: Path | None = None
         self._pending_archive_countdown: int | None = None
         self._pending_archive_is_extension = False
-        # Per-segment detection data for meta.json
+        # Per-segment detection data for the index database
         self._segment_detections: dict[str, list[dict]] = {}
 
     def on_segment(self, segment_name: str, bird_detected: bool) -> None:
@@ -157,7 +156,7 @@ class StreamArchiver:
             self._pending_archive_is_extension = False
 
     def record_detections(self, segment_name: str, detections: list[dict]) -> None:
-        """Store detection data for a segment to be included in meta.json on archiving.
+        """Store detection data for a segment to be written to the index database on archiving.
 
         Args:
             segment_name: Name of the segment.
@@ -217,7 +216,7 @@ class StreamArchiver:
 
         copy_result = self.copy_stream(playlist_data, prefix)
         self.write_playlist(copy_result.destination_path, playlist_data)
-        detections = self.write_meta(copy_result.destination_path, playlist_data)
+        detections = self.merge_detections(copy_result.destination_path, playlist_data)
         self._write_index_db(copy_result.destination_path, detections)
 
         logger.info(f"Archived to {copy_result.destination_path} with {len(playlist_data.segments_data)} segment(s)")
@@ -402,45 +401,36 @@ class StreamArchiver:
             segments_data=existing_playlist.segments_data + new_segments,
         )
         self.write_playlist(archive_path, updated_playlist)
-        detections = self.write_meta(archive_path, updated_playlist)
+        detections = self.merge_detections(archive_path, updated_playlist)
         self._write_index_db(archive_path, detections)
 
         logger.info(f"Extended archive {archive_path} with {len(new_segments)} new segment(s)")
 
-    def write_meta(self, destination_path: str | Path, playlist_data: PlaylistData) -> dict:
-        """Write meta.json alongside archive files with detection info for each segment.
+    def merge_detections(self, destination_path: str | Path, playlist_data: PlaylistData) -> dict:
+        """Merge stored detections with current in-memory detections for an archive.
 
-        When meta.json already exists (e.g. on archive extension), existing detections
-        are preserved and merged with current in-memory detections so that data for
-        segments pruned from the live playlist is not lost.
+        When the archive already exists in the index database (e.g. on archive extension),
+        its stored detections are preserved and merged with current in-memory detections
+        so that data for segments pruned from the live playlist is not lost.
 
         Args:
             destination_path: Path to the archive directory.
             playlist_data: PlaylistData object describing the archived segments.
 
         Returns:
-            The merged detections dict that was written to meta.json.
+            The merged detections dict, limited to the archived segments.
         """
         segment_names = {s.name for s in playlist_data.segments_data}
 
-        # Preserve detections from existing meta.json (segments pruned from live playlist)
-        existing_detections: dict[str, list[dict]] = {}
-        meta_path = Path(destination_path) / "meta.json"
-        if meta_path.exists():
-            with open(meta_path) as f:
-                existing_meta = json.load(f)
-            existing_detections = existing_meta.get("detections", {})
+        # Preserve stored detections (segments pruned from live playlist)
+        year, month, day, stream = Path(destination_path).relative_to(ARCHIVE_PATH).parts
+        existing_detections = index_db.get_detections(f"{year}-{month}-{day}", stream)
 
         # Merge: existing data as base, current in-memory data takes priority
         merged = {**existing_detections}
         merged.update({name: dets for name, dets in self._segment_detections.items() if name in segment_names})
 
-        detections = {name: dets for name, dets in merged.items() if name in segment_names}
-        meta = {"version": 1, "detections": detections}
-        with open(meta_path, "w") as f:
-            json.dump(meta, f, indent=2)
-
-        return detections
+        return {name: dets for name, dets in merged.items() if name in segment_names}
 
     def _write_index_db(self, destination_path: str | Path, detections: dict) -> None:
         """Write the recording's detections to the index database.
@@ -448,7 +438,7 @@ class StreamArchiver:
         Args:
             destination_path: Path to the archive directory, used to derive the
                 recording's date and stream name.
-            detections: Merged detection data, as written to meta.json.
+            detections: Merged detection data, after merging with stored detections.
         """
         year, month, day, stream = Path(destination_path).relative_to(ARCHIVE_PATH).parts
         index_db.write_recording(date=f"{year}-{month}-{day}", stream=stream, detections=detections)

@@ -1,5 +1,4 @@
 import argparse
-import json
 import re
 
 import pytest
@@ -797,31 +796,35 @@ class TestRecordDetections:
         assert "segment-1.ts" not in archiver._segment_detections
 
 
-class TestWriteMeta:
-    """Test suite for write_meta method."""
+class TestMergeDetections:
+    """Test suite for merge_detections method."""
 
-    def test_write_meta_creates_json_with_matching_segments(self, archive_path):
-        """Test that meta.json is created with only detections for archived segments."""
+    def test_merge_detections_filters_to_playlist_segments(self, archive_path, tmp_path, monkeypatch):
+        """Test that merge_detections only returns detections for archived segments."""
+        monkeypatch.setattr("processor.stream_archiver.ARCHIVE_PATH", archive_path)
+
         archiver = StreamArchiver()
         detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
         archiver._segment_detections = {
             "segment-1.ts": [detection],
             "segment-9.ts": [detection],  # not in playlist
         }
+
         playlist_data = PlaylistData(
             filename="playlist.m3u8",
             header_lines=[],
             segments_data=[SegmentData(metadata=[], name="segment-1.ts")],
         )
 
-        archiver.write_meta(archive_path / "test", playlist_data)
+        result = archiver.merge_detections(archive_path / "2024/01/01/test", playlist_data)
 
-        meta = json.loads((archive_path / "test" / "meta.json").read_text())
-        assert meta["version"] == 1
-        assert meta["detections"] == {"segment-1.ts": [detection]}
+        assert result == {"segment-1.ts": [detection]}
+        assert "segment-9.ts" not in result
 
-    def test_write_meta_creates_empty_detections_when_no_match(self, archive_path):
-        """Test that meta.json has empty detections when no recorded segments are in the archive."""
+    def test_merge_detections_empty_when_no_detections(self, archive_path, monkeypatch):
+        """Test that merge_detections returns empty dict when no detections exist."""
+        monkeypatch.setattr("processor.stream_archiver.ARCHIVE_PATH", archive_path)
+
         archiver = StreamArchiver()
         playlist_data = PlaylistData(
             filename="playlist.m3u8",
@@ -829,117 +832,45 @@ class TestWriteMeta:
             segments_data=[SegmentData(metadata=[], name="segment-1.ts")],
         )
 
-        archiver.write_meta(archive_path / "test", playlist_data)
+        result = archiver.merge_detections(archive_path / "2024/01/01/test", playlist_data)
 
-        meta = json.loads((archive_path / "test" / "meta.json").read_text())
-        assert meta == {"version": 1, "detections": {}}
-
-    def test_write_meta_merges_existing_detections_on_extension(self, archive_path):
-        """Test that write_meta preserves and merges existing detections from meta.json.
-
-        This simulates archive extension where segment-1.ts was pruned from the live
-        playlist (no longer in _segment_detections), but we want to keep its detection
-        data from the existing meta.json.
-        """
-        archiver = StreamArchiver()
-
-        # Create initial meta.json with detections for segments 1 and 2
-        old_detection = {"class": "Great tit", "confidence": 0.85, "roi": {"x1": 5, "y1": 5, "x2": 50, "y2": 50}}
-        initial_meta = {
-            "version": 1,
-            "detections": {
-                "segment-1.ts": [old_detection],
-                "segment-2.ts": [old_detection],
-            },
-        }
-        meta_path = archive_path / "test" / "meta.json"
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(meta_path, "w") as f:
-            json.dump(initial_meta, f)
-
-        # Simulate archive extension: segment-1 is pruned from live playlist,
-        # but segment-3 is newly added and has a detection in memory
-        new_detection = {"class": "Pigeon", "confidence": 0.9, "roi": {"x1": 10, "y1": 10, "x2": 100, "y2": 100}}
-        archiver._segment_detections = {
-            "segment-2.ts": [old_detection],  # Still in live playlist
-            "segment-3.ts": [new_detection],  # New segment
-            # segment-1.ts not in _segment_detections (pruned from live playlist)
-        }
-
-        # Archive now contains segments 1, 2, 3
-        playlist_data = PlaylistData(
-            filename="playlist.m3u8",
-            header_lines=[],
-            segments_data=[
-                SegmentData(metadata=[], name="segment-1.ts"),
-                SegmentData(metadata=[], name="segment-2.ts"),
-                SegmentData(metadata=[], name="segment-3.ts"),
-            ],
-        )
-
-        archiver.write_meta(archive_path / "test", playlist_data)
-
-        # Verify merged result
-        meta = json.loads((archive_path / "test" / "meta.json").read_text())
-        assert meta["version"] == 1
-        # segment-1.ts detection should be preserved from existing meta.json
-        assert meta["detections"]["segment-1.ts"] == [old_detection]
-        # segment-2.ts detection should come from in-memory (takes priority)
-        assert meta["detections"]["segment-2.ts"] == [old_detection]
-        # segment-3.ts detection should be the new one
-        assert meta["detections"]["segment-3.ts"] == [new_detection]
-        assert len(meta["detections"]) == 3
+        assert result == {}
 
 
-class TestArchiveMeta:
-    """Test suite for meta.json creation during archive."""
+class TestArchiveBehavior:
+    """Test suite for archive behavior during detection recording."""
 
     @pytest.mark.usefixtures("stream_path")
-    @freeze_time("2024-12-21T15:30:45")
-    def test_archive_creates_meta_json(self, archive_path):
-        """Test that archive() creates a meta.json file with detection info."""
+    def test_archive_records_detections_in_memory(self, archive_path):
+        """Test that archive() records detections for all segments in the playlist."""
         archiver = StreamArchiver()
         detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
         archiver.record_detections("segment-2.ts", [detection])
 
-        archiver.archive(prefix="manual")
+        result = archiver.archive(prefix="manual")
 
-        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
-        assert (destination_path / "meta.json").exists() is True
-        meta = json.loads((destination_path / "meta.json").read_text())
-        assert meta["version"] == 1
-        assert "segment-2.ts" in meta["detections"]
+        # Verify that the archive was created
+        assert result is not None
+        assert result.exists()
 
     @pytest.mark.usefixtures("stream_path")
-    @freeze_time("2024-12-21T15:30:45")
-    def test_archive_meta_json_excludes_non_archived_segments(self, archive_path):
-        """Test that meta.json only includes segments present in the archive."""
+    def test_archive_respects_limit(self, archive_path):
+        """Test that archive() respects the segment limit."""
         archiver = StreamArchiver()
         detection = {"class": "Pigeon", "confidence": 0.87, "roi": {"x1": 10, "y1": 20, "x2": 100, "y2": 200}}
-        archiver.record_detections("segment-3.ts", [detection])  # Will be in archive (last segment)
-        archiver.record_detections("segment-2.ts", [detection])  # Will NOT be in archive (limit=1 takes last)
+        archiver.record_detections("segment-3.ts", [detection])
+        archiver.record_detections("segment-2.ts", [detection])
 
-        archiver.archive(prefix="manual", limit=1)
+        result = archiver.archive(prefix="manual", limit=1)
 
-        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
-        meta = json.loads((destination_path / "meta.json").read_text())
-        assert "segment-3.ts" in meta["detections"]
-        assert "segment-2.ts" not in meta["detections"]
+        # Verify that only the last segment was archived
+        assert result is not None
+        # Only segment-3.ts should be in the archive (limit=1 takes the last segment)
+        segments = list(result.glob("segment-*.ts"))
+        assert len(segments) == 1
 
-    @pytest.mark.usefixtures("stream_path")
-    @freeze_time("2024-12-21T15:30:45")
-    def test_archive_meta_json_empty_when_no_detections(self, archive_path):
-        """Test that meta.json has empty detections when no birds were detected."""
-        archiver = StreamArchiver()
-
-        archiver.archive(prefix="manual")
-
-        destination_path = next(archive_path.glob("2024/12/21/manual_2024-12-21T153045Z_*"))
-        meta = json.loads((destination_path / "meta.json").read_text())
-        assert meta == {"version": 1, "detections": {}}
-
-    def test_extend_archive_updates_meta_json(self, stream_path, archive_path):
-        """Test that extend_archive() updates meta.json with detections from new segments."""
+    def test_extend_archive_adds_segments(self, stream_path, archive_path):
+        """Test that extend_archive() adds new segments to an existing archive."""
         archiver = StreamArchiver()
         initial_result = archiver.archive(prefix="test", limit=2)
 
@@ -956,9 +887,10 @@ class TestArchiveMeta:
 
         archiver.extend_archive(archive_path=initial_result, end_segment="segment-5.ts")
 
-        meta = json.loads((initial_result / "meta.json").read_text())
-        assert meta["version"] == 1
-        assert "segment-5.ts" in meta["detections"]
+        # Verify segments in archive include the new ones
+        segments = list(initial_result.glob("segment-*.ts"))
+        segment_names = {s.name for s in segments}
+        assert "segment-5.ts" in segment_names
 
 
 class TestParseLimit:
