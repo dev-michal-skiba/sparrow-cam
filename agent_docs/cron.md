@@ -40,9 +40,12 @@ manual invocation:
 - Of the remaining non-annotated recordings, up to 10 are kept. This budget is reduced
   by one for every manually annotated recording that day, so a day can end up keeping
   more than 10 recordings in total once annotated ones are counted.
-- Kept recordings are chosen by splitting the day's remaining recordings into that many
-  time-ordered groups and picking one at random from each group, so survivors are spread
-  across the day rather than clustered by chance.
+- Kept recordings are chosen by splitting the time between the first and last remaining
+  recording into that many equal time intervals and picking one at random from each
+  interval, so survivors are spread across the day rather than clustered around busy
+  periods. For each empty interval, one more recording is picked at random from a randomly
+  chosen non-empty interval, so fewer recordings than the budget are kept only when fewer
+  exist.
 
 ## Deployment
 

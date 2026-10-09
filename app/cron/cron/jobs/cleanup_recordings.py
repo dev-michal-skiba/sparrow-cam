@@ -39,10 +39,12 @@ class RecordingsCleaner:
     more segments than MAX_SEGMENTS are always removed (unless manually
     annotated), even if fewer than KEEP_COUNT recordings remain afterwards.
     Of the remaining recordings, up to KEEP_COUNT minus the number of
-    manually annotated recordings are kept: the recordings are split into
-    that many time-ordered groups and one random recording is kept from
-    each group, so kept recordings are spread across the day instead of
-    clustered together.
+    manually annotated recordings are kept: the time between the first and
+    last recording is split into that many equal time intervals and one
+    random recording is kept from each interval, so kept recordings are
+    spread across the day instead of clustered together. Each empty
+    interval's slot goes to one more random recording from a randomly
+    chosen non-empty interval.
     """
 
     def cleanup_day(self, day: date) -> None:
@@ -66,8 +68,8 @@ class RecordingsCleaner:
 
         candidates = [r for r in unannotated if r.segment_count <= MAX_SEGMENTS]
         keep_budget = max(0, KEEP_COUNT - len(annotated))
-        groups = self.group_by_timestamp(candidates, keep_budget)
-        to_keep = [random.choice(group) for group in groups]  # nosec B311
+        groups = [group for group in self.group_by_time_interval(candidates, keep_budget) if group]
+        to_keep = self.select_to_keep(groups, keep_budget)
         for recording in candidates:
             if recording not in to_keep:
                 self.remove_recording(recording)
@@ -104,25 +106,43 @@ class RecordingsCleaner:
         year, month, day, stream = path.relative_to(ARCHIVE_PATH).parts
         return f"{year}-{month}-{day}", stream
 
-    def group_by_timestamp(self, candidates: list[Recording], group_count: int) -> list[list[Recording]]:
-        """Split candidates into group_count contiguous, time-ordered groups.
+    def group_by_time_interval(self, candidates: list[Recording], group_count: int) -> list[list[Recording]]:
+        """Split candidates into group_count equal-length time intervals.
 
-        Candidates are sorted by timestamp, then split into as-equal-as-possible
-        contiguous chunks so each group spans a distinct slice of the day.
+        The span between the earliest and latest candidate timestamp is divided
+        into group_count equal intervals and each candidate is placed in the
+        interval its timestamp falls in; the latest candidate goes into the last
+        interval. Intervals with no candidates are returned as empty lists.
         """
-        if group_count <= 0:
+        if group_count <= 0 or not candidates:
             return []
-        ordered = sorted(candidates, key=lambda r: r.timestamp)
-        base_size, remainder = divmod(len(ordered), group_count)
-        groups = []
-        start = 0
-        for i in range(group_count):
-            size = base_size + (1 if i < remainder else 0)
-            if size == 0:
-                continue
-            groups.append(ordered[start : start + size])
-            start += size
+        times = [datetime.strptime(r.timestamp, "%Y-%m-%dT%H%M%SZ") for r in candidates]
+        first, last = min(times), max(times)
+        span = (last - first).total_seconds()
+        groups: list[list[Recording]] = [[] for _ in range(group_count)]
+        for recording, time in sorted(zip(candidates, times), key=lambda pair: pair[1]):
+            if time == last:
+                index = group_count - 1
+            else:
+                index = int((time - first).total_seconds() / span * group_count)
+            groups[index].append(recording)
         return groups
+
+    def select_to_keep(self, groups: list[list[Recording]], keep_budget: int) -> list[Recording]:
+        """Pick keep_budget recordings: one random recording per group, then fill the rest.
+
+        Each slot left over by an empty interval is filled with one more random
+        recording from a randomly chosen group that still has unpicked recordings,
+        so fewer than keep_budget recordings are kept only when fewer exist.
+        """
+        remaining = [random.sample(group, len(group)) for group in groups]  # nosec B311
+        to_keep = [group.pop() for group in remaining if group]
+        while len(to_keep) < keep_budget:
+            non_empty = [group for group in remaining if group]
+            if not non_empty:
+                break
+            to_keep.append(random.choice(non_empty).pop())  # nosec B311
+        return to_keep
 
     def remove_recording(self, recording: Recording) -> None:
         """Delete a recording from the index database and its directory from the archive."""

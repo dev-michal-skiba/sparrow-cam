@@ -114,83 +114,100 @@ class TestIsManuallyAnnotated:
         mock_db_is_annotated.assert_called_once_with("2024-01-15", "sparrow_stream")
 
 
-class TestGroupByTimestamp:
-    """Test suite for RecordingsCleaner.group_by_timestamp method."""
+class TestGroupByTimeInterval:
+    """Test suite for RecordingsCleaner.group_by_time_interval method."""
 
-    def test_group_by_timestamp_empty_list(self):
-        """Test grouping empty list returns empty list."""
+    def test_group_by_time_interval_empty_candidates(self):
+        """Test grouping no candidates returns an empty list."""
         cleaner = RecordingsCleaner()
-        candidates = []
 
-        groups = cleaner.group_by_timestamp(candidates, 5)
+        assert cleaner.group_by_time_interval([], 5) == []
 
-        assert groups == []
-
-    def test_group_by_timestamp_zero_groups(self):
-        """Test grouping with zero target groups returns empty list."""
+    @pytest.mark.parametrize("group_count", [0, -1])
+    def test_group_by_time_interval_non_positive_group_count(self, group_count):
+        """Test a group count of zero or less returns an empty list."""
         cleaner = RecordingsCleaner()
         recordings = [
             Recording(Path("/tmp/1"), "2024-01-01T000000Z", 5, False),
             Recording(Path("/tmp/2"), "2024-01-01T010000Z", 5, False),
         ]
 
-        groups = cleaner.group_by_timestamp(recordings, 0)
+        assert cleaner.group_by_time_interval(recordings, group_count) == []
 
-        assert groups == []
-
-    def test_group_by_timestamp_single_group(self):
-        """Test grouping into single group returns all recordings."""
+    def test_group_by_time_interval_single_group(self):
+        """Test a single interval holds every candidate, in chronological order."""
         cleaner = RecordingsCleaner()
         recordings = [
+            Recording(Path("/tmp/3"), "2024-01-01T230000Z", 5, False),
             Recording(Path("/tmp/1"), "2024-01-01T000000Z", 5, False),
             Recording(Path("/tmp/2"), "2024-01-01T120000Z", 5, False),
-            Recording(Path("/tmp/3"), "2024-01-01T230000Z", 5, False),
         ]
 
-        groups = cleaner.group_by_timestamp(recordings, 1)
+        groups = cleaner.group_by_time_interval(recordings, 1)
 
-        assert len(groups) == 1
-        assert groups[0] == recordings
+        assert groups == [[recordings[1], recordings[2], recordings[0]]]
 
-    def test_group_by_timestamp_equal_division(self):
-        """Test grouping evenly divides recordings."""
+    def test_group_by_time_interval_splits_span_into_equal_intervals(self):
+        """Test the span between first and last candidate is split into equal time intervals."""
         cleaner = RecordingsCleaner()
-        recordings = [Recording(Path(f"/tmp/{i}"), f"2024-01-01T{i:02d}0000Z", 5, False) for i in range(4)]
+        # Span is 3 hours; two intervals of 1.5 hours each.
+        recordings = [Recording(Path(f"/tmp/{h}"), f"2024-01-01T{h:02d}0000Z", 5, False) for h in range(4)]
 
-        groups = cleaner.group_by_timestamp(recordings, 2)
+        groups = cleaner.group_by_time_interval(recordings, 2)
 
-        assert len(groups) == 2
-        assert len(groups[0]) == 2
-        assert len(groups[1]) == 2
+        assert groups == [[recordings[0], recordings[1]], [recordings[2], recordings[3]]]
 
-    def test_group_by_timestamp_unequal_division(self):
-        """Test grouping with unequal division distributes remainder."""
+    def test_group_by_time_interval_boundary_goes_to_upper_interval(self):
+        """Test a candidate exactly on an interval boundary belongs to the upper interval."""
         cleaner = RecordingsCleaner()
-        recordings = [Recording(Path(f"/tmp/{i}"), f"2024-01-01T{i:02d}0000Z", 5, False) for i in range(5)]
+        # Span is 2 hours; boundary at 1 hour.
+        recordings = [
+            Recording(Path("/tmp/0"), "2024-01-01T000000Z", 5, False),
+            Recording(Path("/tmp/1"), "2024-01-01T010000Z", 5, False),
+            Recording(Path("/tmp/2"), "2024-01-01T020000Z", 5, False),
+        ]
 
-        groups = cleaner.group_by_timestamp(recordings, 2)
+        groups = cleaner.group_by_time_interval(recordings, 2)
 
-        assert len(groups) == 2
-        assert len(groups[0]) == 3
-        assert len(groups[1]) == 2
+        assert groups == [[recordings[0]], [recordings[1], recordings[2]]]
 
-    def test_group_by_timestamp_many_groups(self):
-        """Test grouping with more groups than recordings."""
+    def test_group_by_time_interval_returns_empty_intervals(self):
+        """Test intervals with no candidates are returned as empty lists."""
         cleaner = RecordingsCleaner()
         recordings = [
-            Recording(Path("/tmp/1"), "2024-01-01T000000Z", 5, False),
-            Recording(Path("/tmp/2"), "2024-01-01T010000Z", 5, False),
+            Recording(Path("/tmp/0"), "2024-01-01T000000Z", 5, False),
+            Recording(Path("/tmp/10"), "2024-01-01T100000Z", 5, False),
         ]
 
-        groups = cleaner.group_by_timestamp(recordings, 10)
+        groups = cleaner.group_by_time_interval(recordings, 4)
 
-        # Should create as many groups as recordings, skipping empty ones
-        assert len(groups) == 2
+        assert groups == [[recordings[0]], [], [], [recordings[1]]]
+
+    def test_group_by_time_interval_latest_candidate_in_last_interval(self):
+        """Test the latest candidate always lands in the last interval, even on a boundary."""
+        cleaner = RecordingsCleaner()
+        recordings = [
+            Recording(Path("/tmp/0"), "2024-01-01T000000Z", 5, False),
+            Recording(Path("/tmp/1"), "2024-01-01T060000Z", 5, False),
+        ]
+
+        groups = cleaner.group_by_time_interval(recordings, 3)
+
+        assert len(groups) == 3
+        assert groups[-1] == [recordings[1]]
         assert groups[0] == [recordings[0]]
-        assert groups[1] == [recordings[1]]
 
-    def test_group_by_timestamp_ordering(self):
-        """Test groups are ordered by timestamp."""
+    def test_group_by_time_interval_identical_timestamps_go_to_last_interval(self):
+        """Test candidates sharing one timestamp (zero span) all go to the last interval."""
+        cleaner = RecordingsCleaner()
+        recordings = [Recording(Path(f"/tmp/{i}"), "2024-01-01T120000Z", 5, False) for i in range(3)]
+
+        groups = cleaner.group_by_time_interval(recordings, 3)
+
+        assert groups == [[], [], recordings]
+
+    def test_group_by_time_interval_ordering_across_groups(self):
+        """Test earlier candidates land in earlier intervals regardless of input order."""
         cleaner = RecordingsCleaner()
         recordings = [
             Recording(Path("/tmp/3"), "2024-01-01T200000Z", 5, False),
@@ -198,13 +215,114 @@ class TestGroupByTimestamp:
             Recording(Path("/tmp/2"), "2024-01-01T100000Z", 5, False),
         ]
 
-        groups = cleaner.group_by_timestamp(recordings, 3)
+        groups = cleaner.group_by_time_interval(recordings, 3)
 
-        # Verify recordings are sorted by timestamp across groups
-        all_sorted = [r for group in groups for r in group]
-        assert all_sorted[0].timestamp == "2024-01-01T000000Z"
-        assert all_sorted[1].timestamp == "2024-01-01T100000Z"
-        assert all_sorted[2].timestamp == "2024-01-01T200000Z"
+        assert groups == [[recordings[1]], [recordings[2]], [recordings[0]]]
+
+
+class TestSelectToKeep:
+    """Test suite for RecordingsCleaner.select_to_keep method."""
+
+    def test_select_to_keep_no_groups(self):
+        """Test no groups yields no kept recordings."""
+        cleaner = RecordingsCleaner()
+
+        assert cleaner.select_to_keep([], 5) == []
+
+    def test_select_to_keep_one_per_group_when_budget_matches(self):
+        """Test each non-empty group contributes exactly one recording when the budget equals the group count."""
+        cleaner = RecordingsCleaner()
+        groups = [
+            [Recording(Path("/tmp/a1"), "2024-01-01T000000Z", 5, False)],
+            [Recording(Path("/tmp/b1"), "2024-01-01T010000Z", 5, False)],
+            [Recording(Path("/tmp/c1"), "2024-01-01T020000Z", 5, False)],
+        ]
+
+        kept = cleaner.select_to_keep(groups, 3)
+
+        assert sorted(r.path.name for r in kept) == ["a1", "b1", "c1"]
+
+    def test_select_to_keep_skips_empty_groups(self):
+        """Test empty groups are skipped without error and no slot is wasted on them."""
+        cleaner = RecordingsCleaner()
+        only = Recording(Path("/tmp/only"), "2024-01-01T000000Z", 5, False)
+
+        kept = cleaner.select_to_keep([[], [only], []], 2)
+
+        assert kept == [only]
+
+    def test_select_to_keep_fills_remaining_slots_from_groups(self):
+        """Test remaining budget is filled with unpicked recordings until the budget is reached."""
+        cleaner = RecordingsCleaner()
+        groups = [
+            [Recording(Path(f"/tmp/a{i}"), "2024-01-01T000000Z", 5, False) for i in range(3)],
+            [Recording(Path(f"/tmp/b{i}"), "2024-01-01T010000Z", 5, False) for i in range(2)],
+            [Recording(Path("/tmp/c0"), "2024-01-01T020000Z", 5, False)],
+        ]
+
+        kept = cleaner.select_to_keep(groups, 5)
+
+        assert len(kept) == 5
+        assert len({r.path for r in kept}) == 5
+        candidate_paths = {r.path for g in groups for r in g}
+        assert all(r.path in candidate_paths for r in kept)
+
+    def test_select_to_keep_returns_all_when_fewer_than_budget(self):
+        """Test every candidate is kept when there are fewer candidates than the budget."""
+        cleaner = RecordingsCleaner()
+        groups = [
+            [Recording(Path("/tmp/a0"), "2024-01-01T000000Z", 5, False)],
+            [Recording(Path("/tmp/b0"), "2024-01-01T010000Z", 5, False)],
+        ]
+
+        kept = cleaner.select_to_keep(groups, 10)
+
+        assert sorted(r.path.name for r in kept) == ["a0", "b0"]
+
+    def test_select_to_keep_zero_budget_keeps_nothing_when_no_groups(self):
+        """Test a zero budget with no groups keeps nothing."""
+        cleaner = RecordingsCleaner()
+
+        assert cleaner.select_to_keep([], 0) == []
+
+    def test_select_to_keep_does_not_mutate_groups(self):
+        """Test the input groups are left intact."""
+        cleaner = RecordingsCleaner()
+        groups = [
+            [Recording(Path("/tmp/a0"), "2024-01-01T000000Z", 5, False)],
+            [Recording(Path("/tmp/b0"), "2024-01-01T010000Z", 5, False)],
+        ]
+        snapshot = [list(g) for g in groups]
+
+        cleaner.select_to_keep(groups, 2)
+
+        assert groups == snapshot
+
+    def test_select_to_keep_fill_picks_from_non_empty_groups(self):
+        """Test fill slots are drawn via random.choice over only the groups that still have recordings."""
+        cleaner = RecordingsCleaner()
+        offered = []
+
+        def record_choice(seq):
+            offered.append([list(group) for group in seq])
+            return seq[0]
+
+        groups = [
+            [Recording(Path(f"/tmp/a{i}"), "2024-01-01T000000Z", 5, False) for i in range(3)],
+            [],
+            [Recording(Path("/tmp/c0"), "2024-01-01T020000Z", 5, False)],
+            [Recording(Path("/tmp/d0"), "2024-01-01T030000Z", 5, False)],
+        ]
+
+        with patch("cron.jobs.cleanup_recordings.random.choice", side_effect=record_choice):
+            kept = cleaner.select_to_keep(groups, 5)
+
+        assert len(kept) == 5
+        # Two fill slots remain; each is drawn from the groups that still have recordings.
+        assert len(offered) == 2
+        for candidates in offered:
+            assert candidates
+            assert all(candidates)
 
 
 class TestLoadRecording:
@@ -477,6 +595,76 @@ class TestCleanupDay:
 
         # Cleanup
         shutil.rmtree(archive_path.parent.parent.parent)
+
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated", return_value=False)
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_keeps_all_when_fewer_candidates_than_budget(self, mock_delete_db, mock_is_annotated, tmp_path):
+        """Test cleanup_day keeps every candidate when there are fewer than the keep budget."""
+        archive_path = tmp_path / "archive"
+        day_path = archive_path / "2024" / "01" / "15"
+        for hour in (0, 6, 12):
+            rec_dir = day_path / f"sparrow_2024-01-15T{hour:02d}0000Z_uuid{hour}"
+            rec_dir.mkdir(parents=True)
+            (rec_dir / "segment0.ts").touch()
+
+        with patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path):
+            RecordingsCleaner().cleanup_day(date(2024, 1, 15))
+
+        assert len(list(day_path.glob("sparrow_*"))) == 3
+        mock_delete_db.assert_not_called()
+
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated")
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_removes_all_candidates_when_annotations_fill_budget(
+        self, mock_delete_db, mock_is_annotated, tmp_path
+    ):
+        """Test cleanup_day removes every unannotated recording when annotations use up the whole budget."""
+        archive_path = tmp_path / "archive"
+        day_path = archive_path / "2024" / "01" / "15"
+        for i in range(KEEP_COUNT):
+            rec_dir = day_path / f"sparrow_2024-01-15T{i:02d}0000Z_annotated{i}"
+            rec_dir.mkdir(parents=True)
+            (rec_dir / "segment0.ts").touch()
+        for i in range(5):
+            rec_dir = day_path / f"sparrow_2024-01-15T{i + 12:02d}0000Z_uuid{i}"
+            rec_dir.mkdir()
+            (rec_dir / "segment0.ts").touch()
+        mock_is_annotated.side_effect = lambda date_str, stream: "annotated" in stream
+
+        with patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path):
+            RecordingsCleaner().cleanup_day(date(2024, 1, 15))
+
+        remaining = [p.name for p in day_path.glob("sparrow_*")]
+        assert len(remaining) == KEEP_COUNT
+        assert all("annotated" in name for name in remaining)
+        assert mock_delete_db.call_count == 5
+
+    @patch("cron.jobs.cleanup_recordings.index_db.is_manually_annotated", return_value=False)
+    @patch("cron.jobs.cleanup_recordings.index_db.delete_recording")
+    def test_cleanup_day_passes_only_non_empty_groups_to_select_to_keep(
+        self, mock_delete_db, mock_is_annotated, tmp_path
+    ):
+        """Test cleanup_day hands select_to_keep only non-empty interval groups and the remaining budget."""
+        archive_path = tmp_path / "archive"
+        day_path = archive_path / "2024" / "01" / "15"
+        # Two clusters far apart leave the middle intervals empty.
+        for hour in (0, 1, 22, 23):
+            rec_dir = day_path / f"sparrow_2024-01-15T{hour:02d}0000Z_uuid{hour}"
+            rec_dir.mkdir(parents=True)
+            (rec_dir / "segment0.ts").touch()
+
+        with (
+            patch("cron.jobs.cleanup_recordings.ARCHIVE_PATH", archive_path),
+            patch.object(RecordingsCleaner, "select_to_keep", autospec=True, return_value=[]) as mock_select,
+        ):
+            RecordingsCleaner().cleanup_day(date(2024, 1, 15))
+
+        mock_select.assert_called_once()
+        _, groups, keep_budget = mock_select.call_args.args
+        assert keep_budget == KEEP_COUNT
+        assert all(groups)
+        assert len(groups) == 2
+        assert sum(len(group) for group in groups) == 4
 
 
 class TestCleanedDaysStore:
