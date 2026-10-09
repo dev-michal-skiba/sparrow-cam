@@ -51,7 +51,23 @@ cp infra/ansible/.secrets/aws_credentials.example infra/ansible/.secrets/aws_cre
 # Edit aws_credentials with your AWS access key ID and secret access key
 ```
 
-All secrets (`ssh_key`, `ssh_key.pub`, `aws_credentials`) live under
+**Step 5: Location coordinates for processor maintenance window**
+
+The processor skips segment processing during a maintenance window spanning civil dusk to civil
+dawn, which is calculated from the device's geographic coordinates. Provide latitude and
+longitude in decimal degrees (e.g. `LATITUDE=52.2297`, `LONGITUDE=21.0122`; negative values
+for south/west):
+
+```bash
+# Copy example location file and fill in your device's coordinates
+cp infra/ansible/.secrets/location.env.example infra/ansible/.secrets/location.env
+# Edit location.env with your LATITUDE and LONGITUDE
+```
+
+Re-run `make -C infra setup_processor` after changing `location.env` to deploy the new
+values and restart the processor.
+
+All secrets (`ssh_key`, `ssh_key.pub`, `aws_credentials`, `location.env`) live under
 `infra/ansible/.secrets/`, which is git-ignored.
 
 ## Deploy

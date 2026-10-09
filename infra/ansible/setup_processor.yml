@@ -56,6 +56,15 @@
         PYENV_ROOT: /opt/sparrow_cam_app/.pyenv
       notify: reload and restart processor
 
+    - name: Deploy location coordinates for sparrow_cam_app
+      copy:
+        src: .secrets/location.env
+        dest: /opt/sparrow_cam_app/location.env
+        owner: sparrow_cam_app
+        group: sparrow_cam_app
+        mode: '0600'
+      notify: reload and restart processor
+
     - name: Create processor systemd service file
       copy:
         content: |
@@ -75,6 +84,7 @@
           Environment="PYTHONUNBUFFERED=1"
           Environment="YOLO_MODEL_PATH=yolo26n_ncnn_model"
           Environment="MAINTENANCE_WINDOW_ENABLED=1"
+          EnvironmentFile=/opt/sparrow_cam_app/location.env
           ExecStart=/opt/sparrow_cam_app/.pyenv/versions/sparrow_cam_processor/bin/python -m processor
           Restart=always
           RestartSec=10

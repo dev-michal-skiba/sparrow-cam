@@ -42,6 +42,10 @@ no longer create these directories, which must be managed by setup_tmpfs first.
 All credentials and SSH keys are stored under `infra/ansible/.secrets/` (git-ignored):
 - SSH key pair for Ansible provisioning
 - AWS credentials for S3 dataset syncing
+- Device latitude and longitude, which the processor uses to compute its civil
+  dusk-to-dawn maintenance window. Coordinates are deployed to the processor's
+  environment, so a change takes effect only after re-running the processor
+  setup playbook, which also restarts the processor.
 
 Example credential files are provided with `.example` suffix for reference during setup.
 
