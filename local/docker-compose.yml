@@ -12,6 +12,7 @@ services:
     environment:
       - OPENCV_LOG_LEVEL=${OPENCV_LOG_LEVEL:-ERROR}
       - OPENCV_VIDEOIO_DEBUG=${OPENCV_VIDEOIO_DEBUG:-0}
+      - MAINTENANCE_WINDOW_DISABLED=1
     ports:
       - "5000:5000"
     volumes:

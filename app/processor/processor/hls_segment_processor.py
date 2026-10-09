@@ -7,8 +7,9 @@ import cv2
 from processor.bird_annotator import BirdAnnotator
 from processor.bird_detector import BirdDetector
 from processor.hls_watchtower import HLSWatchtower
+from processor.maintenance_window import is_maintenance_window
 from processor.stream_archiver import StreamArchiver
-from processor.utils import is_maintenance_window, load_detection_preset
+from processor.utils import load_detection_preset
 
 logger = logging.getLogger(__name__)
 

@@ -45,8 +45,12 @@ Currently maps COCO bird class to "bird" slug. Processor owns authoritative slug
 All written annotation data contains slugs — raw class IDs never leave the processor.
 
 ## Maintenance Window
-Between 23:00 (11 PM) and 03:00 (3 AM) local time, the processor skips segment processing
+Between civil dusk and civil dawn at the device location, the processor skips segment processing
 (detection, annotation, archival are all paused). The segments iterator continues consuming
-stream segments without processing them, so no backlog accumulates. After 03:00, processing
-resumes from the newest available segment. This is environment-gated via MAINTENANCE_WINDOW_ENABLED
-and only applies on Raspberry Pi deployment; local dev/docker does not enable this.
+stream segments without processing them, so no backlog accumulates. After dawn, processing
+resumes from the newest available segment. Dusk and dawn are calculated locally with `astral`
+from the LATITUDE / LONGITUDE env vars in the system's local timezone, and cached in memory
+for up to 25 hours before recalculation. On the Raspberry Pi the coordinates come from the
+deployed location.env; the processor fails at startup if either is missing or not a number.
+Local docker sets MAINTENANCE_WINDOW_DISABLED=1, which turns the window off and makes
+coordinates optional.
